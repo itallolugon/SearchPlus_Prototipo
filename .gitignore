@@ -1,0 +1,23 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Logs
+*.log
+
+# Database
+*.sqlite3
+*.db
+
+# macOS
+.DS_Store
+local_models/
+*.bin

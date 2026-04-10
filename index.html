@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Search+</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=2026">
+</head>
+<body>
+    <div id="viewPerfilModal" class="modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(7, 10, 19, 0.95); backdrop-filter:blur(12px); align-items:center; justify-content:center;">
+    <div class="pro-container" style="background:var(--surface); width:480px; border-radius:24px; border:1px solid var(--border-light); position:relative; overflow:hidden; box-shadow:0 25px 50px -12px rgba(0,0,0,0.5);">
+        
+        <div id="viewBanner" style="height:180px; background-size:cover; background-position:center; position:relative; background-color:#121212;">
+            <div style="position:absolute; inset:0; background:linear-gradient(to bottom, transparent, rgba(0,0,0,0.4));"></div>
+            <button onclick="selecionarImagemExplorer('editBanner')" class="glass-btn" style="position:absolute; top:130px; right:20px; z-index:10; border-radius:50%; width:40px; height:40px; border:none; cursor:pointer; background:rgba(255,255,255,0.1); backdrop-filter:blur(5px); color:white;">✏️</button>
+            <span onclick="fecharViewPerfil()" style="position:absolute; right:20px; top:15px; cursor:pointer; color:white; font-size:24px; z-index:10;">&times;</span>
+        </div>
+
+        <div style="padding:0 32px 32px 32px; display:flex; flex-direction:column; align-items:center; transform:translateY(-60px);">
+            <div class="avatar-ring" style="width:120px; height:120px; border-radius:50%; border:4px solid var(--surface); background:#000; position:relative; overflow:hidden; box-shadow:0 10px 15px -3px rgba(0,0,0,0.4);">
+                <img id="viewAvatar" src="" style="width:100%; height:100%; object-fit:cover;">
+                <button onclick="selecionarImagemExplorer('editAvatar')" style="position:absolute; bottom:0; width:100%; background:rgba(168, 85, 247, 0.8); color:white; border:none; padding:6px; font-size:10px; font-weight:bold; cursor:pointer; backdrop-filter:blur(4px);">UPLOAD</button>
+            </div>
+
+            <h2 id="viewProfileName" style="margin:16px 0 4px 0; font-size:1.75rem; color:var(--text-primary); letter-spacing:-0.5px;">Lorenzo Osorio</h2>
+            <p id="viewProfileHandle" style="margin:0; color:var(--accent-primary); font-weight:700; font-size:1rem;">@handle</p>
+            <p id="viewProfileBio" style="margin:16px 0; text-align:center; color:var(--text-secondary); font-size:0.95rem; line-height:1.5;">Explorando os dados do Search+.</p>
+
+            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; width:100%; gap:12px; margin-top:24px; padding-top:24px; border-top:1px solid var(--border-light);">
+                <div style="text-align:center;"><b id="statPastas" style="display:block; font-size:1.2rem;">0</b><small style="color:var(--text-secondary); font-size:0.7rem; text-transform:uppercase;">Pastas</small></div>
+                <div style="text-align:center;"><b id="statArquivos" style="display:block; font-size:1.2rem;">0</b><small style="color:var(--text-secondary); font-size:0.7rem; text-transform:uppercase;">Arquivos</small></div>
+                <div style="text-align:center;"><b id="statTempo" style="display:block; font-size:1.2rem;">Hoje</b><small style="color:var(--text-secondary); font-size:0.7rem; text-transform:uppercase;">Atividade</small></div>
+            </div>
+
+            <button class="gradient-btn" onclick="abrirEditPerfil()" style="width:100%; margin-top:32px; padding:16px; font-weight:800; text-transform:uppercase; letter-spacing:1px; cursor:pointer;">Editar Perfil Completo</button>
+        </div>
+    </div>
+</div>
+
+
+    <div id="appBackground">
+        <img id="realBgImage" src="" style="width: 100%; height: 100%; object-fit: cover; display: none;">
+    </div>
+
+    <div id="authOverlay" class="auth-overlay">
+        <div class="auth-box figma-login-box">
+            <h1 class="gradient-text login-logo">SEARCH<span style="color: var(--accent-primary);">+</span></h1>
+            <p id="authSubtitle" style="color: var(--text-secondary); margin-bottom: 30px;">Identifique-se para acessar o motor de IA.</p>
+
+            <div class="auth-tabs">
+                <button id="tabLogin" class="auth-tab active" onclick="toggleAuthMode('login')">Entrar</button>
+                <button id="tabRegister" class="auth-tab" onclick="toggleAuthMode('register')">Criar Conta</button>
+            </div>
+
+            <div id="loginForm" class="auth-form" style="display: block;">
+                <input type="text" id="loginUser" placeholder="Usuário" onkeypress="if(event.key === 'Enter') fazerLogin()">
+                <input type="password" id="loginPass" placeholder="Senha" onkeypress="if(event.key === 'Enter') fazerLogin()">
+                <div style="display: flex; align-items: center; justify-content: flex-start; margin-bottom: 15px;">
+                    <input type="checkbox" id="lembrarLogin" style="width: auto; margin: 0 10px 0 0;">
+                    <label for="lembrarLogin" style="color: var(--text-secondary); font-size: 0.85rem;">Lembrar meu usuário</label>
+                </div>
+                <button class="action-btn gradient-btn" onclick="fazerLogin()" style="width: 100%; margin: 0; padding: 15px; font-size: 1.1rem;">Acessar Sistema</button>
+            </div>
+
+            <div id="registerForm" class="auth-form" style="display: none;">
+                <input type="text" id="regUser" placeholder="Novo Usuário" onkeypress="if(event.key === 'Enter') fazerCadastro()">
+                <input type="password" id="regPass" placeholder="Nova Senha" onkeypress="if(event.key === 'Enter') fazerCadastro()">
+                <button class="action-btn gradient-btn" onclick="fazerCadastro()" style="width: 100%; margin: 15px 0 0 0; padding: 15px; font-size: 1.1rem;">Cadastrar e Entrar</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="onboardingOverlay" class="auth-overlay" style="display: none;">
+        <div class="auth-box onboarding-box" style="max-width: 900px; padding: 50px;">
+            
+            <div id="onboardingStep1">
+                <h2 class="section-title-white text-center" style="font-size: 3.5rem; margin: 0;">Bem vindo ao <span class="gradient-text" style="font-size: 4.5rem; line-height: 1;">SEARCH+</span></h2>
+                <p class="text-center" style="color: var(--text-secondary); margin-bottom: 30px; font-size: 1.1rem;">Para a Inteligência Artificial começar a trabalhar, informe as pastas do seu computador que ela deve monitorar.</p>
+                
+                <div id="onboardingFoldersList" class="folder-list" style="max-height: 200px; background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; border: 1px solid var(--border-light);">
+                    <p style="color: var(--text-secondary); font-size: 0.9rem;">Nenhuma pasta selecionada ainda.</p>
+                </div>
+                
+                <button onclick="adicionarPastaOnboarding()" class="action-btn" style="width: 100%; margin: 15px 0 30px 0; padding: 15px; font-size: 1.1rem;">📁 + Importar Pasta do Windows</button>
+                <button onclick="irParaOnboardingStep2()" class="action-btn gradient-btn" style="width: 100%; margin: 0; padding: 15px; font-size: 1.2rem;">Avançar &rarr;</button>
+            </div>
+
+            <div id="onboardingStep2" style="display: none;">
+                <h2 class="section-title-white text-center" style="font-size: 3rem; margin: 0;">Monte o seu <span class="gradient-text">Perfil</span></h2>
+                <p class="text-center" style="color: var(--text-secondary); margin-bottom: 30px; font-size: 1.1rem;">Personalize como você será visto no sistema.</p>
+                
+                <div class="identity-flex">
+                    <div class="identity-controls">
+                        <div><label style="font-size: 1.1rem;">Nome de Exibição:</label><input type="text" id="obNome" class="settings-input" oninput="updateProfilePreview()" placeholder="Ex: Lorenzo Osorio"></div>
+                        <div><label style="font-size: 1.1rem;">Seu Handle (@):</label><input type="text" id="obHandle" class="settings-input" oninput="updateProfilePreview()" placeholder="Ex: adm"></div>
+                        <div><label style="font-size: 1.1rem;">Cargo / Profissão:</label><input type="text" id="obCargo" class="settings-input" oninput="updateProfilePreview()" placeholder="Ex: Desenvolvedor Front-end"></div>
+                        <div><label style="font-size: 1.1rem;">Sobre você (Bio):</label><input type="text" id="obBio" class="settings-input" oninput="updateProfilePreview()" placeholder="Fale um pouco sobre você..."></div>
+                        
+                        <label style="margin-top: 15px; font-size: 1.1rem;">Imagens:</label>
+                        <div style="display: flex; gap: 15px;">
+                            <button onclick="selecionarImagemExplorer('obAvatar')" class="action-btn gradient-btn" style="flex: 1; margin: 0; padding: 12px; font-size: 0.95rem;">🖼️ Escolher Foto</button>
+                            <input type="hidden" id="obAvatar">
+                            <button onclick="selecionarImagemExplorer('obBanner')" class="action-btn gradient-btn" style="flex: 1; margin: 0; padding: 12px; font-size: 0.95rem;">🌅 Escolher Banner</button>
+                            <input type="hidden" id="obBanner">
+                        </div>
+                    </div>
+                    
+                    <div class="ob-preview-card">
+                        <div id="obPreviewBanner" class="ob-preview-banner img-container-with-edit">
+                            <button id="btnRemObBanner" onclick="removerImagemOnboarding('obBanner')" class="btn-remove-image" style="display: none;">&times;</button>
+                            <button onclick="selecionarImagemExplorer('obBanner')" class="btn-reedit" title="Editar Banner">✏️</button>
+                        </div>
+                        <div class="ob-preview-info">
+                            <div class="img-container-with-edit avatar-wrapper">
+                                <img id="obPreviewAvatar" src="" class="ob-preview-avatar">
+                                <button id="btnRemObAvatar" onclick="removerImagemOnboarding('obAvatar')" class="btn-remove-image avatar-remove" style="display: none;">&times;</button>
+                                <button onclick="selecionarImagemExplorer('obAvatar')" class="btn-reedit reedit-avatar" title="Editar Imagem">✏️</button>
+                            </div>
+                            <h3 id="obPreviewName">Nome</h3>
+                            <p id="obPreviewHandle" style="color: var(--accent-primary); font-size: 0.9rem; margin: 0 0 5px 0;">@handle</p>
+                            <p id="obPreviewCargo" style="font-weight: 600; font-size: 0.85rem; color: var(--text-secondary); margin: 0 0 10px 0;">Cargo</p>
+                            <p id="obPreviewBio" class="ob-preview-bio">Bio</p>
+                            
+                            <div class="profile-stats-panel" style="display: flex; gap: 15px; margin-top: 20px; width: 100%; border-top: 1px solid var(--border-light); padding-top: 15px; justify-content: space-around;">
+                                <div class="stat-item text-center"><strong>0</strong> <span style="font-size: 0.8rem; color:var(--text-secondary); display:block;">Pastas</span></div>
+                                <div class="stat-item text-center"><strong>0</strong> <span style="font-size: 0.8rem; color:var(--text-secondary); display:block;">Arquivos</span></div>
+                                <div class="stat-item text-center"><strong>-</strong> <span style="font-size: 0.8rem; color:var(--text-secondary); display:block;">Última Busca</span></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="identity-footer">
+                    <button onclick="voltarParaOnboardingStep1()" class="action-btn" style="flex: 1; margin: 0; padding: 15px; font-size: 1.2rem;">&larr; Voltar</button>
+                    <button id="btnConcluirOnboarding" onclick="finalizarOnboarding()" class="action-btn gradient-btn" style="flex: 2; margin: 0; padding: 15px; font-size: 1.3rem;">Concluir ✔️</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="iaLoadingScreen" class="loading-overlay">
+        <div class="loading-content">
+            <div class="spinner"></div>
+            <h2 class="gradient-text" style="font-size: 4rem; letter-spacing: 2px; margin-bottom: 0;">PROCESSANDO...</h2>
+            <div id="tipCarousel" class="tip-carousel">A IA está analisando seus dados profundamente...</div>
+        </div>
+    </div>
+
+    <div id="cropperModal" class="modal" style="z-index: 10000;">
+        <div class="modal-content" style="max-width: 800px; padding: 30px;">
+            <h3 class="section-title-white" style="margin-top: 0; font-size: 1.5rem;">Ajustar Imagem</h3>
+            <div class="cropper-container" style="width: 100%; height: 50vh; min-height: 300px; background: #000; margin-bottom: 20px; border-radius: 12px; overflow: hidden;">
+                <img id="cropperImage" src="" crossorigin="use-credentials" style="max-width: 100%; display: block;">
+            </div>
+            <div style="display: flex; gap: 15px;">
+                <button class="action-btn" onclick="fecharCropper()" style="flex: 1; margin: 0; padding: 15px;">Cancelar</button>
+                <button class="action-btn gradient-btn" onclick="salvarCropper()" style="flex: 1; margin: 0; padding: 15px; font-size: 1.1rem;">Cortar e Salvar</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modalFavoritos" class="modal" style="z-index: 10000;">
+        <div class="fav-modal-content" style="max-width: 500px; padding: 25px 30px; background: #130a21; width: 90%; position: relative; border-radius: 30px; border: 1px solid rgba(168, 85, 247, 0.2); box-shadow: 0 10px 40px rgba(0,0,0,0.8);">
+            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 25px;">
+                <h3 class="gradient-text" style="margin: 0; font-size: 1.8rem; font-family: 'Inter', sans-serif;">Meus Favoritos</h3>
+                <span class="close-btn" onclick="fecharFavoritos()" style="position: static;">&times;</span>
+            </div>
+            <div id="favoritosList" style="display: flex; flex-direction: column; gap: 15px; max-height: 60vh; overflow-y: auto; padding-right: 5px;">
+                <!-- Preenchido via JS -->
+            </div>
+        </div>
+    </div>
+
+    <div class="top-bar">
+        <div class="nav-right">
+            <button class="action-btn" onclick="abrirFavoritos()" style="border-color: rgba(168, 85, 247, 0.5); color: #E879F9;">⭐ Favoritos</button>
+            <button class="action-btn gradient-btn" onclick="abrirModalPastas()">📁 Gerenciar Pastas</button>
+            
+            <div class="profile-container">
+                <div class="mini-profile" onclick="toggleProfileMenu(event)">
+                    <img id="navAvatar" src="" alt="Avatar">
+                </div>
+                
+                <div id="profileDropdown" class="dropdown-menu">
+                    <div class="dropdown-header">
+                        <div class="mini-profile" style="margin-left: 0; width: 50px; height: 50px;"><img id="dropAvatar" src=""></div>
+                        <div class="dropdown-user-info" style="margin-left: 15px;">
+                            <strong id="dropName">Nome</strong>
+                            <span id="dropHandle">@usuario</span>
+                        </div>
+                    </div>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" onclick="abrirViewPerfil()"><span class="icon">👤</span> Meu Perfil</a>
+                    <a class="dropdown-item" onclick="abrirSidebarConfig()"><span class="icon">🎨</span> Personalização Visual</a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" onclick="fazerLogout()" style="color: #ef4444;"><span class="icon">🚪</span> Sair da Conta</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="mainAppWrapper" class="main-wrapper layout-centered fade-transition">
+        
+        <div class="main-content" id="mainContentArea">
+            
+            <div class="search-container" id="searchContainer">
+                <div class="logo-wrapper text-center">
+                    <h1 id="mainLogo" class="gradient-text main-logo" onclick="voltarParaHomeSmooth()">SEARCH<span style="color: var(--accent-primary);">+</span></h1>
+                </div>
+                
+                <div class="search-box">
+                    <input type="text" id="searchInput" placeholder="Pesquise o que você lembra..." onkeypress="verificarEnter(event)">
+                    <button class="gradient-btn search-btn" onclick="realizarBusca()">Buscar</button>
+                </div>
+                
+                <div class="filter-bar-container fade-transition" id="filterBarContainer" style="display: none; opacity: 0;">
+                    <div class="filter-bar">
+                        <button class="filter-tag active" data-filter="all">Tudo</button>
+                        <button class="filter-tag" data-filter="imagem">Imagens</button>
+                        <button class="filter-tag" data-filter="documento">Documentos</button>
+                        <button class="filter-tag" data-filter="midia">Áudio / Vídeo</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="dashboardView" class="dashboard-section fade-transition" style="display: none; opacity: 0;">
+                <h2 style="font-size: 2rem; margin-bottom: 5px; color: var(--text-primary);">Olá, <span id="dashHandle" class="gradient-text">@usuario</span> 👋</h2>
+                <p style="color: var(--text-secondary); margin-bottom: 30px;">Pronto para continuar suas buscas?</p>
+
+                <h3 style="margin-top: 0; color: var(--text-primary);">📸 Fotos Recentes</h3>
+                <div class="recent-grid" id="recentImgs"></div>
+                <h3 style="margin-top: 30px; color: var(--text-primary);">📄 Documentos Recentes</h3>
+                <div class="recent-grid" id="recentDocs"></div>
+                <h3 id="favDashTitle" style="margin-top: 30px; color: var(--text-primary); display: none;">💖 Seus Favoritos</h3>
+                <div class="recent-grid" id="recentFavsDash"></div>
+            </div>
+
+            <div id="searchResultsView" class="fade-transition" style="display: none; opacity: 0;">
+                <h2 class="section-title-white text-center" id="tituloMelhores" style="display: none;">Resultados Exatos</h2>
+                <div class="results-grid" id="melhoresGrid"></div>
+
+                <h2 class="section-title-white text-center" id="tituloSemantica" style="display: none;">Busca Semântica (IA)</h2>
+                <div class="results-grid" id="outrasGrid"></div>
+            </div>
+        </div>
+
+        <div id="sidePanel" class="side-panel">
+            <div class="side-panel-header">
+                <h3 id="sideTitle" style="margin: 0; word-break: break-all; padding-right: 15px;">Detalhes do Arquivo</h3>
+                <span class="close-btn" onclick="fecharPainelLateral()" style="position: static; font-size: 24px;">&times;</span>
+            </div>
+            <div class="side-panel-body" id="sideContent">
+                <div id="sideMediaPreview" class="side-media-box"></div>
+                <div class="side-info-box">
+                    <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                        <span id="sideBadgeType" class="badge type">TIPO</span>
+                        <span id="sideBadgeScore" class="badge score">SCORE</span>
+                    </div>
+                    <h4 style="margin-top: 0;">Conteúdo Extraído pela IA:</h4>
+                    <div id="sideText" class="side-text-content"></div>
+                    <a id="sideDownloadBtn" href="#" target="_blank" class="action-btn gradient-btn" style="display: block; text-align: center; margin: 20px 0 0 0; padding: 15px; text-decoration: none;">Abrir Arquivo Original</a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="editPerfilModal" class="modal">
+        <div class="modal-content" style="max-width: 500px;">
+            <span class="close-btn" onclick="fecharEditPerfil()">&times;</span>
+            <h2 style="margin-top: 0; color: var(--text-primary); border-bottom: 1px solid var(--border-light); padding-bottom: 15px;">Editar Perfil</h2>
+            
+            <div style="display: grid; gap: 12px; margin-top: 20px;">
+                <div><label>Nome de Exibição:</label><input type="text" id="editNome" class="settings-input"></div>
+                <div><label>Seu Handle (@):</label><input type="text" id="editHandle" class="settings-input" placeholder="usuario"></div>
+                
+                <div style="display: flex; gap: 15px;">
+                    <div style="flex: 1;"><label>Cargo/Profissão:</label><input type="text" id="editCargo" class="settings-input"></div>
+                    <div style="flex: 1;"><label>Localização:</label><input type="text" id="editLocal" class="settings-input" placeholder="Ex: Brasil"></div>
+                </div>
+
+                <div><label>Biografia:</label><input type="text" id="editBio" class="settings-input"></div>
+                
+                <div style="display: flex; gap: 15px; margin-top: 10px;">
+                    <div style="flex: 1; text-align: center;">
+                        <label>Foto do Perfil</label>
+                        <div class="img-preview-box avatar-preview-box img-container-with-edit">
+                            <img id="previewAvatar" src="" class="ob-preview-avatar">
+                            <button onclick="selecionarImagemExplorer('editAvatar')" class="btn-reedit reedit-avatar" title="Editar Imagem">✏️</button>
+                        </div>
+                        <button onclick="selecionarImagemExplorer('editAvatar')" class="action-btn gradient-btn" style="width: 100%; margin: 0; padding: 8px;">🖼️ Alterar</button>
+                        <input type="hidden" id="editAvatar">
+                    </div>
+                    <div style="flex: 1; text-align: center;">
+                        <label>Banner de Fundo</label>
+                        <div class="img-preview-box banner-preview-box img-container-with-edit">
+                            <img id="previewBanner" src="">
+                            <button onclick="selecionarImagemExplorer('editBanner')" class="btn-reedit" title="Editar Banner">✏️</button>
+                        </div>
+                        <button onclick="selecionarImagemExplorer('editBanner')" class="action-btn gradient-btn" style="width: 100%; margin: 0; padding: 8px;">🌅 Alterar</button>
+                        <input type="hidden" id="editBanner">
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 10px; margin-top: 15px;">
+                    <button onclick="fecharEditPerfil()" class="action-btn" style="flex: 1; margin: 0;">Cancelar</button>
+                    <button id="btnSalvarEditPerfil" onclick="salvarPerfil()" class="action-btn gradient-btn" style="flex: 2; margin: 0; padding: 15px;">Salvar Alterações</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="sidebarConfig" class="sidebar-modal">
+        <div class="sidebar-header">
+            <h2>Personalização</h2>
+            <span class="close-btn" onclick="fecharSidebarConfig()" style="position: static;">&times;</span>
+        </div>
+        <div class="sidebar-body">
+            
+            <div class="settings-group">
+                <h3>Idioma do Sistema</h3>
+                <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 10px;">Selecione o idioma da interface.</p>
+                <select id="idiomaSelect" class="settings-input" style="cursor: pointer;">
+                    <option value="pt-BR">Português (Brasil)</option>
+                    <option value="en-US">English (US)</option>
+                    <option value="es-ES">Español</option>
+                </select>
+            </div>
+
+            <div class="settings-group">
+                <h3>Esquema de Cores</h3>
+                <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 10px;">Defina a paleta principal do Search+.</p>
+                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                    <button class="action-btn" onclick="setLiveTema('dark')" style="flex: 1; background: #0b0f19; color: #fff;">🌙 Escuro</button>
+                    <button class="action-btn" onclick="setLiveTema('light')" style="flex: 1; background: #f8fafc; color: #0b0f19;">☀️ Claro</button>
+                </div>
+                <div style="display: flex; gap: 15px; margin-bottom: 10px;">
+                    <div style="flex: 1;"><label>Cor Principal:</label><input type="color" id="corPrimaria" class="settings-color"></div>
+                    <div style="flex: 1;"><label>Cor Destaque:</label><input type="color" id="corSecundaria" class="settings-color"></div>
+                </div>
+                <div style="display: flex; gap: 15px; margin-bottom: 10px;">
+                    <div style="flex: 1;"><label>Texto dos Botões:</label><input type="color" id="corTextoBotao" class="settings-color" value="#FFFFFF"></div>
+                </div>
+            </div>
+
+            <div class="settings-group">
+                <h3>Plano de Fundo</h3>
+                <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 10px;">Ajuste o fundo em tempo real.</p>
+                
+                <div class="bg-preview-box-sidebar img-container-with-edit" style="position: relative; width: 100%; height: 160px; margin-bottom: 10px; border-radius: 8px; overflow: hidden; background: var(--bg-deep);">
+                    <img id="previewBg" src="" alt="Fundo" style="width: 100%; height: 100%; object-fit: cover;">
+                    <button onclick="removerFundoSistema()" class="btn-remove-image" style="top: 5px; right: 5px;">&times;</button>
+                    <button onclick="selecionarImagemExplorer('bgUrl')" class="btn-reedit" title="Editar Fundo">✏️</button>
+                </div>
+                <button onclick="selecionarImagemExplorer('bgUrl')" class="action-btn gradient-btn" style="width: 100%; margin: 0 0 15px 0; padding: 10px;">✂️ Cortar e Escolher</button>
+                <input type="hidden" id="bgUrl">
+                
+                <label style="display: block;">Desfoque (Blur): <span id="blurValue">15</span>px</label>
+                <input type="range" id="bgBlur" min="0" max="50" style="width: 100%; margin-top: 5px;">
+            </div>
+            
+            <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 20px;">
+                <button onclick="salvarConfiguracoesUX()" class="action-btn gradient-btn" style="margin: 0; padding: 15px;">Salvar Aparência</button>
+                <button onclick="restaurarPadroesUX()" class="action-btn" style="margin: 0; padding: 12px; background: transparent;">Restaurar Padrões</button>
+            </div>
+        </div>
+    </div>
+    <div id="sidebarOverlay" class="sidebar-overlay" onclick="fecharSidebarConfig()"></div>
+
+    <div id="foldersModal" class="modal">
+        <div class="modal-content" style="max-width: 600px;">
+            <span class="close-btn" onclick="fecharModalPastas()">&times;</span>
+            <h2 style="margin-top: 0; color: var(--text-primary);">Pastas Monitoradas</h2>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 20px;">O motor de IA analisará os arquivos dentro destas pastas.</p>
+            
+            <div id="foldersList" class="folder-list"></div>
+            
+            <button id="btnAdicionarPasta" onclick="adicionarPasta()" class="action-btn gradient-btn" style="width: 100%; margin-left: 0; margin-top: 20px; padding: 15px;">+ Importar Nova Pasta</button>
+            <button id="btnAnalisarPastas" onclick="forcarAnalise()" class="action-btn" style="width: 100%; margin-left: 0; margin-top: 10px; padding: 15px; background: transparent;">🔄 Analisar Pastas Agora</button>
+        </div>
+    </div>
+    </div>
+
+    <div id="statusBar" class="status-bar">🔌 Conectando ao motor...</div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+    <script src="script.js?v=2026"></script>
+</body>
+</html>
