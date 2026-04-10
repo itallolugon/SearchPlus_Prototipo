@@ -21,3 +21,16 @@ venv.bak/
 .DS_Store
 local_models/
 *.bin
+
+# Arquivos e pastas do backend
+app.py
+config.json
+controllers/
+routes/
+services/
+setup_ia.py
+test_search.py
+test_search_pt.py
+metadados.db
+requirements.txt
+search_plus_backend.log
