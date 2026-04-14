@@ -118,15 +118,20 @@ _GRUPOS_SINONIMOS: list[list[str]] = [
     ["passaro", "ave", "bird", "pajaro"],
     ["coelho", "coelhinho", "rabbit"],
     ["peixe", "fish", "aquario"],
-    # Pessoas — gênero e faixa etária
+    # Pessoas — gênero MASCULINO
     ["homem", "rapaz", "cara", "sujeito", "senhor", "masculino", "macho", "male"],
-    ["mulher", "moca", "senhora", "feminino", "female", "garota", "dama"],
-    ["crianca", "menino", "menina", "garoto", "garota", "infantil", "jovem", "kid", "child"],
-    ["bebe", "nene", "recem-nascido", "infantil", "baby"],
+    ["menino", "garoto", "garoto", "jovem masculino"],
+    # Pessoas — gênero FEMININO
+    ["mulher", "moca", "moça", "senhora", "feminino", "female", "dama"],
+    ["menina", "garota", "jovem feminino"],
+    # Pessoas — neutro (sem gênero definido)
+    ["crianca", "infancia", "infantil", "kid", "child"],
+    ["jovem", "adolescente", "teen", "teenager"],
+    ["bebe", "nene", "recem-nascido", "baby"],
     ["casal", "namorados", "noivos", "casados", "par", "couple"],
     ["familia", "pais", "filhos", "parentes"],
     ["amigos", "amizade", "grupo", "turma", "galera"],
-    ["pessoa", "individuo", "gente", "humano", "ser humano"],
+    ["pessoa", "individuo", "gente", "humano"],
     # Lugares
     ["praia", "litoral", "areia", "beira-mar", "costa", "mar"],
     ["mar", "oceano", "agua", "onda"],
