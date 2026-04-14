@@ -210,8 +210,11 @@
                 </div>
                 
                 <div class="search-box">
-                    <input type="text" id="searchInput" placeholder="Pesquise o que você lembra..." onkeypress="verificarEnter(event)">
+                    <input type="text" id="searchInput" placeholder="Pesquise o que você lembra..." onkeypress="verificarEnter(event)" onfocus="mostrarHistorico()" onblur="setTimeout(esconderHistorico,150)">
                     <button class="gradient-btn search-btn" onclick="realizarBusca()">Buscar</button>
+                </div>
+                <div id="searchHistoryDropdown" style="display:none; position:relative; width:100%; max-width:700px; margin:0 auto;">
+                    <div id="searchHistoryList" style="background:var(--surface); border:1px solid var(--border-light); border-radius:12px; overflow:hidden; box-shadow:0 8px 24px rgba(0,0,0,0.3);"></div>
                 </div>
                 
                 <div class="filter-bar-container fade-transition" id="filterBarContainer" style="display: none; opacity: 0;">
@@ -260,6 +263,7 @@
                     <h4 style="margin-top: 0;">Conteúdo Extraído pela IA:</h4>
                     <div id="sideText" class="side-text-content"></div>
                     <a id="sideDownloadBtn" href="#" target="_blank" class="action-btn gradient-btn" style="display: block; text-align: center; margin: 20px 0 0 0; padding: 15px; text-decoration: none;">Abrir Arquivo Original</a>
+                    <button id="sideOpenLocationBtn" onclick="abrirLocalDoArquivo()" class="action-btn" style="width:100%; margin: 8px 0 0 0; padding: 13px; background: transparent;">📂 Abrir Local no Explorer</button>
                 </div>
             </div>
         </div>
@@ -377,6 +381,7 @@
             
             <button id="btnAdicionarPasta" onclick="adicionarPasta()" class="action-btn gradient-btn" style="width: 100%; margin-left: 0; margin-top: 20px; padding: 15px;">+ Importar Nova Pasta</button>
             <button id="btnAnalisarPastas" onclick="forcarAnalise()" class="action-btn" style="width: 100%; margin-left: 0; margin-top: 10px; padding: 15px; background: transparent;">🔄 Analisar Pastas Agora</button>
+            <button id="btnReanalizar" onclick="reAnalizarArquivos()" class="action-btn" style="width: 100%; margin-left: 0; margin-top: 10px; padding: 15px; background: transparent; border-color: rgba(234,179,8,0.4); color: #EAB308;">⚡ Re-analisar Arquivos com Descrição Ruim</button>
         </div>
     </div>
     </div>

@@ -241,15 +241,13 @@ async function fazerCadastro() {
 }
 
 async function loginBemSucedido(username) {
-    // Carrega as configurações (cores e perfil) agora que o login foi aprovado
-    await carregarConfiguracoesUX(); 
-    
+    await carregarConfiguracoesUX();
+    await carregarHistorico();
+
     const handle = currentConfig.perfil_handle || username;
-    
     document.getElementById('dropHandle').innerText = '@' + handle;
     document.getElementById('dashHandle').innerText = '@' + handle;
-    
-    // Esconde a tela de login e segue o fluxo
+
     document.getElementById('authOverlay').style.display = 'none';
     verificarOnboarding();
 }
@@ -600,6 +598,85 @@ function voltarParaHomeSmooth() {
     }, 400); 
 }
 
+// ==========================================
+// HISTÓRICO DE BUSCAS
+// ==========================================
+let _historicoCache = [];
+
+async function carregarHistorico() {
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/search_history`);
+        const data = await res.json();
+        _historicoCache = data.historico || [];
+    } catch(e) {}
+}
+
+function mostrarHistorico() {
+    if (_historicoCache.length === 0) return;
+    const dropdown = document.getElementById('searchHistoryDropdown');
+    const list = document.getElementById('searchHistoryList');
+    list.innerHTML = _historicoCache.map((q, i) => `
+        <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 16px; cursor:pointer; border-bottom:1px solid var(--border-light); transition:background 0.15s;"
+             onmouseenter="this.style.background='rgba(168,85,247,0.1)'" onmouseleave="this.style.background='transparent'">
+            <span onclick="usarHistorico('${q.replace(/'/g, "\\'")}')" style="flex:1; color:var(--text-primary); font-size:0.95rem;">🕐 ${q}</span>
+            <span onclick="removerHistorico(${i})" style="color:var(--text-secondary); font-size:1.2rem; padding:0 4px; line-height:1;">&times;</span>
+        </div>`).join('');
+    dropdown.style.display = 'block';
+}
+
+function esconderHistorico() {
+    document.getElementById('searchHistoryDropdown').style.display = 'none';
+}
+
+function usarHistorico(query) {
+    document.getElementById('searchInput').value = query;
+    esconderHistorico();
+    realizarBusca();
+}
+
+async function removerHistorico(index) {
+    await fetch(`${API_BASE_URL}/api/search_history/${index}`, { method: 'DELETE' });
+    await carregarHistorico();
+    mostrarHistorico();
+}
+
+async function salvarBuscaNoHistorico(query) {
+    await fetch(`${API_BASE_URL}/api/search_history`, {
+        method: 'POST',
+        headers: fetchOptions.headers,
+        body: JSON.stringify({ query })
+    });
+    _historicoCache = [query, ..._historicoCache.filter(q => q !== query)].slice(0, 10);
+}
+
+// ==========================================
+// RE-ANÁLISE SELETIVA
+// ==========================================
+async function reAnalizarArquivos() {
+    const btn = document.getElementById('btnReanalizar');
+    btn.innerText = '⏳ Enfileirando...'; btn.disabled = true;
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/reanalyze`, { method: 'POST' });
+        const data = await res.json();
+        btn.innerText = `✅ ${data.reenfileirados} arquivo(s) na fila!`;
+        setTimeout(() => { btn.innerText = '⚡ Re-analisar Arquivos com Descrição Ruim'; btn.disabled = false; }, 3000);
+    } catch(e) {
+        btn.innerText = '⚡ Re-analisar Arquivos com Descrição Ruim'; btn.disabled = false;
+    }
+}
+
+// ==========================================
+// ABRIR LOCAL NO EXPLORER
+// ==========================================
+let _caminhoArquivoAtual = '';
+
+async function abrirLocalDoArquivo() {
+    if (!_caminhoArquivoAtual) return;
+    try {
+        await fetch(`${API_BASE_URL}/api/open_location?path=${encodeURIComponent(_caminhoArquivoAtual)}`);
+    } catch(e) { console.error('Erro ao abrir local:', e); }
+}
+
 async function realizarBusca() {
     const query = document.getElementById('searchInput').value;
     if (!query.trim()) return;
@@ -635,10 +712,8 @@ async function realizarBusca() {
     try {
         const res = await fetch(`${API_BASE_URL}/api/search`, { method: 'POST', headers: fetchOptions.headers, body: JSON.stringify({ query: query }) });
         const dados = await res.json();
-        
-        console.log("🔍 RESPOSTA DO BACKEND:", dados); // <--- ESPIÃO ADICIONADO
-        
         window.resultadosAtuais = Array.isArray(dados) ? dados : (dados.resultados || []);
+        salvarBuscaNoHistorico(query.trim());
 
     } catch (e) { console.error("Erro na busca."); } finally {
         const tempoRestante = Math.max(0, 2000 - (Date.now() - startTime));
@@ -787,7 +862,9 @@ function renderizarResultados() {
 function abrirPainelLateral(id) {
     const res = window.resultadosAtuais[id];
     const q = document.getElementById('searchInput').value.trim().toLowerCase();
-    
+
+    _caminhoArquivoAtual = res.caminho;
+
     document.getElementById('sideTitle').innerText = res.nome;
     document.getElementById('sideBadgeType').innerText = res.tipo.toUpperCase();
     document.getElementById('sideBadgeScore').innerText = `SCORE: ${Math.round(res.score*100)}%`;
