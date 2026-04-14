@@ -120,14 +120,14 @@ _GRUPOS_SINONIMOS: list[list[str]] = [
     ["peixe", "fish", "aquario"],
     # Pessoas — gênero MASCULINO
     ["homem", "rapaz", "cara", "sujeito", "senhor", "masculino", "macho", "male"],
-    ["menino", "garoto", "garoto", "jovem masculino"],
+    ["menino", "garoto"],
     # Pessoas — gênero FEMININO
-    ["mulher", "moca", "moça", "senhora", "feminino", "female", "dama"],
-    ["menina", "garota", "jovem feminino"],
+    ["mulher", "moca", "senhora", "feminino", "female", "dama"],
+    ["menina", "garota"],
     # Pessoas — neutro (sem gênero definido)
     ["crianca", "infancia", "infantil", "kid", "child"],
-    ["jovem", "adolescente", "teen", "teenager"],
-    ["bebe", "nene", "recem-nascido", "baby"],
+    ["jovem", "adolescente", "teen"],
+    ["bebe", "nene", "baby"],
     ["casal", "namorados", "noivos", "casados", "par", "couple"],
     ["familia", "pais", "filhos", "parentes"],
     ["amigos", "amizade", "grupo", "turma", "galera"],
@@ -718,18 +718,17 @@ def api_search():
     sims_raw = sims[:]
 
     # Normaliza: faz o melhor resultado virar 1.0, os outros ficam relativos a ele.
-    # Só normaliza se o melhor score bruto for relevante (≥ 0.06).
-    # Scores abaixo disso são ruído estatístico — não merecrem aparecer.
+    # Só normaliza se houver ao menos um match com relevância mínima real (>= 0.02).
     max_sim = max(sims_raw) if sims_raw else 0.0
-    if max_sim >= 0.06:
+    if max_sim >= 0.02:
         sims = [s / max_sim for s in sims_raw]
     else:
-        sims = [0.0] * len(sims_raw)  # nenhum resultado é relevante
+        sims = [0.0] * len(sims_raw)
 
     results = []
     for f, score, score_raw in zip(files, sims, sims_raw):
         # Filtro duplo: score bruto mínimo E score normalizado mínimo
-        if score_raw < 0.06 or score < 0.30:
+        if score_raw < 0.02 or score < 0.20:
             continue
         # Boost por nome
         if query.lower() in f["nome"].lower():
