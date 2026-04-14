@@ -710,7 +710,7 @@ async function realizarBusca() {
     const startTime = Date.now(); 
 
     try {
-        const res = await fetch(`${API_BASE_URL}/api/search`, { method: 'POST', headers: fetchOptions.headers, body: JSON.stringify({ query: query }) });
+        const res = await fetch(`${API_BASE_URL}/api/search`, { method: 'POST', headers: fetchOptions.headers, body: JSON.stringify({ query: query, filtro: filtroAtual }) });
         const dados = await res.json();
         window.resultadosAtuais = Array.isArray(dados) ? dados : (dados.resultados || []);
         salvarBuscaNoHistorico(query.trim());
@@ -796,24 +796,24 @@ async function removerPasta(p) {
     atualizarListaModalPastas(config.pastas);
 }
 
-// Função para dar feedback visual e forçar a leitura
-function forcarAnalise() {
+async function forcarAnalise() {
     const btn = document.getElementById('btnAnalisarPastas');
     const textoOriginal = btn.innerHTML;
-    
     btn.innerHTML = "⏳ Sincronizando com a IA...";
     btn.disabled = true;
-    
-    // O backend já roda a cada 5s, aqui apenas damos o feedback correto na UI
-    setTimeout(() => {
+    try {
+        await fetch(`${API_BASE_URL}/api/analyze_folders`, { method: 'POST', headers: fetchOptions.headers });
         btn.innerHTML = "✅ Análise Iniciada!";
         setTimeout(() => {
             btn.innerHTML = textoOriginal;
             btn.disabled = false;
             fecharModalPastas();
-            buscarStatus(); // Atualiza a barra de status do rodapé na hora
+            buscarStatus();
         }, 1500);
-    }, 1000);
+    } catch(e) {
+        btn.innerHTML = textoOriginal;
+        btn.disabled = false;
+    }
 }
 
 function renderizarResultados() {
