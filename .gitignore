@@ -22,8 +22,7 @@ venv.bak/
 local_models/
 *.bin
 
-# Arquivos e pastas do backend
-app.py
+# Arquivos e pastas do backend (raiz)
 config.json
 controllers/
 routes/
@@ -32,5 +31,8 @@ setup_ia.py
 test_search.py
 test_search_pt.py
 metadados.db
-requirements.txt
 search_plus_backend.log
+
+# Exceção: incluir os arquivos do backend/
+!backend/app.py
+!backend/requirements.txt
