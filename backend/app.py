@@ -13,6 +13,7 @@ import sqlite3
 import subprocess
 import threading
 import time
+import unicodedata
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime
 from pathlib import Path
@@ -96,6 +97,87 @@ _MODELO_TEXTO: str | None = None
 # Cache de expansões já calculadas (evita chamar o LLM na mesma query duas vezes)
 _cache_expansao: dict[str, str] = {}
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Normalização e sinônimos
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _normalizar(text: str) -> str:
+    """Converte para minúsculo e remove acentos. 'Cão' → 'cao'."""
+    return "".join(
+        c for c in unicodedata.normalize("NFD", text.lower())
+        if unicodedata.category(c) != "Mn"
+    )
+
+
+# Grupos de sinônimos — termos dentro do mesmo grupo são equivalentes na busca.
+# Basta adicionar novas listas para expandir o vocabulário.
+_GRUPOS_SINONIMOS: list[list[str]] = [
+    # Animais de estimação
+    ["cachorro", "cao", "caozinho", "cachorrinho", "vira-lata", "canino", "dog", "pet"],
+    ["gato", "gatinho", "felino", "bichano", "cat", "pet"],
+    ["passaro", "ave", "bird", "pajaro"],
+    ["coelho", "coelhinho", "rabbit"],
+    ["peixe", "fish", "aquario"],
+    # Pessoas — gênero e faixa etária
+    ["homem", "rapaz", "cara", "sujeito", "senhor", "masculino", "macho", "male"],
+    ["mulher", "moca", "senhora", "feminino", "female", "garota", "dama"],
+    ["crianca", "menino", "menina", "garoto", "garota", "infantil", "jovem", "kid", "child"],
+    ["bebe", "nene", "recem-nascido", "infantil", "baby"],
+    ["casal", "namorados", "noivos", "casados", "par", "couple"],
+    ["familia", "pais", "filhos", "parentes"],
+    ["amigos", "amizade", "grupo", "turma", "galera"],
+    ["pessoa", "individuo", "gente", "humano", "ser humano"],
+    # Lugares
+    ["praia", "litoral", "areia", "beira-mar", "costa", "mar"],
+    ["mar", "oceano", "agua", "onda"],
+    ["montanha", "morro", "serra", "monte", "pico", "escalada"],
+    ["floresta", "mata", "mato", "bosque", "natureza", "arvore"],
+    ["cidade", "urbano", "metropole", "centro", "rua"],
+    ["casa", "residencia", "moradia", "lar", "apartamento", "imovel"],
+    # Veículos
+    ["carro", "automovel", "veiculo", "auto", "coche"],
+    ["moto", "motocicleta", "bike"],
+    ["aviao", "aeronave", "voo", "aeroporto"],
+    ["onibus", "coletivo", "transporte"],
+    # Eletrônicos
+    ["celular", "smartphone", "telefone", "iphone", "android"],
+    ["computador", "notebook", "laptop", "pc", "desktop"],
+    ["televisao", "tv", "tela", "monitor"],
+    # Comida e bebida
+    ["comida", "alimento", "refeicao", "prato", "culinaria", "comendo"],
+    ["fruta", "frutas", "banana", "manga", "maca", "laranja"],
+    ["bolo", "torta", "doce", "sobremesa", "confeitaria"],
+    ["bebida", "drink", "suco", "refrigerante", "cerveja"],
+    ["churrasco", "churras", "festa", "confraternizacao"],
+    # Situações / atividades
+    ["festa", "celebracao", "aniversario", "comemoração", "evento", "party"],
+    ["viagem", "ferias", "turismo", "passeio", "turista", "trip"],
+    ["trabalho", "escritorio", "corporativo", "empresa", "profissional", "negocio"],
+    ["esporte", "futebol", "academia", "treino", "exercicio", "corrida", "sport"],
+    ["natureza", "campo", "sitio", "fazenda", "rural", "verde"],
+    ["noite", "balada", "bar", "boate", "festa"],
+    ["natal", "noel", "dezembro", "presente", "arvore de natal"],
+]
+
+# Monta dicionário bidirecional: cada termo aponta para todos os outros do grupo
+_SINONIMOS: dict[str, set[str]] = {}
+for _grupo in _GRUPOS_SINONIMOS:
+    _grupo_norm = [_normalizar(t) for t in _grupo]
+    for _termo in _grupo_norm:
+        _SINONIMOS.setdefault(_termo, set()).update(set(_grupo_norm) - {_termo})
+
+
+def _expandir_com_sinonimos(query: str) -> str:
+    """Expansão instantânea via dicionário — sem LLM, sem latência."""
+    palavras = _normalizar(query).split()
+    extras: list[str] = []
+    for p in palavras:
+        if p in _SINONIMOS:
+            extras.extend(_SINONIMOS[p])
+    if extras:
+        return _normalizar(query) + " " + " ".join(dict.fromkeys(extras))
+    return _normalizar(query)
+
 
 def _detectar_modelo_texto() -> None:
     """Detecta um modelo de texto disponível no Ollama para expansão de queries."""
@@ -133,52 +215,57 @@ def _detectar_modelo_texto() -> None:
 
 
 def _expandir_query(query: str) -> str:
-    """Expande a query apenas com sinônimos exatos usando Ollama.
+    """Expande a query combinando dicionário de sinônimos (instantâneo) + LLM (complemento).
 
-    Usa cache para evitar chamar o LLM na mesma query duas vezes.
-    Timeout de 4s — se o modelo demorar mais, usa a query original.
+    Fluxo:
+      1. Normaliza e busca no dicionário — resultado imediato, sem LLM.
+      2. Se o dicionário não cobriu todos os termos, chama o LLM com timeout de 4s.
+      3. Usa cache para nunca repetir o trabalho na mesma query.
     """
-    if not OLLAMA_OK or not _MODELO_TEXTO:
-        return query
+    chave = _normalizar(query).strip()
 
-    chave = query.lower().strip()
     if chave in _cache_expansao:
         print(f"[Search] Query (cache): {_cache_expansao[chave]!r}")
         return _cache_expansao[chave]
 
-    def _chamar() -> str:
-        resp = _ollama.chat(
-            model=_MODELO_TEXTO,
-            messages=[{
-                "role": "user",
-                "content": (
-                    f"Liste sinônimos EXATOS em português para a palavra: \"{query}\".\n"
-                    "Regras:\n"
-                    "- Apenas palavras com o MESMO significado (mesmo gênero, mesma espécie, mesma categoria)\n"
-                    "- NÃO inclua termos mais amplos (ex: para 'homem' NÃO inclua 'pessoa' ou 'humano')\n"
-                    "- NÃO inclua antônimos nem termos relacionados\n"
-                    "- Máximo 5 palavras\n"
-                    "- Responda SOMENTE as palavras separadas por espaço, sem explicação."
-                ),
-            }],
-        )
-        raw = resp["message"]["content"].strip()
-        return re.sub(r"[\-\*\•\d\.\n\t,;:()]+", " ", raw).strip()
+    # Etapa 1: dicionário instantâneo
+    expandida_dict = _expandir_com_sinonimos(query)
+    termos_dict = set(expandida_dict.split())
 
-    try:
-        with ThreadPoolExecutor(max_workers=1) as ex:
-            limpo = ex.submit(_chamar).result(timeout=4.0)
-        expandida = f"{query} {limpo}"
-        _cache_expansao[chave] = expandida
-        print(f"[Search] Query expandida: {expandida!r}")
-        return expandida
-    except FutureTimeout:
-        print("[Search] Expansão timeout — usando query original")
-        _cache_expansao[chave] = query  # Cacheia para não tentar de novo
-        return query
-    except Exception as exc:
-        print(f"[AI] Erro na expansão de query: {exc}")
-        return query
+    # Etapa 2: LLM como complemento para termos fora do dicionário
+    extras_llm = ""
+    if OLLAMA_OK and _MODELO_TEXTO:
+        def _chamar() -> str:
+            resp = _ollama.chat(
+                model=_MODELO_TEXTO,
+                messages=[{
+                    "role": "user",
+                    "content": (
+                        f"Sinônimos EXATOS em português para \"{query}\" "
+                        "(mesmo gênero, mesma espécie, sem termos genéricos). "
+                        "Máximo 5 palavras. Só as palavras separadas por espaço."
+                    ),
+                }],
+            )
+            raw = resp["message"]["content"].strip()
+            return re.sub(r"[\-\*\•\d\.\n\t,;:()]+", " ", raw).strip()
+
+        try:
+            with ThreadPoolExecutor(max_workers=1) as ex:
+                raw_llm = ex.submit(_chamar).result(timeout=4.0)
+            # Adiciona apenas termos novos (não duplicar o que o dicionário já trouxe)
+            novos = [_normalizar(w) for w in raw_llm.split() if _normalizar(w) not in termos_dict]
+            extras_llm = " ".join(novos)
+            print(f"[Search] LLM extras: {extras_llm!r}")
+        except FutureTimeout:
+            print("[Search] LLM timeout — dicionário suficiente")
+        except Exception as exc:
+            print(f"[AI] LLM erro: {exc}")
+
+    resultado = (expandida_dict + " " + extras_llm).strip()
+    _cache_expansao[chave] = resultado
+    print(f"[Search] Query expandida: {resultado!r}")
+    return resultado
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Banco de dados SQLite
@@ -606,10 +693,11 @@ def api_search():
         return jsonify({"resultados": [], "tempo": 0})
 
     t0 = time.time()
-    corpus = [r["descricao_ia"] or r["nome"] for r in files]
+    # Normaliza corpus: remove acentos e caixa para que "Cão" == "cao" == "cachorro" (via sinônimos)
+    corpus = [_normalizar(r["descricao_ia"] or r["nome"]) for r in files]
 
     # ── Expansão semântica da query ──────────────────────────────────────────
-    query_expandida = _expandir_query(query)
+    query_expandida = _expandir_query(query)  # já retorna texto normalizado
 
     # ── TF-IDF ──────────────────────────────────────────────────────────────
     if SKLEARN_OK:
