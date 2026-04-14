@@ -710,19 +710,21 @@ def api_search():
     else:
         sims = _fallback_sims(files, query_expandida)
 
-    # Corte absoluto ANTES de normalizar — elimina matches que são ruído puro
-    _CORTE_ABSOLUTO = 0.04
     sims_raw = sims[:]
-    sims = [s if s >= _CORTE_ABSOLUTO else 0.0 for s in sims]
 
-    # Normaliza: faz o melhor resultado virar 1.0, os outros ficam relativos a ele
-    max_sim = max(sims) if sims else 0.0
-    if max_sim > 0:
-        sims = [s / max_sim for s in sims]
+    # Normaliza: faz o melhor resultado virar 1.0, os outros ficam relativos a ele.
+    # Só normaliza se o melhor score bruto for relevante (≥ 0.06).
+    # Scores abaixo disso são ruído estatístico — não merecrem aparecer.
+    max_sim = max(sims_raw) if sims_raw else 0.0
+    if max_sim >= 0.06:
+        sims = [s / max_sim for s in sims_raw]
+    else:
+        sims = [0.0] * len(sims_raw)  # nenhum resultado é relevante
 
     results = []
     for f, score, score_raw in zip(files, sims, sims_raw):
-        if score < 0.15 or score_raw < _CORTE_ABSOLUTO:
+        # Filtro duplo: score bruto mínimo E score normalizado mínimo
+        if score_raw < 0.06 or score < 0.30:
             continue
         # Boost por nome
         if query.lower() in f["nome"].lower():
