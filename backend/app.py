@@ -10,6 +10,7 @@ import mimetypes
 import queue
 import re
 import sqlite3
+import subprocess
 import threading
 import time
 from datetime import datetime
@@ -36,13 +37,6 @@ try:
     OLLAMA_OK = True
 except ImportError:
     OLLAMA_OK = False
-
-try:
-    import fitz  # PyMuPDF
-    PYMUPDF_OK = True
-except ImportError:
-    PYMUPDF_OK = False
-
 
 try:
     import fitz  # PyMuPDF
@@ -888,7 +882,6 @@ def api_open_location():
     if not os.path.exists(filepath):
         return jsonify({"error": "Arquivo não encontrado."}), 404
 
-    import subprocess
     # Abre o Explorer com o arquivo selecionado
     subprocess.Popen(["explorer", "/select,", filepath])
     return jsonify({"status": "ok"})
