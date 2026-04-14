@@ -13,6 +13,7 @@ import sqlite3
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import unquote
@@ -92,6 +93,9 @@ _lock = threading.Lock()
 # Modelo de texto usado para expansão de queries (detectado em startup)
 _MODELO_TEXTO: str | None = None
 
+# Cache de expansões já calculadas (evita chamar o LLM na mesma query duas vezes)
+_cache_expansao: dict[str, str] = {}
+
 
 def _detectar_modelo_texto() -> None:
     """Detecta um modelo de texto disponível no Ollama para expansão de queries."""
@@ -129,32 +133,49 @@ def _detectar_modelo_texto() -> None:
 
 
 def _expandir_query(query: str) -> str:
-    """Expande a query com sinônimos e termos relacionados usando Ollama.
+    """Expande a query apenas com sinônimos exatos usando Ollama.
 
-    Exemplo: 'cão' → 'cão cachorro vira-lata animal doméstico pet ...'
+    Usa cache para evitar chamar o LLM na mesma query duas vezes.
+    Timeout de 4s — se o modelo demorar mais, usa a query original.
     """
     if not OLLAMA_OK or not _MODELO_TEXTO:
         return query
-    try:
+
+    chave = query.lower().strip()
+    if chave in _cache_expansao:
+        print(f"[Search] Query (cache): {_cache_expansao[chave]!r}")
+        return _cache_expansao[chave]
+
+    def _chamar() -> str:
         resp = _ollama.chat(
             model=_MODELO_TEXTO,
             messages=[{
                 "role": "user",
                 "content": (
-                    f"Você é um motor de busca semântica. Para a consulta: \"{query}\"\n"
-                    "Liste até 10 sinônimos, variações e termos relacionados em português.\n"
-                    "Inclua formas formais e informais (ex: 'cão' e 'cachorro').\n"
-                    "Responda SOMENTE as palavras separadas por espaço, sem explicações, "
-                    "sem numeração, sem pontuação extra."
+                    f"Liste sinônimos EXATOS em português para a palavra: \"{query}\".\n"
+                    "Regras:\n"
+                    "- Apenas palavras com o MESMO significado (mesmo gênero, mesma espécie, mesma categoria)\n"
+                    "- NÃO inclua termos mais amplos (ex: para 'homem' NÃO inclua 'pessoa' ou 'humano')\n"
+                    "- NÃO inclua antônimos nem termos relacionados\n"
+                    "- Máximo 5 palavras\n"
+                    "- Responda SOMENTE as palavras separadas por espaço, sem explicação."
                 ),
             }],
         )
         raw = resp["message"]["content"].strip()
-        # Remove bullets, números, quebras de linha e pontuação extra
-        limpo = re.sub(r"[\-\*\•\d\.\n\t,;:]+", " ", raw).strip()
+        return re.sub(r"[\-\*\•\d\.\n\t,;:()]+", " ", raw).strip()
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            limpo = ex.submit(_chamar).result(timeout=4.0)
         expandida = f"{query} {limpo}"
+        _cache_expansao[chave] = expandida
         print(f"[Search] Query expandida: {expandida!r}")
         return expandida
+    except FutureTimeout:
+        print("[Search] Expansão timeout — usando query original")
+        _cache_expansao[chave] = query  # Cacheia para não tentar de novo
+        return query
     except Exception as exc:
         print(f"[AI] Erro na expansão de query: {exc}")
         return query
@@ -601,14 +622,19 @@ def api_search():
     else:
         sims = _fallback_sims(files, query_expandida)
 
+    # Corte absoluto ANTES de normalizar — elimina matches que são ruído puro
+    _CORTE_ABSOLUTO = 0.04
+    sims_raw = sims[:]
+    sims = [s if s >= _CORTE_ABSOLUTO else 0.0 for s in sims]
+
     # Normaliza: faz o melhor resultado virar 1.0, os outros ficam relativos a ele
-    max_sim = max(sims) if sims else 1.0
+    max_sim = max(sims) if sims else 0.0
     if max_sim > 0:
         sims = [s / max_sim for s in sims]
 
     results = []
-    for f, score in zip(files, sims):
-        if score < 0.05:
+    for f, score, score_raw in zip(files, sims, sims_raw):
+        if score < 0.15 or score_raw < _CORTE_ABSOLUTO:
             continue
         # Boost por nome
         if query.lower() in f["nome"].lower():
@@ -1010,7 +1036,7 @@ def _analyze_image(filepath: str) -> str:
     if OLLAMA_OK:
         try:
             resp = _ollama.chat(
-                model="llava",
+                model="llava:13b",
                 messages=[{
                     "role": "user",
                     "content": (
