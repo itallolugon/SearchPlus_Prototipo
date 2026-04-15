@@ -235,9 +235,13 @@ async function fazerCadastro() {
 
     try {
         const res = await fetch(`${API_BASE_URL}/api/register`, { method: 'POST', headers: fetchOptions.headers, body: JSON.stringify({ username: user, password: pass }) });
-        if (res.ok) { document.getElementById('loginUser').value = user; document.getElementById('loginPass').value = pass; fazerLogin(); } 
-        else { const data = await res.json(); alert(data.mensagem); }
-    } catch(e) { alert("Erro de conexão com o banco de dados."); }
+        if (res.ok) { document.getElementById('loginUser').value = user; document.getElementById('loginPass').value = pass; fazerLogin(); }
+        else {
+            let msg = `Erro HTTP ${res.status}`;
+            try { const data = await res.json(); msg = data.mensagem || msg; } catch(_) { msg += ' (resposta não-JSON — veja o terminal do servidor)'; }
+            alert(msg);
+        }
+    } catch(e) { alert("Erro de rede: " + e.message); }
 }
 
 async function loginBemSucedido(username) {
@@ -799,9 +803,13 @@ async function removerPasta(p) {
 async function forcarAnalise() {
     const btn = document.getElementById('btnAnalisarPastas');
     const textoOriginal = btn.innerHTML;
-    btn.innerHTML = "⏳ Sincronizando com a IA...";
+    btn.innerHTML = "⏳ Atualizando embeddings...";
     btn.disabled = true;
     try {
+        // 1. Re-gera embeddings dos arquivos já processados (rápido, sem LLaVA)
+        await fetch(`${API_BASE_URL}/api/reembed`, { method: 'POST', headers: fetchOptions.headers });
+        btn.innerHTML = "⏳ Sincronizando com a IA...";
+        // 2. Escaneia pastas em busca de arquivos novos
         await fetch(`${API_BASE_URL}/api/analyze_folders`, { method: 'POST', headers: fetchOptions.headers });
         btn.innerHTML = "✅ Análise Iniciada!";
         setTimeout(() => {

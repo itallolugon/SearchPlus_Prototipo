@@ -8,13 +8,11 @@ import json
 import hashlib
 import mimetypes
 import queue
-import re
 import sqlite3
 import subprocess
 import threading
 import time
 import unicodedata
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import unquote
@@ -60,6 +58,20 @@ try:
 except ImportError:
     SKLEARN_OK = False
 
+# Força uso do cache local — evita timeouts de rede ao checar arquivos no HuggingFace.
+# O modelo já deve estar baixado; se não estiver, remova estas duas linhas e reinicie.
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+
+try:
+    from sentence_transformers import SentenceTransformer as _ST
+    _SBERT = _ST("paraphrase-multilingual-MiniLM-L12-v2")
+    SBERT_OK = True
+    print("[AI] Sentence Transformers carregado — busca semântica ativa.")
+except Exception as _e:
+    SBERT_OK = False
+    print(f"[AI] Sentence Transformers indisponível: {_e}")
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Flask App
 # ──────────────────────────────────────────────────────────────────────────────
@@ -91,16 +103,6 @@ _processed: int = 0
 _status: str = "Ocioso"
 _lock = threading.Lock()
 
-# Modelo de texto usado para expansão de queries (detectado em startup)
-_MODELO_TEXTO: str | None = None
-
-# Cache de expansões já calculadas (evita chamar o LLM na mesma query duas vezes)
-_cache_expansao: dict[str, str] = {}
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Normalização e sinônimos
-# ──────────────────────────────────────────────────────────────────────────────
-
 def _normalizar(text: str) -> str:
     """Converte para minúsculo e remove acentos. 'Cão' → 'cao'."""
     return "".join(
@@ -109,168 +111,34 @@ def _normalizar(text: str) -> str:
     )
 
 
-# Grupos de sinônimos — termos dentro do mesmo grupo são equivalentes na busca.
-# Basta adicionar novas listas para expandir o vocabulário.
-_GRUPOS_SINONIMOS: list[list[str]] = [
-    # Animais de estimação
-    ["cachorro", "cao", "caozinho", "cachorrinho", "vira-lata", "canino", "dog", "pet"],
-    ["gato", "gatinho", "felino", "bichano", "cat", "pet"],
-    ["passaro", "ave", "bird", "pajaro"],
-    ["coelho", "coelhinho", "rabbit"],
-    ["peixe", "fish", "aquario"],
-    # Pessoas — gênero MASCULINO
-    ["homem", "rapaz", "cara", "sujeito", "senhor", "masculino", "macho", "male"],
-    ["menino", "garoto"],
-    # Pessoas — gênero FEMININO
-    ["mulher", "moca", "senhora", "feminino", "female", "dama"],
-    ["menina", "garota"],
-    # Pessoas — neutro (sem gênero definido)
-    ["crianca", "infancia", "infantil", "kid", "child"],
-    ["jovem", "adolescente", "teen"],
-    ["bebe", "nene", "baby"],
-    ["casal", "namorados", "noivos", "casados", "par", "couple"],
-    ["familia", "pais", "filhos", "parentes"],
-    ["amigos", "amizade", "grupo", "turma", "galera"],
-    ["pessoa", "individuo", "gente", "humano"],
-    # Lugares
-    ["praia", "litoral", "areia", "beira-mar", "costa", "mar"],
-    ["mar", "oceano", "agua", "onda"],
-    ["montanha", "morro", "serra", "monte", "pico", "escalada"],
-    ["floresta", "mata", "mato", "bosque", "natureza", "arvore"],
-    ["cidade", "urbano", "metropole", "centro", "rua"],
-    ["casa", "residencia", "moradia", "lar", "apartamento", "imovel"],
-    # Veículos
-    ["carro", "automovel", "veiculo", "auto", "coche"],
-    ["moto", "motocicleta", "bike"],
-    ["aviao", "aeronave", "voo", "aeroporto"],
-    ["onibus", "coletivo", "transporte"],
-    # Eletrônicos
-    ["celular", "smartphone", "telefone", "iphone", "android"],
-    ["computador", "notebook", "laptop", "pc", "desktop"],
-    ["televisao", "tv", "tela", "monitor"],
-    # Comida e bebida
-    ["comida", "alimento", "refeicao", "prato", "culinaria", "comendo"],
-    ["fruta", "frutas", "banana", "manga", "maca", "laranja"],
-    ["bolo", "torta", "doce", "sobremesa", "confeitaria"],
-    ["bebida", "drink", "suco", "refrigerante", "cerveja"],
-    ["churrasco", "churras", "festa", "confraternizacao"],
-    # Situações / atividades
-    ["festa", "celebracao", "aniversario", "comemoração", "evento", "party"],
-    ["viagem", "ferias", "turismo", "passeio", "turista", "trip"],
-    ["trabalho", "escritorio", "corporativo", "empresa", "profissional", "negocio"],
-    ["esporte", "futebol", "academia", "treino", "exercicio", "corrida", "sport"],
-    ["natureza", "campo", "sitio", "fazenda", "rural", "verde"],
-    ["noite", "balada", "bar", "boate", "festa"],
-    ["natal", "noel", "dezembro", "presente", "arvore de natal"],
-]
-
-# Monta dicionário bidirecional: cada termo aponta para todos os outros do grupo
-_SINONIMOS: dict[str, set[str]] = {}
-for _grupo in _GRUPOS_SINONIMOS:
-    _grupo_norm = [_normalizar(t) for t in _grupo]
-    for _termo in _grupo_norm:
-        _SINONIMOS.setdefault(_termo, set()).update(set(_grupo_norm) - {_termo})
-
-
-def _expandir_com_sinonimos(query: str) -> str:
-    """Expansão instantânea via dicionário — sem LLM, sem latência."""
-    palavras = _normalizar(query).split()
-    extras: list[str] = []
-    for p in palavras:
-        if p in _SINONIMOS:
-            extras.extend(_SINONIMOS[p])
-    if extras:
-        return _normalizar(query) + " " + " ".join(dict.fromkeys(extras))
-    return _normalizar(query)
-
-
-def _detectar_modelo_texto() -> None:
-    """Detecta um modelo de texto disponível no Ollama para expansão de queries."""
-    global _MODELO_TEXTO
-    if not OLLAMA_OK:
-        return
+def _gerar_embedding(text: str) -> list[float] | None:
+    """Gera embedding semântico do texto usando Sentence Transformers."""
+    if not SBERT_OK or not text.strip():
+        return None
     try:
-        lista = _ollama.list()
-        # Compatível com dict (versão antiga) e objeto Pydantic (versão nova do SDK)
-        modelos = lista.get("models", []) if isinstance(lista, dict) else getattr(lista, "models", [])
-        nomes = []
-        for m in modelos:
-            if isinstance(m, dict):
-                nomes.append(m.get("model") or m.get("name") or "")
-            else:
-                nomes.append(getattr(m, "model", None) or getattr(m, "name", None) or str(m))
-        # Exclui modelos de visão (llava, bakllava, moondream, etc.)
-        _VISION = ("llava", "bakllava", "moondream", "vision", "clip")
-        nomes_texto = [n for n in nomes if not any(v in n.lower() for v in _VISION)]
-        # Ordem de preferência
-        _PREF = ["llama3", "llama2", "mistral", "gemma", "phi", "qwen", "deepseek", "orca"]
-        for pref in _PREF:
-            for n in nomes_texto:
-                if pref in n.lower():
-                    _MODELO_TEXTO = n
-                    print(f"[AI] Modelo de texto para expansão: {_MODELO_TEXTO}")
-                    return
-        if nomes_texto:
-            _MODELO_TEXTO = nomes_texto[0]
-            print(f"[AI] Modelo de texto para expansão: {_MODELO_TEXTO}")
-        else:
-            print("[AI] Nenhum modelo de texto encontrado — expansão de query desabilitada.")
+        return _SBERT.encode(text, convert_to_numpy=True).tolist()
     except Exception as exc:
-        print(f"[AI] Erro ao listar modelos Ollama: {exc}")
+        print(f"[SBERT] Erro ao gerar embedding: {exc}")
+        return None
 
 
-def _expandir_query(query: str) -> str:
-    """Expande a query combinando dicionário de sinônimos (instantâneo) + LLM (complemento).
-
-    Fluxo:
-      1. Normaliza e busca no dicionário — resultado imediato, sem LLM.
-      2. Se o dicionário não cobriu todos os termos, chama o LLM com timeout de 4s.
-      3. Usa cache para nunca repetir o trabalho na mesma query.
+def _extrair_campos_llava(desc: str) -> str:
     """
-    chave = _normalizar(query).strip()
+    Extrai apenas Pessoas, Objetos e Tags da saída LLaVA para gerar embedding.
+    Descarta 'O que é' e 'Ambiente' para reduzir ruído semântico.
+    Retorna o texto original se o formato estruturado não for encontrado.
+    """
+    campos_alvo = {"pessoas", "objetos", "tags"}
+    linhas_extraidas = []
 
-    if chave in _cache_expansao:
-        print(f"[Search] Query (cache): {_cache_expansao[chave]!r}")
-        return _cache_expansao[chave]
+    for linha in desc.splitlines():
+        limpa = linha.strip().lstrip("-• ").strip()
+        norm  = _normalizar(limpa)
+        campo = norm.split(":")[0].strip() if ":" in norm else ""
+        if campo in campos_alvo:
+            linhas_extraidas.append(limpa)
 
-    # Etapa 1: dicionário instantâneo
-    expandida_dict = _expandir_com_sinonimos(query)
-    termos_dict = set(expandida_dict.split())
-
-    # Etapa 2: LLM como complemento para termos fora do dicionário
-    extras_llm = ""
-    if OLLAMA_OK and _MODELO_TEXTO:
-        def _chamar() -> str:
-            resp = _ollama.chat(
-                model=_MODELO_TEXTO,
-                messages=[{
-                    "role": "user",
-                    "content": (
-                        f"Sinônimos EXATOS em português para \"{query}\" "
-                        "(mesmo gênero, mesma espécie, sem termos genéricos). "
-                        "Máximo 5 palavras. Só as palavras separadas por espaço."
-                    ),
-                }],
-            )
-            raw = resp["message"]["content"].strip()
-            return re.sub(r"[\-\*\•\d\.\n\t,;:()]+", " ", raw).strip()
-
-        try:
-            with ThreadPoolExecutor(max_workers=1) as ex:
-                raw_llm = ex.submit(_chamar).result(timeout=4.0)
-            # Adiciona apenas termos novos (não duplicar o que o dicionário já trouxe)
-            novos = [_normalizar(w) for w in raw_llm.split() if _normalizar(w) not in termos_dict]
-            extras_llm = " ".join(novos)
-            print(f"[Search] LLM extras: {extras_llm!r}")
-        except FutureTimeout:
-            print("[Search] LLM timeout — dicionário suficiente")
-        except Exception as exc:
-            print(f"[AI] LLM erro: {exc}")
-
-    resultado = (expandida_dict + " " + extras_llm).strip()
-    _cache_expansao[chave] = resultado
-    print(f"[Search] Query expandida: {resultado!r}")
-    return resultado
+    return " | ".join(linhas_extraidas) if linhas_extraidas else desc
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Banco de dados SQLite
@@ -312,6 +180,7 @@ def init_db() -> None:
             caminho         TEXT    NOT NULL,
             tipo            TEXT    NOT NULL,
             descricao_ia    TEXT    DEFAULT '',
+            embedding       TEXT    DEFAULT NULL,
             data_adicionado TEXT    NOT NULL,
             favorito        INTEGER DEFAULT 0,
             processado      INTEGER DEFAULT 0,
@@ -319,8 +188,23 @@ def init_db() -> None:
             FOREIGN KEY (user_id) REFERENCES users(id)
         );
     """)
+    # Migração: adiciona coluna embedding se o banco já existia sem ela
+    try:
+        conn.execute("ALTER TABLE files ADD COLUMN embedding TEXT DEFAULT NULL")
+        conn.commit()
+        print("[DB] Coluna 'embedding' adicionada.")
+    except sqlite3.OperationalError:
+        pass  # Coluna já existe
     conn.commit()
     conn.close()
+
+
+# Garante que as tabelas existam ao carregar o módulo (idempotente)
+try:
+    init_db()
+    print("[DB] Banco de dados pronto.")
+except Exception as _db_exc:
+    print(f"[DB] ERRO na inicialização: {_db_exc}")
 
 
 def _hash(pw: str) -> str:
@@ -404,7 +288,12 @@ def api_register():
 
     cfg = {**_DEFAULT_CFG, "perfil_nome": username, "perfil_handle": username.lower()}
 
-    conn = get_db()
+    try:
+        conn = get_db()
+    except Exception as exc:
+        print(f"[DB] Falha ao conectar: {exc}")
+        return jsonify({"mensagem": f"Erro ao conectar ao banco: {exc}"}), 500
+
     try:
         conn.execute(
             "INSERT INTO users (username, password_hash, config_json) VALUES (?, ?, ?)",
@@ -414,6 +303,9 @@ def api_register():
         return jsonify({"status": "ok"})
     except sqlite3.IntegrityError:
         return jsonify({"mensagem": "Este usuário já existe."}), 409
+    except Exception as exc:
+        print(f"[DB] Erro no registro: {exc}")
+        return jsonify({"mensagem": f"Erro interno: {exc}"}), 500
     finally:
         conn.close()
 
@@ -645,6 +537,287 @@ _EXT_IMG   = {"png", "jpg", "jpeg", "gif", "webp", "bmp"}
 _EXT_VID   = {"mp4", "avi", "mkv", "mov", "webm"}
 _EXT_AUD   = {"mp3", "wav", "ogg", "m4a", "flac"}
 
+# Stopwords em português — palavras sem valor semântico que poluem o embedding
+_STOPWORDS_PT = {
+    "a", "o", "as", "os", "um", "uma", "uns", "umas",
+    "de", "do", "da", "dos", "das", "em", "no", "na", "nos", "nas",
+    "e", "ou", "que", "com", "por", "para", "pra", "pro", "pelo", "pela",
+    "ao", "aos", "aquele", "aquela", "este", "esta", "esse", "essa", "isto", "isso",
+    "meu", "minha", "seu", "sua", "nosso", "nossa",
+    "mostrar", "mostre", "ver", "encontrar", "achar", "buscar", "procurar",
+    "foto", "fotos", "imagem", "imagens", "arquivo", "arquivos", "tem", "ter",
+    "algum", "alguma", "qualquer", "todo", "toda", "tudo", "nada",
+    "eu", "tu", "nos", "vos",
+}
+
+# Termos de busca por PESSOA humana (sem acentos)
+_TERMOS_PESSOA = {
+    "pessoa", "pessoas", "gente", "humano", "humanos",
+    "homem", "homens", "mulher", "mulheres",
+    "garoto", "garota", "menino", "menina",
+    "crianca", "criancas", "bebe", "bebes", "neném", "nenem",
+    "adulto", "adultos", "jovem", "jovens", "idoso", "idosa",
+    "cara", "moca", "rapaz", "individuo", "senhor", "senhora",
+    "pai", "mae", "mamae", "papai", "irmao", "irma",
+    "namorado", "namorada", "esposa", "marido",
+}
+
+# Termos de busca por ANIMAL
+_TERMOS_ANIMAL = {
+    "cachorro", "cachorra", "cao", "caozinho", "cachorrinho", "dog", "vira-lata", "viralata",
+    "gato", "gata", "gatinho", "gatinha", "felino", "bichano", "cat",
+    "pet", "pets", "animal", "animais", "bicho", "bichinho",
+    "passaro", "passarinho", "ave", "aves",
+    "cavalo", "coelho", "hamster", "peixe", "tartaruga", "papagaio",
+}
+
+# Frases na descrição LLaVA que confirmam AUSÊNCIA de pessoas (normalizadas)
+_FRASES_SEM_PESSOA = (
+    "nenhuma pessoa", "sem pessoas", "nenhum humano", "sem humanos",
+    "nenhuma figura humana", "nao ha pessoas", "pessoas: nenhuma",
+    "pessoas: nao", "pessoas: 0", "pessoa: nenhuma",
+)
+
+# Frases que confirmam AUSÊNCIA de animais
+_FRASES_SEM_ANIMAL = (
+    "nenhum animal", "sem animais", "nao ha animais", "animais: nenhum",
+)
+
+# Dicionário de sinônimos — MUITO expandido (chaves sem acentos)
+_SINONIMOS_QUERY: dict[str, list[str]] = {
+    # ── Animais ──────────────────────────────────────────────────────────
+    "cao":         ["cachorro", "caozinho", "cachorrinho", "cachorra", "dog", "pet"],
+    "cachorro":    ["cao", "caozinho", "cachorrinho", "cachorra", "filhote", "pet", "dog"],
+    "caozinho":    ["cachorro", "cao", "cachorrinho", "filhote"],
+    "cachorrinho": ["cachorro", "caozinho", "cao", "filhote"],
+    "cachorra":    ["cachorro", "cao", "cadela"],
+    "dog":         ["cachorro", "cao"],
+    "vira-lata":   ["cachorro", "cao"],
+    "viralata":    ["cachorro", "cao"],
+
+    "gato":      ["gatinho", "gata", "felino", "bichano", "cat"],
+    "gatinha":   ["gata", "gato", "gatinho", "felina"],
+    "gatinho":   ["gato", "gata", "felino", "filhote"],
+    "gata":      ["gato", "gatinha", "felina"],
+    "felino":    ["gato", "gatinho"],
+    "bichano":   ["gato", "gatinho"],
+
+    "pet":      ["cachorro", "gato", "animal domestico", "bicho de estimacao"],
+    "pets":     ["cachorros", "gatos", "animais"],
+    "animal":   ["bicho", "pet", "fauna"],
+    "animais":  ["bichos", "pets", "fauna"],
+    "bicho":    ["animal", "pet"],
+    "passaro":  ["ave", "passarinho"],
+    "ave":      ["passaro", "passarinho"],
+
+    # ── Pessoas feminino ─────────────────────────────────────────────────
+    "menina":   ["garota", "moca", "garotinha", "mocinha", "adolescente feminina"],
+    "garota":   ["menina", "moca", "garotinha", "jovem feminina"],
+    "moca":     ["menina", "garota", "mulher jovem", "mocinha"],
+    "mulher":   ["senhora", "dona", "feminino", "adulta"],
+    "mulheres": ["mulher", "senhoras", "donas"],
+    "senhora":  ["mulher", "dona", "adulta"],
+    "mae":      ["mulher", "mamae", "genitora"],
+    "mamae":    ["mae", "mulher"],
+    "irma":     ["mulher jovem", "garota"],
+    "namorada": ["mulher", "garota", "moça"],
+    "esposa":   ["mulher", "senhora"],
+
+    # ── Pessoas masculino ────────────────────────────────────────────────
+    "menino":   ["garoto", "rapaz", "garotinho", "adolescente masculino"],
+    "garoto":   ["menino", "rapaz", "garotinho", "jovem masculino"],
+    "rapaz":    ["menino", "garoto", "homem jovem"],
+    "homem":    ["senhor", "rapaz", "masculino", "adulto"],
+    "homens":   ["homem", "senhores"],
+    "senhor":   ["homem", "adulto"],
+    "pai":      ["homem", "papai", "genitor"],
+    "papai":    ["pai", "homem"],
+    "irmao":    ["homem jovem", "garoto"],
+    "namorado": ["homem", "garoto", "rapaz"],
+    "marido":   ["homem", "senhor"],
+
+    # ── Criança / bebê ───────────────────────────────────────────────────
+    "bebe":     ["crianca", "infante", "recem nascido", "nenem", "bebezinho"],
+    "bebes":    ["criancas", "bebes"],
+    "nenem":    ["bebe", "crianca"],
+    "crianca":  ["menino", "menina", "infante", "bebe"],
+    "criancas": ["meninos", "meninas", "bebes"],
+
+    # ── Natureza / lugares ───────────────────────────────────────────────
+    "praia":    ["litoral", "mar", "areia", "costa"],
+    "mar":      ["oceano", "praia", "agua"],
+    "oceano":   ["mar", "praia"],
+    "montanha": ["serra", "morro", "pico"],
+    "floresta": ["mata", "bosque", "selva", "arvores"],
+    "mata":     ["floresta", "bosque", "verde"],
+    "cidade":   ["urbano", "metropole", "centro"],
+    "rua":      ["avenida", "estrada", "calcada"],
+    "parque":   ["jardim", "area verde"],
+    "jardim":   ["parque", "horta"],
+    "ceu":      ["firmamento", "nuvens"],
+
+    # ── Veículos ─────────────────────────────────────────────────────────
+    "carro":     ["automovel", "veiculo", "auto"],
+    "automovel": ["carro", "veiculo"],
+    "veiculo":   ["carro", "automovel"],
+    "moto":      ["motocicleta"],
+    "motocicleta": ["moto"],
+    "bicicleta": ["bike"],
+    "bike":      ["bicicleta"],
+
+    # ── Objetos comuns ───────────────────────────────────────────────────
+    "celular":   ["telefone", "smartphone"],
+    "telefone":  ["celular", "smartphone"],
+    "smartphone": ["celular", "telefone"],
+    "computador": ["pc", "notebook", "laptop"],
+    "notebook":  ["laptop", "computador"],
+    "laptop":    ["notebook", "computador"],
+
+    # ── Cores ────────────────────────────────────────────────────────────
+    "vermelho":  ["vermelha", "rubro", "encarnado"],
+    "preto":     ["preta", "escuro", "negro"],
+    "branco":    ["branca", "claro"],
+    "azul":      ["azulado", "azulada"],
+    "verde":     ["verdejante"],
+    "amarelo":   ["amarela", "dourado"],
+
+    # ── Roupas ───────────────────────────────────────────────────────────
+    "roupa":    ["roupas", "vestimenta", "traje"],
+    "camiseta": ["blusa", "camisa"],
+    "camisa":   ["camiseta", "blusa"],
+    "vestido":  ["traje"],
+    "sapato":   ["tenis", "calcado"],
+    "tenis":    ["sapato", "calcado"],
+}
+
+# Termos de GÊNERO na QUERY
+_TERMOS_FEMININO = {
+    "menina", "meninas", "garota", "garotas", "moca", "mocas",
+    "mulher", "mulheres", "feminina", "feminino", "femininas",
+    "mae", "mamae", "irma", "namorada", "esposa", "senhora",
+    "dona", "tia", "vovó", "vovo", "filha",
+}
+_TERMOS_MASCULINO = {
+    "menino", "meninos", "garoto", "garotos", "rapaz", "rapazes",
+    "homem", "homens", "masculino", "masculina",
+    "pai", "papai", "irmao", "namorado", "marido", "senhor",
+    "tio", "vovô", "vovo", "filho",
+}
+
+# Palavras na DESCRIÇÃO que identificam GÊNERO (normalizadas)
+_PALAVRAS_DESC_MASC = {
+    "homem", "homens", "menino", "meninos", "garoto", "garotos",
+    "rapaz", "rapazes", "senhor", "masculino", "namorado", "marido",
+    "barba", "bigode",
+}
+_PALAVRAS_DESC_FEM = {
+    "mulher", "mulheres", "menina", "meninas", "garota", "garotas",
+    "moca", "mocas", "senhora", "feminino", "namorada", "esposa",
+    "vestido", "saia",
+}
+
+
+def _tokenizar(texto: str) -> list[str]:
+    """Normaliza, quebra em palavras e remove stopwords."""
+    norm = _normalizar(texto)
+    return [w for w in norm.split() if w and w not in _STOPWORDS_PT]
+
+
+def _expandir_sinonimos(palavras: list[str]) -> str:
+    """Expande uma lista de tokens com sinônimos, mantendo ordem e unicidade."""
+    expandido: list[str] = []
+    vistos: set[str] = set()
+    for p in palavras:
+        if p not in vistos:
+            expandido.append(p)
+            vistos.add(p)
+        for s in _SINONIMOS_QUERY.get(p, []):
+            if s not in vistos:
+                expandido.append(s)
+                vistos.add(s)
+    return " ".join(expandido)
+
+
+def _analisar_query(query: str) -> dict:
+    """
+    Analisa a query do usuário e extrai metadados úteis para a busca:
+    normalização, tokens relevantes, expansão com sinônimos, e intenção
+    (pessoa/animal/gênero).
+    """
+    norm = _normalizar(query)
+    palavras = _tokenizar(query)
+    palavras_set = set(palavras)
+    return {
+        "original":        query,
+        "normalizada":     norm,
+        "palavras":        palavras,
+        "palavras_set":    palavras_set,
+        "expandida":       _expandir_sinonimos(palavras) or norm,
+        "busca_pessoa":    bool(palavras_set & _TERMOS_PESSOA),
+        "busca_animal":    bool(palavras_set & _TERMOS_ANIMAL),
+        "busca_feminino":  bool(palavras_set & _TERMOS_FEMININO),
+        "busca_masculino": bool(palavras_set & _TERMOS_MASCULINO),
+    }
+
+
+def _ajustar_score(score_raw: float, q: dict, desc_norm: str, nome_norm: str) -> float | None:
+    """
+    Aplica regras de negócio sobre o score bruto do SBERT:
+    - Rejeita abaixo do threshold mínimo
+    - Rejeita matches impossíveis (pessoa vs imagem sem pessoa, gênero oposto)
+    - Aplica boosts: nome do arquivo, keyword match, gênero compatível
+    Retorna None se o resultado deve ser descartado.
+    """
+    if score_raw < 0.42:
+        return None
+
+    desc_words = set(desc_norm.split())
+
+    # === Regras de rejeição ===============================================
+
+    # Busca de pessoa não pode retornar imagem sem pessoa
+    if q["busca_pessoa"] and score_raw < 0.90:
+        if any(frase in desc_norm for frase in _FRASES_SEM_PESSOA):
+            return None
+
+    # Busca de animal não pode retornar imagem sem animal
+    if q["busca_animal"] and score_raw < 0.90:
+        if any(frase in desc_norm for frase in _FRASES_SEM_ANIMAL):
+            return None
+
+    # Gênero: descrição só com termos masculinos é rejeitada para query feminina
+    if q["busca_feminino"] and score_raw < 0.85:
+        tem_masc = bool(desc_words & _PALAVRAS_DESC_MASC)
+        tem_fem  = bool(desc_words & _PALAVRAS_DESC_FEM)
+        if tem_masc and not tem_fem:
+            return None
+    if q["busca_masculino"] and score_raw < 0.85:
+        tem_fem  = bool(desc_words & _PALAVRAS_DESC_FEM)
+        tem_masc = bool(desc_words & _PALAVRAS_DESC_MASC)
+        if tem_fem and not tem_masc:
+            return None
+
+    # === Boosts (aumentam o score) ========================================
+
+    score = score_raw
+
+    # Query exata dentro do nome do arquivo → +15%
+    if q["normalizada"] and q["normalizada"] in nome_norm:
+        score += 0.15
+
+    # Cada palavra-chave da query que aparece na descrição → +5%
+    matches_desc = q["palavras_set"] & desc_words
+    if matches_desc:
+        score += 0.05 * len(matches_desc)
+
+    # Gênero da query combina com descrição → +8%
+    if q["busca_feminino"] and (desc_words & _PALAVRAS_DESC_FEM):
+        score += 0.08
+    if q["busca_masculino"] and (desc_words & _PALAVRAS_DESC_MASC):
+        score += 0.08
+
+    return min(1.0, score)
+
 
 def _match_filter(ext: str, filtro: str) -> bool:
     ext = ext.lower()
@@ -698,55 +871,77 @@ def api_search():
         return jsonify({"resultados": [], "tempo": 0})
 
     t0 = time.time()
-    # Normaliza corpus: remove acentos e caixa para que "Cão" == "cao" == "cachorro" (via sinônimos)
-    corpus = [_normalizar(r["descricao_ia"] or r["nome"]) for r in files]
 
-    # ── Expansão semântica da query ──────────────────────────────────────────
-    query_expandida = _expandir_query(query)  # já retorna texto normalizado
+    # ── Busca semântica com Sentence Transformers ────────────────────────────
+    if SBERT_OK:
+        files_emb = [f for f in files if f["embedding"]]
+        files_sem_emb = [f for f in files if not f["embedding"]]
 
-    # ── TF-IDF ──────────────────────────────────────────────────────────────
-    if SKLEARN_OK:
-        try:
-            vec  = TfidfVectorizer(min_df=1, sublinear_tf=True, analyzer="word")
-            mat  = vec.fit_transform(corpus + [query_expandida])
-            sims = cosine_similarity(mat[-1:], mat[:-1])[0].tolist()
-        except Exception:
-            sims = _fallback_sims(files, query_expandida)
+        results = []
+        q = _analisar_query(query)
+
+        if files_emb:
+            import numpy as np
+            query_emb = _SBERT.encode(q["expandida"], convert_to_numpy=True)
+            doc_embs  = np.array([json.loads(f["embedding"]) for f in files_emb])
+            sims_raw  = cosine_similarity([query_emb], doc_embs)[0].tolist()
+
+            for f, score_raw in zip(files_emb, sims_raw):
+                desc      = f["descricao_ia"] or ""
+                desc_norm = _normalizar(desc)
+                nome_norm = _normalizar(f["nome"])
+                score = _ajustar_score(float(score_raw), q, desc_norm, nome_norm)
+                if score is None:
+                    continue
+                results.append({
+                    "id": f["id"], "nome": f["nome"], "caminho": f["caminho"],
+                    "tipo": f["tipo"], "descricao_ia": desc, "conteudo": desc,
+                    "trecho": _trecho(desc, query), "data": f["data_adicionado"],
+                    "favorito": bool(f["favorito"]), "score": round(score, 4),
+                })
+
+        # Arquivos ainda sem embedding: fallback por nome de arquivo
+        for f in files_sem_emb:
+            nome_norm = _normalizar(f["nome"])
+            if q["normalizada"] and q["normalizada"] in nome_norm:
+                desc = f["descricao_ia"] or ""
+                results.append({
+                    "id": f["id"], "nome": f["nome"], "caminho": f["caminho"],
+                    "tipo": f["tipo"], "descricao_ia": desc, "conteudo": desc,
+                    "trecho": _trecho(desc, query), "data": f["data_adicionado"],
+                    "favorito": bool(f["favorito"]), "score": 0.5,
+                })
+
+    # ── Fallback TF-IDF (quando SBERT não está disponível) ──────────────────
     else:
-        sims = _fallback_sims(files, query_expandida)
+        corpus = [_normalizar(r["descricao_ia"] or r["nome"]) for r in files]
+        q_norm = _normalizar(query)
+        if SKLEARN_OK:
+            try:
+                vec  = TfidfVectorizer(min_df=1, sublinear_tf=True, analyzer="word")
+                mat  = vec.fit_transform(corpus + [q_norm])
+                sims = cosine_similarity(mat[-1:], mat[:-1])[0].tolist()
+            except Exception:
+                sims = _fallback_sims(files, q_norm)
+        else:
+            sims = _fallback_sims(files, q_norm)
 
-    sims_raw = sims[:]
+        max_sim = max(sims) if sims else 0.0
+        sims_n  = [s / max_sim for s in sims] if max_sim >= 0.02 else [0.0] * len(sims)
 
-    # Normaliza: faz o melhor resultado virar 1.0, os outros ficam relativos a ele.
-    # Só normaliza se houver ao menos um match com relevância mínima real (>= 0.02).
-    max_sim = max(sims_raw) if sims_raw else 0.0
-    if max_sim >= 0.02:
-        sims = [s / max_sim for s in sims_raw]
-    else:
-        sims = [0.0] * len(sims_raw)
-
-    results = []
-    for f, score, score_raw in zip(files, sims, sims_raw):
-        # Filtro duplo: score bruto mínimo E score normalizado mínimo
-        if score_raw < 0.02 or score < 0.20:
-            continue
-        # Boost por nome
-        if query.lower() in f["nome"].lower():
-            score = min(1.0, score + 0.20)
-
-        desc = f["descricao_ia"] or ""
-        results.append({
-            "id":          f["id"],
-            "nome":        f["nome"],
-            "caminho":     f["caminho"],
-            "tipo":        f["tipo"],
-            "descricao_ia": desc,
-            "conteudo":    desc,
-            "trecho":      _trecho(desc, query),
-            "data":        f["data_adicionado"],
-            "favorito":    bool(f["favorito"]),
-            "score":       round(float(score), 4),
-        })
+        results = []
+        for f, score, score_raw in zip(files, sims_n, sims):
+            if score_raw < 0.02 or score < 0.20:
+                continue
+            if query.lower() in f["nome"].lower():
+                score = min(1.0, score + 0.20)
+            desc = f["descricao_ia"] or ""
+            results.append({
+                "id": f["id"], "nome": f["nome"], "caminho": f["caminho"],
+                "tipo": f["tipo"], "descricao_ia": desc, "conteudo": desc,
+                "trecho": _trecho(desc, query), "data": f["data_adicionado"],
+                "favorito": bool(f["favorito"]), "score": round(float(score), 4),
+            })
 
     results.sort(key=lambda x: x["score"], reverse=True)
     tempo = round(time.time() - t0, 3)
@@ -849,22 +1044,82 @@ def api_status():
 
 @app.route("/api/debug/files")
 def api_debug_files():
-    """Endpoint temporário de diagnóstico — mostra o que está no banco."""
+    """Mostra todos os arquivos indexados com preview da descrição."""
     uid = _uid()
     if not uid:
         return jsonify({"error": "Não autenticado."}), 401
     conn = get_db()
     rows = conn.execute(
-        "SELECT id, nome, tipo, processado, substr(descricao_ia,1,120) as desc_preview FROM files WHERE user_id = ?",
+        "SELECT id, nome, tipo, processado, embedding IS NOT NULL as tem_embedding, "
+        "substr(descricao_ia,1,120) as desc_preview FROM files WHERE user_id = ?",
         (uid,)
     ).fetchall()
     conn.close()
     return jsonify({
         "total": len(rows),
+        "sbert_disponivel": SBERT_OK,
         "ollama_disponivel": OLLAMA_OK,
-        "sklearn_disponivel": SKLEARN_OK,
         "arquivos": [dict(r) for r in rows]
     })
+
+
+@app.route("/api/debug/scores")
+def api_debug_scores():
+    """Mostra scores brutos SBERT para uma query, sem aplicar threshold."""
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    query = (request.args.get("q") or "").strip()
+    if not query:
+        return jsonify({"error": "Passe ?q=sua_busca na URL."}), 400
+    if not SBERT_OK:
+        return jsonify({"error": "SBERT nao carregou. Verifique o log do servidor."}), 400
+
+    try:
+        conn = get_db()
+        todos = conn.execute(
+            "SELECT COUNT(*) as n FROM files WHERE user_id = ?", (uid,)
+        ).fetchone()["n"]
+        rows_emb = conn.execute(
+            "SELECT nome, tipo, embedding, substr(descricao_ia,1,200) as desc_preview "
+            "FROM files WHERE user_id = ? AND embedding IS NOT NULL",
+            (uid,),
+        ).fetchall()
+        conn.close()
+
+        if not rows_emb:
+            return jsonify({
+                "query": query,
+                "erro": "Nenhum arquivo tem embedding ainda.",
+                "total_arquivos": todos,
+                "dica": "Clique em 'Analisar Pastas' para gerar os embeddings.",
+            })
+
+        import numpy as np
+        from sklearn.metrics.pairwise import cosine_similarity as _cos_sim
+        q = _analisar_query(query)
+        query_emb = _SBERT.encode(q["expandida"], convert_to_numpy=True)
+        doc_embs  = np.array([json.loads(r["embedding"]) for r in rows_emb])
+        sims      = _cos_sim([query_emb], doc_embs)[0].tolist()
+
+        resultados = sorted([
+            {"nome": r["nome"], "tipo": r["tipo"],
+             "score": round(s, 4), "passa_threshold": s >= 0.42,
+             "desc_preview": r["desc_preview"]}
+            for r, s in zip(rows_emb, sims)
+        ], key=lambda x: x["score"], reverse=True)
+
+        return jsonify({
+            "query": query,
+            "query_expandida": q["expandida"],
+            "threshold_atual": 0.42,
+            "total_arquivos": todos,
+            "com_embedding": len(rows_emb),
+            "resultados": resultados,
+        })
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -907,14 +1162,14 @@ def api_reanalyze():
         f"descricao_ia LIKE ?" for _ in _DESCRICOES_RUINS
     )
     rows = conn.execute(
-        f"SELECT id, caminho, nome, tipo FROM files WHERE user_id = ? AND (processado = 0 OR {conditions})",
+        f"SELECT id, caminho, nome, tipo FROM files WHERE user_id = ? AND (processado = 0 OR embedding IS NULL OR {conditions})",
         (uid, *[f"{p}%" for p in _DESCRICOES_RUINS])
     ).fetchall()
 
     ids = [r["id"] for r in rows]
     if ids:
         conn.execute(
-            f"UPDATE files SET processado = 0, descricao_ia = '' WHERE id IN ({','.join('?'*len(ids))})",
+            f"UPDATE files SET processado = 0, descricao_ia = '', embedding = NULL WHERE id IN ({','.join('?'*len(ids))})",
             ids
         )
         conn.commit()
@@ -925,6 +1180,47 @@ def api_reanalyze():
         _queue.put({"path": r["caminho"], "nome": r["nome"], "ext": r["tipo"], "uid": uid})
 
     return jsonify({"status": "ok", "reenfileirados": len(rows)})
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Re-geração rápida de embeddings (sem re-executar LLaVA)
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.route("/api/reembed", methods=["POST"])
+def api_reembed():
+    """
+    Re-gera os embeddings SBERT de todos os arquivos já processados a partir
+    das descrições existentes no banco — sem chamar LLaVA novamente.
+    Necessário quando o pipeline de embedding muda (ex: extração de campos).
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+    if not SBERT_OK:
+        return jsonify({"error": "SBERT indisponível.", "atualizados": 0}), 400
+
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id, descricao_ia FROM files WHERE user_id = ? AND processado = 1 AND descricao_ia != ''",
+        (uid,),
+    ).fetchall()
+    conn.close()
+
+    total = len(rows)
+
+    def _worker():
+        for r in rows:
+            texto_emb = _normalizar(_extrair_campos_llava(r["descricao_ia"]))
+            emb = _gerar_embedding(texto_emb)
+            if emb:
+                c = get_db()
+                c.execute("UPDATE files SET embedding = ? WHERE id = ?", (json.dumps(emb), r["id"]))
+                c.commit()
+                c.close()
+        print(f"[SBERT] Re-embed concluído: {total} arquivos atualizados.")
+
+    threading.Thread(target=_worker, daemon=True).start()
+    return jsonify({"status": "ok", "atualizados": total})
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1093,10 +1389,19 @@ def _process_worker() -> None:
             print(f"[ERRO] {fpath}: {exc}")
             desc = f"{ext.upper()}: {fname}"
 
+        emb_json = None
+        if SBERT_OK and desc:
+            # Extrai só os campos relevantes e normaliza antes de gerar o embedding
+            texto_emb = _normalizar(_extrair_campos_llava(desc))
+            emb = _gerar_embedding(texto_emb)
+            if emb:
+                emb_json = json.dumps(emb)
+
         conn = get_db()
         conn.execute(
-            "UPDATE files SET descricao_ia = ?, processado = 1 WHERE user_id = ? AND caminho = ?",
-            (desc, uid, fpath),
+            "UPDATE files SET descricao_ia = ?, embedding = ?, processado = 1 "
+            "WHERE user_id = ? AND caminho = ?",
+            (desc, emb_json, uid, fpath),
         )
         conn.commit()
         conn.close()
@@ -1135,12 +1440,15 @@ def _analyze_image(filepath: str) -> str:
                     "role": "user",
                     "content": (
                         "Analise esta imagem e responda APENAS com uma lista objetiva em português. "
-                        "Máximo 5 linhas. Formato:\n"
+                        "Máximo 5 linhas. É obrigatório especificar o gênero das pessoas. Formato:\n"
                         "- O que é: (cena principal em uma frase)\n"
-                        "- Pessoas: (quantidade e o que fazem, ou 'nenhuma')\n"
+                        "- Pessoas: (para cada pessoa: gênero + idade aproximada + ação; "
+                        "ex: 'uma mulher jovem sorrindo', 'dois homens adultos conversando', "
+                        "'uma menina brincando'; ou 'nenhuma')\n"
                         "- Objetos: (principais itens visíveis)\n"
                         "- Ambiente: (local, cores dominantes)\n"
-                        "- Tags: (3 a 6 palavras-chave de busca)"
+                        "- Tags: (3 a 6 palavras-chave; inclua obrigatoriamente 'homem', 'mulher', "
+                        "'menino' ou 'menina' se houver pessoas; inclua raça/espécie de animais)"
                     ),
                     "images": [filepath],
                 }],
@@ -1191,7 +1499,6 @@ def _extract_txt(filepath: str) -> str:
 
 if __name__ == "__main__":
     init_db()
-    _detectar_modelo_texto()
 
     # Worker de processamento em background (daemon = mata junto com o processo)
     threading.Thread(target=_process_worker, daemon=True).start()
