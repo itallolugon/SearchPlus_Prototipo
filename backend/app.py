@@ -58,10 +58,11 @@ try:
 except ImportError:
     SKLEARN_OK = False
 
-# Força uso do cache local — evita timeouts de rede ao checar arquivos no HuggingFace.
-# O modelo já deve estar baixado; se não estiver, remova estas duas linhas e reinicie.
-os.environ.setdefault("HF_HUB_OFFLINE", "1")
-os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+# Força uso do cache local por padrão — evita timeouts de rede ao checar arquivos no HuggingFace.
+# Para baixar modelos pela primeira vez, rode com: SEARCHPLUS_OFFLINE=0 py backend/app.py
+if os.environ.get("SEARCHPLUS_OFFLINE", "1") == "1":
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+    os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 try:
     from sentence_transformers import SentenceTransformer as _ST
@@ -71,6 +72,35 @@ try:
 except Exception as _e:
     SBERT_OK = False
     print(f"[AI] Sentence Transformers indisponível: {_e}")
+
+# ── CLIP: busca visual direta (texto↔imagem no mesmo espaço vetorial) ───────
+# Dois modelos: encoder de texto multilingual + encoder de imagem original.
+# Total ~1.1GB no primeiro download. Rode uma vez com SEARCHPLUS_OFFLINE=0.
+try:
+    from PIL import Image as _PILImage
+    PIL_OK = True
+except ImportError:
+    PIL_OK = False
+
+try:
+    if not PIL_OK:
+        raise ImportError("Pillow não instalado (pip install Pillow).")
+    from sentence_transformers import SentenceTransformer as _ST2
+    _CLIP_TXT = _ST2("sentence-transformers/clip-ViT-B-32-multilingual-v1")
+    _CLIP_IMG = _ST2("sentence-transformers/clip-ViT-B-32")
+    CLIP_OK = True
+    print("[AI] CLIP multilingual carregado — busca visual ativa.")
+except Exception as _e:
+    CLIP_OK = False
+    print(f"[AI] CLIP indisponível (busca visual desligada): {_e}")
+
+# ── BM25: busca por palavra-chave (complemento ao SBERT) ────────────────────
+try:
+    from rank_bm25 import BM25Okapi
+    BM25_OK = True
+except ImportError:
+    BM25_OK = False
+    print("[AI] rank_bm25 indisponível — busca híbrida cairá para SBERT puro.")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Flask App
@@ -119,6 +149,31 @@ def _gerar_embedding(text: str) -> list[float] | None:
         return _SBERT.encode(text, convert_to_numpy=True).tolist()
     except Exception as exc:
         print(f"[SBERT] Erro ao gerar embedding: {exc}")
+        return None
+
+
+def _gerar_embedding_clip_imagem(filepath: str) -> list[float] | None:
+    """Gera embedding CLIP visual da imagem. Fica no mesmo espaço vetorial do encoder de texto multilingual."""
+    if not CLIP_OK:
+        return None
+    try:
+        with _PILImage.open(filepath) as img:
+            img = img.convert("RGB")
+            vec = _CLIP_IMG.encode(img, convert_to_numpy=True)
+        return vec.tolist()
+    except Exception as exc:
+        print(f"[CLIP] Erro ao gerar embedding de imagem: {exc}")
+        return None
+
+
+def _gerar_embedding_clip_texto(text: str) -> list[float] | None:
+    """Gera embedding CLIP do texto (multilingual) — compatível com imagens."""
+    if not CLIP_OK or not text.strip():
+        return None
+    try:
+        return _CLIP_TXT.encode(text, convert_to_numpy=True).tolist()
+    except Exception as exc:
+        print(f"[CLIP] Erro ao gerar embedding de texto: {exc}")
         return None
 
 
@@ -181,6 +236,7 @@ def init_db() -> None:
             tipo            TEXT    NOT NULL,
             descricao_ia    TEXT    DEFAULT '',
             embedding       TEXT    DEFAULT NULL,
+            embedding_clip  TEXT    DEFAULT NULL,
             data_adicionado TEXT    NOT NULL,
             favorito        INTEGER DEFAULT 0,
             processado      INTEGER DEFAULT 0,
@@ -188,13 +244,17 @@ def init_db() -> None:
             FOREIGN KEY (user_id) REFERENCES users(id)
         );
     """)
-    # Migração: adiciona coluna embedding se o banco já existia sem ela
-    try:
-        conn.execute("ALTER TABLE files ADD COLUMN embedding TEXT DEFAULT NULL")
-        conn.commit()
-        print("[DB] Coluna 'embedding' adicionada.")
-    except sqlite3.OperationalError:
-        pass  # Coluna já existe
+    # Migrações idempotentes para bancos antigos
+    for coluna, ddl in (
+        ("embedding",      "ALTER TABLE files ADD COLUMN embedding TEXT DEFAULT NULL"),
+        ("embedding_clip", "ALTER TABLE files ADD COLUMN embedding_clip TEXT DEFAULT NULL"),
+    ):
+        try:
+            conn.execute(ddl)
+            conn.commit()
+            print(f"[DB] Coluna '{coluna}' adicionada.")
+        except sqlite3.OperationalError:
+            pass  # Coluna já existe
     conn.commit()
     conn.close()
 
@@ -762,13 +822,13 @@ def _analisar_query(query: str) -> dict:
 
 def _ajustar_score(score_raw: float, q: dict, desc_norm: str, nome_norm: str) -> float | None:
     """
-    Aplica regras de negócio sobre o score bruto do SBERT:
-    - Rejeita abaixo do threshold mínimo
+    Aplica regras de negócio sobre o score (blended ou SBERT puro):
     - Rejeita matches impossíveis (pessoa vs imagem sem pessoa, gênero oposto)
     - Aplica boosts: nome do arquivo, keyword match, gênero compatível
+    Threshold mínimo de relevância fica no pré-filtro SBERT (no api_search).
     Retorna None se o resultado deve ser descartado.
     """
-    if score_raw < 0.42:
+    if score_raw < 0.20:
         return None
 
     desc_words = set(desc_norm.split())
@@ -817,6 +877,26 @@ def _ajustar_score(score_raw: float, q: dict, desc_norm: str, nome_norm: str) ->
         score += 0.08
 
     return min(1.0, score)
+
+
+def _bm25_scores(corpus_tokens: list[list[str]], query_tokens: list[str]) -> list[float]:
+    """
+    Calcula scores BM25 sobre um corpus de tokens para uma query já tokenizada.
+    Retorna lista vazia se BM25 indisponível ou corpus vazio. Scores são
+    normalizados para [0, 1] dividindo pelo máximo.
+    """
+    if not BM25_OK or not corpus_tokens or not query_tokens:
+        return [0.0] * len(corpus_tokens)
+    try:
+        bm25 = BM25Okapi(corpus_tokens)
+        raw  = bm25.get_scores(query_tokens).tolist()
+        mx   = max(raw) if raw else 0.0
+        if mx <= 0:
+            return [0.0] * len(raw)
+        return [s / mx for s in raw]
+    except Exception as exc:
+        print(f"[BM25] Erro: {exc}")
+        return [0.0] * len(corpus_tokens)
 
 
 def _match_filter(ext: str, filtro: str) -> bool:
@@ -872,7 +952,7 @@ def api_search():
 
     t0 = time.time()
 
-    # ── Busca semântica com Sentence Transformers ────────────────────────────
+    # ── Busca híbrida: SBERT (semântica) + BM25 (keyword) + CLIP (visual) ────
     if SBERT_OK:
         files_emb = [f for f in files if f["embedding"]]
         files_sem_emb = [f for f in files if not f["embedding"]]
@@ -882,15 +962,56 @@ def api_search():
 
         if files_emb:
             import numpy as np
+
+            # 1) SBERT — score semântico sobre o texto da descrição
             query_emb = _SBERT.encode(q["expandida"], convert_to_numpy=True)
             doc_embs  = np.array([json.loads(f["embedding"]) for f in files_emb])
-            sims_raw  = cosine_similarity([query_emb], doc_embs)[0].tolist()
+            sbert_sims = cosine_similarity([query_emb], doc_embs)[0].tolist()
 
-            for f, score_raw in zip(files_emb, sims_raw):
+            # 2) BM25 — score de palavra-chave sobre descrição + nome
+            corpus_tokens = [
+                _tokenizar((f["descricao_ia"] or "") + " " + (f["nome"] or ""))
+                for f in files_emb
+            ]
+            bm25_sims = _bm25_scores(corpus_tokens, q["palavras"])
+
+            # 3) CLIP — score visual (texto↔imagem) só para imagens com embedding CLIP
+            clip_sims: list[float] = [0.0] * len(files_emb)
+            if CLIP_OK:
+                clip_query_vec = _gerar_embedding_clip_texto(q["original"])
+                if clip_query_vec is not None:
+                    clip_q_np = np.array([clip_query_vec])
+                    for i, f in enumerate(files_emb):
+                        if f["tipo"] in _EXT_IMG and f["embedding_clip"]:
+                            try:
+                                img_vec = np.array([json.loads(f["embedding_clip"])])
+                                clip_sims[i] = float(cosine_similarity(clip_q_np, img_vec)[0][0])
+                            except Exception:
+                                pass
+
+            # 4) Blend dos três scores — pesos diferentes para imagens vs outros
+            # Imagens: CLIP entra com peso; outros: só SBERT + BM25
+            W_SBERT_IMG, W_BM25_IMG, W_CLIP_IMG = 0.45, 0.25, 0.30
+            W_SBERT_DOC, W_BM25_DOC             = 0.65, 0.35
+
+            for f, s_sbert, s_bm25, s_clip in zip(files_emb, sbert_sims, bm25_sims, clip_sims):
+                # Pré-filtro semântico: item precisa ter ALGUMA relevância textual
+                # (SBERT >= 0.42) OU um match visual forte (CLIP >= 0.25 para imagens).
+                tem_texto  = s_sbert >= 0.42
+                tem_visual = (f["tipo"] in _EXT_IMG and CLIP_OK and s_clip >= 0.25)
+                tem_keyword = s_bm25 >= 0.5 and bool(q["palavras_set"])
+                if not (tem_texto or tem_visual or tem_keyword):
+                    continue
+
+                if f["tipo"] in _EXT_IMG and CLIP_OK and s_clip > 0:
+                    blended = W_SBERT_IMG * s_sbert + W_BM25_IMG * s_bm25 + W_CLIP_IMG * s_clip
+                else:
+                    blended = W_SBERT_DOC * s_sbert + W_BM25_DOC * s_bm25
+
                 desc      = f["descricao_ia"] or ""
                 desc_norm = _normalizar(desc)
                 nome_norm = _normalizar(f["nome"])
-                score = _ajustar_score(float(score_raw), q, desc_norm, nome_norm)
+                score = _ajustar_score(float(blended), q, desc_norm, nome_norm)
                 if score is None:
                     continue
                 results.append({
@@ -1189,19 +1310,21 @@ def api_reanalyze():
 @app.route("/api/reembed", methods=["POST"])
 def api_reembed():
     """
-    Re-gera os embeddings SBERT de todos os arquivos já processados a partir
-    das descrições existentes no banco — sem chamar LLaVA novamente.
-    Necessário quando o pipeline de embedding muda (ex: extração de campos).
+    Re-gera os embeddings de todos os arquivos já processados:
+    - SBERT a partir da descrição textual (rápido)
+    - CLIP a partir da imagem no disco (lento, só imagens)
+    Não chama LLaVA novamente.
     """
     uid = _uid()
     if not uid:
         return jsonify({"error": "Não autenticado."}), 401
-    if not SBERT_OK:
-        return jsonify({"error": "SBERT indisponível.", "atualizados": 0}), 400
+    if not SBERT_OK and not CLIP_OK:
+        return jsonify({"error": "Nenhum modelo de embedding disponível.", "atualizados": 0}), 400
 
     conn = get_db()
     rows = conn.execute(
-        "SELECT id, descricao_ia FROM files WHERE user_id = ? AND processado = 1 AND descricao_ia != ''",
+        "SELECT id, caminho, tipo, descricao_ia FROM files "
+        "WHERE user_id = ? AND processado = 1 AND descricao_ia != ''",
         (uid,),
     ).fetchall()
     conn.close()
@@ -1209,15 +1332,34 @@ def api_reembed():
     total = len(rows)
 
     def _worker():
+        ok_sbert = 0
+        ok_clip  = 0
         for r in rows:
-            texto_emb = _normalizar(_extrair_campos_llava(r["descricao_ia"]))
-            emb = _gerar_embedding(texto_emb)
-            if emb:
+            sets: list[str] = []
+            vals: list = []
+
+            if SBERT_OK:
+                texto_emb = _normalizar(_extrair_campos_llava(r["descricao_ia"]))
+                emb = _gerar_embedding(texto_emb)
+                if emb:
+                    sets.append("embedding = ?")
+                    vals.append(json.dumps(emb))
+                    ok_sbert += 1
+
+            if CLIP_OK and r["tipo"] in _EXT_IMG and os.path.isfile(r["caminho"]):
+                emb_clip = _gerar_embedding_clip_imagem(r["caminho"])
+                if emb_clip:
+                    sets.append("embedding_clip = ?")
+                    vals.append(json.dumps(emb_clip))
+                    ok_clip += 1
+
+            if sets:
+                vals.append(r["id"])
                 c = get_db()
-                c.execute("UPDATE files SET embedding = ? WHERE id = ?", (json.dumps(emb), r["id"]))
+                c.execute(f"UPDATE files SET {', '.join(sets)} WHERE id = ?", vals)
                 c.commit()
                 c.close()
-        print(f"[SBERT] Re-embed concluído: {total} arquivos atualizados.")
+        print(f"[Reembed] SBERT: {ok_sbert} | CLIP: {ok_clip} | Total varrido: {total}")
 
     threading.Thread(target=_worker, daemon=True).start()
     return jsonify({"status": "ok", "atualizados": total})
@@ -1397,11 +1539,18 @@ def _process_worker() -> None:
             if emb:
                 emb_json = json.dumps(emb)
 
+        # CLIP visual — apenas para imagens, lê o próprio arquivo
+        emb_clip_json = None
+        if CLIP_OK and ext in _EXT_IMG:
+            emb_clip = _gerar_embedding_clip_imagem(fpath)
+            if emb_clip:
+                emb_clip_json = json.dumps(emb_clip)
+
         conn = get_db()
         conn.execute(
-            "UPDATE files SET descricao_ia = ?, embedding = ?, processado = 1 "
+            "UPDATE files SET descricao_ia = ?, embedding = ?, embedding_clip = ?, processado = 1 "
             "WHERE user_id = ? AND caminho = ?",
-            (desc, emb_json, uid, fpath),
+            (desc, emb_json, emb_clip_json, uid, fpath),
         )
         conn.commit()
         conn.close()
