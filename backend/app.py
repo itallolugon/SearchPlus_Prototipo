@@ -179,11 +179,12 @@ def _gerar_embedding_clip_texto(text: str) -> list[float] | None:
 
 def _extrair_campos_llava(desc: str) -> str:
     """
-    Extrai apenas Pessoas, Objetos e Tags da saída LLaVA para gerar embedding.
-    Descarta 'O que é' e 'Ambiente' para reduzir ruído semântico.
+    Extrai campos semanticamente ricos da saída LLaVA para gerar embedding.
+    Inclui 'O que é', 'Pessoas', 'Objetos', 'Ações' e 'Tags'.
+    Descarta 'Ambiente' (cores/local) para reduzir ruído.
     Retorna o texto original se o formato estruturado não for encontrado.
     """
-    campos_alvo = {"pessoas", "objetos", "tags"}
+    campos_alvo = {"o que e", "pessoas", "animais", "objetos", "acoes", "tags"}
     linhas_extraidas = []
 
     for linha in desc.splitlines():
@@ -194,6 +195,121 @@ def _extrair_campos_llava(desc: str) -> str:
             linhas_extraidas.append(limpa)
 
     return " | ".join(linhas_extraidas) if linhas_extraidas else desc
+
+
+def _rerank_com_llm(query: str, candidatos: list[dict], topk: int = 20) -> list[dict]:
+    """
+    Reordena os top-K candidatos usando llama3.2 como juiz de relevância.
+    Blend 50/50 entre score base (SBERT+BM25+CLIP) e nota do LLM.
+    Salvaguarda: se o base é alto (>= 0.60) e o LLM discorda fortemente (<= 0.2),
+    ignora o LLM — provável erro de julgamento, não descartamos um hit óbvio.
+    Se Ollama falhar ou só houver 1 candidato, devolve inalterado (degrada gracioso).
+    """
+    if not OLLAMA_OK or not candidatos:
+        return candidatos
+
+    topo = candidatos[:topk]
+    resto = candidatos[topk:]
+
+    # Monta bloco numerado compacto: descrição truncada para não estourar contexto
+    itens = []
+    for i, c in enumerate(topo, 1):
+        desc = (c.get("descricao_ia") or c.get("nome") or "")[:300].replace("\n", " ")
+        itens.append(f"{i}. {desc}")
+
+    prompt = (
+        f'Consulta do usuário: "{query}"\n\n'
+        "Abaixo há arquivos numerados. Para CADA arquivo, dê uma nota de 0 a 10 "
+        "indicando o quanto ele é relevante à consulta. Seja generoso com SINÔNIMOS "
+        "e termos relacionados (ex: 'cachorro' = 'cão' = 'pet'; 'mulher' inclui 'menina'; "
+        "'comida' inclui 'prato', 'refeição').\n"
+        "Critério: 10 = diretamente sobre o tema; 7-9 = contém claramente o tema; "
+        "4-6 = relação indireta; 0-3 = não tem relação.\n\n"
+        "Responda APENAS em JSON, sem markdown, sem explicação. "
+        "Formato: {\"1\": 8, \"2\": 3, \"3\": 10, ...}\n\n"
+        + "\n".join(itens)
+    )
+
+    try:
+        resp = _ollama.chat(
+            model="llama3.2",
+            messages=[{"role": "user", "content": prompt}],
+            options={"temperature": 0.0},
+        )
+        raw = resp["message"]["content"].strip()
+        if raw.startswith("```"):
+            raw = raw.strip("`").lstrip("json").strip()
+        notas = json.loads(raw)
+    except Exception as exc:
+        print(f"[Rerank] Falhou, mantendo ordem original: {exc}")
+        return candidatos
+
+    # Palavras originais da query + variantes morfológicas (cobre 'homem'→'homens'
+    # sem trazer ruído de sinônimos genéricos como 'adulto')
+    q_palavras_literais = set()
+    for w in _tokenizar(query):
+        if len(w) >= 3:
+            q_palavras_literais.update(_variantes_morfologicas(w))
+
+    for i, c in enumerate(topo, 1):
+        nota = notas.get(str(i), notas.get(i))
+        if not isinstance(nota, (int, float)):
+            continue
+        llm_score = max(0.0, min(1.0, float(nota) / 10.0))
+        base = c["score"]
+
+        # Salvaguarda 1: hit forte do motor + LLM "rejeita" → LLM provavelmente errou
+        if base >= 0.60 and llm_score <= 0.20:
+            print(f"[Rerank] LLM rejeitou '{c['nome']}' (base={base:.2f}) — ignorando nota LLM")
+            continue
+
+        # Salvaguarda 2: palavra da query aparece LITERALMENTE na descrição → piso 0.5
+        # Evita que o LLM mate um match direto (ex: 'carne' em 'kebab de carne')
+        desc_norm = _normalizar(c.get("descricao_ia") or "")
+        if any(w in desc_norm for w in q_palavras_literais):
+            llm_score = max(llm_score, 0.5)
+
+        c["score_original"] = base
+        c["score_llm"]      = round(llm_score, 3)
+        c["score"]          = round(0.5 * base + 0.5 * llm_score, 4)
+
+    topo.sort(key=lambda x: x["score"], reverse=True)
+    return topo + resto
+
+
+def _variantes_morfologicas(palavra: str) -> set[str]:
+    """
+    Gera variantes singular↔plural em português, cobrindo o caso problemático
+    do plural nasal (homem→homens, jovem→jovens) que substring puro não pega.
+    Mantém-se pequeno e focado — não substitui um stemmer real, mas cobre
+    os 90% dos casos sem dependência extra.
+    """
+    out = {palavra}
+    if len(palavra) < 4:
+        return out
+    # Plural nasal: homem ↔ homens, jovem ↔ jovens
+    if palavra.endswith("m"):
+        out.add(palavra[:-1] + "ns")
+    elif palavra.endswith("ns"):
+        out.add(palavra[:-2] + "m")
+    # Plural regular: gato ↔ gatos
+    elif palavra.endswith("s"):
+        out.add(palavra[:-1])
+    else:
+        out.add(palavra + "s")
+    return out
+
+
+def _texto_para_embedding(desc: str) -> str:
+    """
+    Prepara texto da descrição LLaVA para virar embedding de alto recall.
+    Expande sinônimos no próprio texto do documento (não só na query), então
+    uma imagem com 'Cão' também casa com buscas por 'cachorro', 'caozinho' etc.
+    """
+    campos = _extrair_campos_llava(desc)
+    tokens = _tokenizar(campos)
+    expandido = _expandir_sinonimos(tokens)
+    return expandido or _normalizar(campos)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Banco de dados SQLite
@@ -647,20 +763,35 @@ _FRASES_SEM_ANIMAL = (
 _SINONIMOS_QUERY: dict[str, list[str]] = {
     # ── Animais ──────────────────────────────────────────────────────────
     "cao":         ["cachorro", "caozinho", "cachorrinho", "cachorra", "dog", "pet"],
+    "caes":        ["cachorro", "cao", "caozinhos", "cachorrinhos", "dogs", "pets"],
+    "ca":          ["cao", "cachorro"],  # truncamento comum do LLaVA
+    "cae":         ["cao", "cachorro"],  # truncamento comum do LLaVA
     "cachorro":    ["cao", "caozinho", "cachorrinho", "cachorra", "filhote", "pet", "dog"],
+    "cachorros":   ["cachorro", "cao", "caes", "pets"],
     "caozinho":    ["cachorro", "cao", "cachorrinho", "filhote"],
+    "caozinhos":   ["cachorro", "caes", "cachorrinhos", "filhotes"],
     "cachorrinho": ["cachorro", "caozinho", "cao", "filhote"],
+    "cachorrinhos":["cachorros", "caozinhos", "caes", "filhotes"],
     "cachorra":    ["cachorro", "cao", "cadela"],
+    "cadela":      ["cachorra", "cachorro", "cao"],
+    "filhote":     ["cachorro", "cao", "caozinho", "bebe animal"],
+    "filhotes":    ["cachorros", "caes", "caozinhos"],
     "dog":         ["cachorro", "cao"],
+    "dogs":        ["cachorros", "caes"],
     "vira-lata":   ["cachorro", "cao"],
     "viralata":    ["cachorro", "cao"],
 
     "gato":      ["gatinho", "gata", "felino", "bichano", "cat"],
+    "gatos":     ["gatinhos", "gatas", "felinos", "bichanos"],
     "gatinha":   ["gata", "gato", "gatinho", "felina"],
     "gatinho":   ["gato", "gata", "felino", "filhote"],
+    "gatinhos":  ["gatos", "gatas", "felinos", "filhotes"],
     "gata":      ["gato", "gatinha", "felina"],
+    "gatas":     ["gatos", "gatinhas", "felinas"],
     "felino":    ["gato", "gatinho"],
+    "felinos":   ["gatos", "gatinhos"],
     "bichano":   ["gato", "gatinho"],
+    "bichanos":  ["gatos", "gatinhos"],
 
     "pet":      ["cachorro", "gato", "animal domestico", "bicho de estimacao"],
     "pets":     ["cachorros", "gatos", "animais"],
@@ -702,6 +833,8 @@ _SINONIMOS_QUERY: dict[str, list[str]] = {
     "nenem":    ["bebe", "crianca"],
     "crianca":  ["menino", "menina", "infante", "bebe"],
     "criancas": ["meninos", "meninas", "bebes"],
+    "jovem":    ["adolescente"],
+    "jovens":   ["adolescentes"],
 
     # ── Natureza / lugares ───────────────────────────────────────────────
     "praia":    ["litoral", "mar", "areia", "costa"],
@@ -732,6 +865,13 @@ _SINONIMOS_QUERY: dict[str, list[str]] = {
     "computador": ["pc", "notebook", "laptop"],
     "notebook":  ["laptop", "computador"],
     "laptop":    ["notebook", "computador"],
+
+    # ── Comida ───────────────────────────────────────────────────────────
+    "carne":     ["kebab", "frango", "porco", "boi", "churrasco", "bife", "almoco"],
+    "kebab":     ["carne", "espeto", "churrasco"],
+    "frango":    ["carne", "ave"],
+    "comida":    ["alimento", "refeicao", "prato", "almoco", "janta"],
+    "refeicao":  ["comida", "alimento", "prato"],
 
     # ── Cores ────────────────────────────────────────────────────────────
     "vermelho":  ["vermelha", "rubro", "encarnado"],
@@ -994,26 +1134,48 @@ def api_search():
             W_SBERT_IMG, W_BM25_IMG, W_CLIP_IMG = 0.45, 0.25, 0.30
             W_SBERT_DOC, W_BM25_DOC             = 0.65, 0.35
 
-            for f, s_sbert, s_bm25, s_clip in zip(files_emb, sbert_sims, bm25_sims, clip_sims):
-                # Pré-filtro semântico: item precisa ter ALGUMA relevância textual
-                # (SBERT >= 0.42) OU um match visual forte (CLIP >= 0.25 para imagens).
-                tem_texto  = s_sbert >= 0.42
-                tem_visual = (f["tipo"] in _EXT_IMG and CLIP_OK and s_clip >= 0.25)
-                tem_keyword = s_bm25 >= 0.5 and bool(q["palavras_set"])
-                if not (tem_texto or tem_visual or tem_keyword):
-                    continue
+            # Match literal: palavras originais da query + variantes morfológicas
+            # (singular↔plural). Não usa a expansão inteira para evitar matches
+            # espúrios em sinônimos genéricos como "adulto", "feminino".
+            palavras_literais = set()
+            for w in q["palavras"]:
+                if len(w) >= 3:
+                    palavras_literais.update(_variantes_morfologicas(w))
 
-                if f["tipo"] in _EXT_IMG and CLIP_OK and s_clip > 0:
-                    blended = W_SBERT_IMG * s_sbert + W_BM25_IMG * s_bm25 + W_CLIP_IMG * s_clip
-                else:
-                    blended = W_SBERT_DOC * s_sbert + W_BM25_DOC * s_bm25
+            def _filtrar_e_pontuar(threshold_sbert: float) -> list:
+                """Aplica filtro+score com um threshold específico. Usado para fallback adaptativo."""
+                out = []
+                for f, s_sbert, s_bm25, s_clip in zip(files_emb, sbert_sims, bm25_sims, clip_sims):
+                    desc_norm_local = _normalizar(f["descricao_ia"] or "")
+                    tem_texto     = s_sbert >= threshold_sbert
+                    tem_visual    = (f["tipo"] in _EXT_IMG and CLIP_OK and s_clip >= 0.25)
+                    tem_keyword   = s_bm25 >= 0.5 and bool(q["palavras_set"])
+                    # Match literal: palavra da query aparece na descrição (cobre 'carne' em 'kebab de carne')
+                    match_literal = any(w in desc_norm_local for w in palavras_literais)
+                    if not (tem_texto or tem_visual or tem_keyword or match_literal):
+                        continue
 
-                desc      = f["descricao_ia"] or ""
-                desc_norm = _normalizar(desc)
-                nome_norm = _normalizar(f["nome"])
-                score = _ajustar_score(float(blended), q, desc_norm, nome_norm)
-                if score is None:
-                    continue
+                    if f["tipo"] in _EXT_IMG and CLIP_OK and s_clip > 0:
+                        blended = W_SBERT_IMG * s_sbert + W_BM25_IMG * s_bm25 + W_CLIP_IMG * s_clip
+                    else:
+                        blended = W_SBERT_DOC * s_sbert + W_BM25_DOC * s_bm25
+
+                    desc      = f["descricao_ia"] or ""
+                    desc_norm = _normalizar(desc)
+                    nome_norm = _normalizar(f["nome"])
+                    score = _ajustar_score(float(blended), q, desc_norm, nome_norm)
+                    if score is None:
+                        continue
+                    out.append((f, desc, score))
+                return out
+
+            # Busca adaptativa: tenta threshold normal; se vazio, afrouxa só um pouco
+            # (0.30 ainda bloqueia falso-positivo tipo 'gato' → cachorro em 0.28).
+            candidatos = _filtrar_e_pontuar(0.35)
+            if not candidatos:
+                candidatos = _filtrar_e_pontuar(0.30)
+
+            for f, desc, score in candidatos:
                 results.append({
                     "id": f["id"], "nome": f["nome"], "caminho": f["caminho"],
                     "tipo": f["tipo"], "descricao_ia": desc, "conteudo": desc,
@@ -1065,6 +1227,14 @@ def api_search():
             })
 
     results.sort(key=lambda x: x["score"], reverse=True)
+
+    # Re-rank com LLM-juiz sobre os top-20. Se o Ollama não responder a tempo,
+    # devolve a ordem SBERT+BM25 pura (degrada gracioso).
+    if results:
+        results = _rerank_com_llm(query, results, topk=20)
+        # Corte final: depois do LLM, tudo < 0.20 vira ruído. Remove.
+        results = [r for r in results if r["score"] >= 0.20]
+
     tempo = round(time.time() - t0, 3)
     return jsonify({"resultados": results[:60], "tempo": tempo})
 
@@ -1226,7 +1396,7 @@ def api_debug_scores():
 
         resultados = sorted([
             {"nome": r["nome"], "tipo": r["tipo"],
-             "score": round(s, 4), "passa_threshold": s >= 0.42,
+             "score": round(s, 4), "passa_threshold": s >= 0.35,
              "desc_preview": r["desc_preview"]}
             for r, s in zip(rows_emb, sims)
         ], key=lambda x: x["score"], reverse=True)
@@ -1234,7 +1404,7 @@ def api_debug_scores():
         return jsonify({
             "query": query,
             "query_expandida": q["expandida"],
-            "threshold_atual": 0.42,
+            "threshold_atual": 0.35,
             "total_arquivos": todos,
             "com_embedding": len(rows_emb),
             "resultados": resultados,
@@ -1339,7 +1509,7 @@ def api_reembed():
             vals: list = []
 
             if SBERT_OK:
-                texto_emb = _normalizar(_extrair_campos_llava(r["descricao_ia"]))
+                texto_emb = _texto_para_embedding(r["descricao_ia"])
                 emb = _gerar_embedding(texto_emb)
                 if emb:
                     sets.append("embedding = ?")
@@ -1533,8 +1703,8 @@ def _process_worker() -> None:
 
         emb_json = None
         if SBERT_OK and desc:
-            # Extrai só os campos relevantes e normaliza antes de gerar o embedding
-            texto_emb = _normalizar(_extrair_campos_llava(desc))
+            # Texto expandido com sinônimos → embedding casa com variações do termo
+            texto_emb = _texto_para_embedding(desc)
             emb = _gerar_embedding(texto_emb)
             if emb:
                 emb_json = json.dumps(emb)
@@ -1546,11 +1716,17 @@ def _process_worker() -> None:
             if emb_clip:
                 emb_clip_json = json.dumps(emb_clip)
 
+        # Se caiu no fallback conhecido (LLaVA/extrator falhou), deixa processado=0
+        # para que uma próxima varredura tente de novo. Não depende de emb_json
+        # porque o SBERT gera embedding até de texto curto ("imagem a.jpg").
+        caiu_no_fallback = any(desc.startswith(prefix) for prefix in _DESCRICOES_RUINS)
+        processado_flag = 0 if caiu_no_fallback else 1
+
         conn = get_db()
         conn.execute(
-            "UPDATE files SET descricao_ia = ?, embedding = ?, embedding_clip = ?, processado = 1 "
+            "UPDATE files SET descricao_ia = ?, embedding = ?, embedding_clip = ?, processado = ? "
             "WHERE user_id = ? AND caminho = ?",
-            (desc, emb_json, emb_clip_json, uid, fpath),
+            (desc, emb_json, emb_clip_json, processado_flag, uid, fpath),
         )
         conn.commit()
         conn.close()
@@ -1585,19 +1761,27 @@ def _analyze_image(filepath: str) -> str:
         try:
             resp = _ollama.chat(
                 model="llava:13b",
+                options={"temperature": 0.0, "top_p": 0.5},
                 messages=[{
                     "role": "user",
                     "content": (
-                        "Analise esta imagem e responda APENAS com uma lista objetiva em português. "
-                        "Máximo 5 linhas. É obrigatório especificar o gênero das pessoas. Formato:\n"
-                        "- O que é: (cena principal em uma frase)\n"
-                        "- Pessoas: (para cada pessoa: gênero + idade aproximada + ação; "
-                        "ex: 'uma mulher jovem sorrindo', 'dois homens adultos conversando', "
-                        "'uma menina brincando'; ou 'nenhuma')\n"
-                        "- Objetos: (principais itens visíveis)\n"
-                        "- Ambiente: (local, cores dominantes)\n"
-                        "- Tags: (3 a 6 palavras-chave; inclua obrigatoriamente 'homem', 'mulher', "
-                        "'menino' ou 'menina' se houver pessoas; inclua raça/espécie de animais)"
+                        "Analise esta imagem e descreva APENAS o que VOCÊ VÊ. "
+                        "NÃO INVENTE pessoas, animais ou objetos que não estão visíveis. "
+                        "Se não tem pessoa, escreva 'nenhuma'. Se não tem animal, escreva 'nenhum'.\n\n"
+                        "REGRAS DE VOCABULÁRIO (obrigatório):\n"
+                        "• 'cachorro' (NUNCA 'cão' ou 'cãe')\n"
+                        "• 'gato' (NUNCA 'felino' ou 'bichano')\n"
+                        "• 'mulher' / 'menina' (NUNCA 'senhora', 'moça', 'dama')\n"
+                        "• 'homem' / 'menino' (NUNCA 'senhor', 'rapaz', 'cavalheiro')\n\n"
+                        "FORMATO (máx. 6 linhas, sempre em português):\n"
+                        "- O que é: cena principal em uma frase curta\n"
+                        "- Pessoas: liste somente as REALMENTE visíveis com gênero + idade + ação; "
+                        "ou 'nenhuma' se não há pessoa\n"
+                        "- Animais: liste somente os REALMENTE visíveis com espécie + ação; "
+                        "ou 'nenhum' se não há animal\n"
+                        "- Objetos: itens visíveis (vírgula-separado)\n"
+                        "- Ambiente: local + cores dominantes\n"
+                        "- Tags: 6 a 10 palavras-chave usando o vocabulário acima"
                     ),
                     "images": [filepath],
                 }],
@@ -1608,6 +1792,8 @@ def _analyze_image(filepath: str) -> str:
             print(f"[LLaVA] Indisponível: {exc}")
 
     # ── Fallback: usa nome do arquivo se LLaVA falhou ─────────────────────
+    # Sinaliza com prefixo "Imagem:" para que o worker não marque como processado
+    # e uma próxima varredura tente novamente (evita travar em fallback permanente).
     return llava_desc or f"Imagem: {os.path.basename(filepath)}"
 
 
