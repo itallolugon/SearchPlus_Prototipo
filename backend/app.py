@@ -479,6 +479,25 @@ def api_register():
         return jsonify({"status": "ok"})
     except sqlite3.IntegrityError:
         return jsonify({"mensagem": "Este usuário já existe."}), 409
+    except sqlite3.OperationalError as exc:
+        # Banco existe mas sem schema (ex: arquivo zerado durante uso) — recria e tenta de novo
+        if "no such table" in str(exc).lower():
+            print(f"[DB] Schema ausente, recriando: {exc}")
+            conn.close()
+            init_db()
+            conn = get_db()
+            try:
+                conn.execute(
+                    "INSERT INTO users (username, password_hash, config_json) VALUES (?, ?, ?)",
+                    (username, _hash(password), json.dumps(cfg)),
+                )
+                conn.commit()
+                return jsonify({"status": "ok"})
+            except Exception as exc2:
+                print(f"[DB] Falha após recriar schema: {exc2}")
+                return jsonify({"mensagem": f"Erro interno: {exc2}"}), 500
+        print(f"[DB] Erro no registro: {exc}")
+        return jsonify({"mensagem": f"Erro interno: {exc}"}), 500
     except Exception as exc:
         print(f"[DB] Erro no registro: {exc}")
         return jsonify({"mensagem": f"Erro interno: {exc}"}), 500
