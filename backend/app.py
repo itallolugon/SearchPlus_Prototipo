@@ -180,7 +180,7 @@ def _gerar_embedding_clip_texto(text: str) -> list[float] | None:
 def _extrair_campos_llava(desc: str) -> str:
     """
     Extrai campos semanticamente ricos da saída LLaVA para gerar embedding.
-    Inclui 'O que é', 'Pessoas', 'Objetos', 'Ações' e 'Tags'.
+    Inclui 'O que é', 'Pessoas', 'Animais', 'Objetos', 'Ações' e 'Tags'.
     Descarta 'Ambiente' (cores/local) para reduzir ruído.
     Retorna o texto original se o formato estruturado não for encontrado.
     """
@@ -197,13 +197,46 @@ def _extrair_campos_llava(desc: str) -> str:
     return " | ".join(linhas_extraidas) if linhas_extraidas else desc
 
 
+def _variantes_morfologicas(palavra: str) -> set[str]:
+    """
+    Gera variantes singular↔plural em português, cobrindo o caso problemático
+    do plural nasal (homem→homens, jovem→jovens) que substring puro não pega.
+    Mantém-se pequeno e focado — não substitui um stemmer real, mas cobre
+    os 90% dos casos sem dependência extra.
+    """
+    out = {palavra}
+    if len(palavra) < 4:
+        return out
+    if palavra.endswith("m"):
+        out.add(palavra[:-1] + "ns")
+    elif palavra.endswith("ns"):
+        out.add(palavra[:-2] + "m")
+    elif palavra.endswith("s"):
+        out.add(palavra[:-1])
+    else:
+        out.add(palavra + "s")
+    return out
+
+
+def _texto_para_embedding(desc: str) -> str:
+    """
+    Prepara texto da descrição LLaVA para virar embedding de alto recall.
+    Expande sinônimos no próprio texto do documento (não só na query), então
+    uma imagem com 'cão' também casa com buscas por 'cachorro', 'caozinho' etc.
+    """
+    campos = _extrair_campos_llava(desc)
+    tokens = _tokenizar(campos)
+    expandido = _expandir_sinonimos(tokens)
+    return expandido or _normalizar(campos)
+
+
 def _rerank_com_llm(query: str, candidatos: list[dict], topk: int = 20) -> list[dict]:
     """
     Reordena os top-K candidatos usando llama3.2 como juiz de relevância.
     Blend 50/50 entre score base (SBERT+BM25+CLIP) e nota do LLM.
-    Salvaguarda: se o base é alto (>= 0.60) e o LLM discorda fortemente (<= 0.2),
-    ignora o LLM — provável erro de julgamento, não descartamos um hit óbvio.
-    Se Ollama falhar ou só houver 1 candidato, devolve inalterado (degrada gracioso).
+    Salvaguardas: hit forte (base ≥ 0.60) + LLM rejeita (≤ 0.20) → ignora LLM.
+    Palavra da query literalmente na descrição → piso 0.5 no score do LLM.
+    Se Ollama falhar, devolve os candidatos inalterados (degrada gracioso).
     """
     if not OLLAMA_OK or not candidatos:
         return candidatos
@@ -211,7 +244,6 @@ def _rerank_com_llm(query: str, candidatos: list[dict], topk: int = 20) -> list[
     topo = candidatos[:topk]
     resto = candidatos[topk:]
 
-    # Monta bloco numerado compacto: descrição truncada para não estourar contexto
     itens = []
     for i, c in enumerate(topo, 1):
         desc = (c.get("descricao_ia") or c.get("nome") or "")[:300].replace("\n", " ")
@@ -244,8 +276,6 @@ def _rerank_com_llm(query: str, candidatos: list[dict], topk: int = 20) -> list[
         print(f"[Rerank] Falhou, mantendo ordem original: {exc}")
         return candidatos
 
-    # Palavras originais da query + variantes morfológicas (cobre 'homem'→'homens'
-    # sem trazer ruído de sinônimos genéricos como 'adulto')
     q_palavras_literais = set()
     for w in _tokenizar(query):
         if len(w) >= 3:
@@ -258,13 +288,10 @@ def _rerank_com_llm(query: str, candidatos: list[dict], topk: int = 20) -> list[
         llm_score = max(0.0, min(1.0, float(nota) / 10.0))
         base = c["score"]
 
-        # Salvaguarda 1: hit forte do motor + LLM "rejeita" → LLM provavelmente errou
         if base >= 0.60 and llm_score <= 0.20:
             print(f"[Rerank] LLM rejeitou '{c['nome']}' (base={base:.2f}) — ignorando nota LLM")
             continue
 
-        # Salvaguarda 2: palavra da query aparece LITERALMENTE na descrição → piso 0.5
-        # Evita que o LLM mate um match direto (ex: 'carne' em 'kebab de carne')
         desc_norm = _normalizar(c.get("descricao_ia") or "")
         if any(w in desc_norm for w in q_palavras_literais):
             llm_score = max(llm_score, 0.5)
@@ -276,40 +303,6 @@ def _rerank_com_llm(query: str, candidatos: list[dict], topk: int = 20) -> list[
     topo.sort(key=lambda x: x["score"], reverse=True)
     return topo + resto
 
-
-def _variantes_morfologicas(palavra: str) -> set[str]:
-    """
-    Gera variantes singular↔plural em português, cobrindo o caso problemático
-    do plural nasal (homem→homens, jovem→jovens) que substring puro não pega.
-    Mantém-se pequeno e focado — não substitui um stemmer real, mas cobre
-    os 90% dos casos sem dependência extra.
-    """
-    out = {palavra}
-    if len(palavra) < 4:
-        return out
-    # Plural nasal: homem ↔ homens, jovem ↔ jovens
-    if palavra.endswith("m"):
-        out.add(palavra[:-1] + "ns")
-    elif palavra.endswith("ns"):
-        out.add(palavra[:-2] + "m")
-    # Plural regular: gato ↔ gatos
-    elif palavra.endswith("s"):
-        out.add(palavra[:-1])
-    else:
-        out.add(palavra + "s")
-    return out
-
-
-def _texto_para_embedding(desc: str) -> str:
-    """
-    Prepara texto da descrição LLaVA para virar embedding de alto recall.
-    Expande sinônimos no próprio texto do documento (não só na query), então
-    uma imagem com 'Cão' também casa com buscas por 'cachorro', 'caozinho' etc.
-    """
-    campos = _extrair_campos_llava(desc)
-    tokens = _tokenizar(campos)
-    expandido = _expandir_sinonimos(tokens)
-    return expandido or _normalizar(campos)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Banco de dados SQLite
@@ -364,6 +357,19 @@ def init_db() -> None:
     for coluna, ddl in (
         ("embedding",      "ALTER TABLE files ADD COLUMN embedding TEXT DEFAULT NULL"),
         ("embedding_clip", "ALTER TABLE files ADD COLUMN embedding_clip TEXT DEFAULT NULL"),
+    ):
+        try:
+            conn.execute(ddl)
+            conn.commit()
+            print(f"[DB] Coluna '{coluna}' adicionada.")
+        except sqlite3.OperationalError:
+            pass
+
+    # Migrações: Indexação Inteligente Seletiva (colunas na tabela folders)
+    for coluna, ddl in (
+        ("prioridades",          "ALTER TABLE folders ADD COLUMN prioridades TEXT DEFAULT '[\"tudo\"]'"),
+        ("perfil_analise",       "ALTER TABLE folders ADD COLUMN perfil_analise TEXT DEFAULT 'fast'"),
+        ("janela_processamento", "ALTER TABLE folders ADD COLUMN janela_processamento TEXT DEFAULT 'always'"),
     ):
         try:
             conn.execute(ddl)
@@ -427,6 +433,12 @@ _DEFAULT_CFG = {
     "bg_url": "",
     "bg_blur": 15,
     "idioma": "pt-BR",
+    "notificacoes": True,
+    "atalho_busca": "Ctrl+Shift+F",
+    "iniciar_sistema": False,
+    "modo_privado": False,
+    "pastas_ignoradas": "",
+    "modo_desempenho": "economico",
 }
 
 
@@ -457,12 +469,17 @@ def api_login():
 def api_register():
     data = request.get_json(force=True) or {}
     username = (data.get("username") or "").strip()
+    handle   = (data.get("handle") or "").strip()
     password = (data.get("password") or "").strip()
 
     if not username or not password:
         return jsonify({"mensagem": "Preencha todos os campos."}), 400
 
-    cfg = {**_DEFAULT_CFG, "perfil_nome": username, "perfil_handle": username.lower()}
+    cfg = {
+        **_DEFAULT_CFG, 
+        "perfil_nome": username, 
+        "perfil_handle": handle if handle else username.lower()
+    }
 
     try:
         conn = get_db()
@@ -557,7 +574,8 @@ def api_config():
         conn.close()
 
         cfg = {**_DEFAULT_CFG, **json.loads(row["config_json"] or "{}")} if row else dict(_DEFAULT_CFG)
-        cfg["pastas"] = [f["path"] for f in folders]
+        rows = _list_folders(uid)
+        cfg["pastas"] = _folders_to_json(rows)
         cfg["historico_pastas"] = len(cfg["pastas"]) > 0
         return jsonify(cfg)
 
@@ -584,10 +602,29 @@ def api_config():
 def _list_folders(uid: int):
     conn = get_db()
     rows = conn.execute(
-        "SELECT id, path FROM folders WHERE user_id = ? ORDER BY added_at", (uid,)
+        "SELECT id, path, prioridades, perfil_analise, janela_processamento "
+        "FROM folders WHERE user_id = ? ORDER BY added_at", (uid,)
     ).fetchall()
     conn.close()
     return rows
+
+
+def _folders_to_json(rows):
+    """Converte rows do banco em lista de dicts para o frontend."""
+    result = []
+    for r in rows:
+        try:
+            prio = json.loads(r["prioridades"] or '["tudo"]')
+        except (json.JSONDecodeError, TypeError):
+            prio = ["tudo"]
+        result.append({
+            "id": r["id"],
+            "path": r["path"],
+            "prioridades": prio,
+            "perfil_analise": r["perfil_analise"] or "fast",
+            "janela_processamento": r["janela_processamento"] or "always",
+        })
+    return result
 
 
 @app.route("/api/folders", methods=["GET", "POST", "DELETE"])
@@ -598,7 +635,7 @@ def api_folders():
 
     if request.method == "GET":
         rows = _list_folders(uid)
-        return jsonify({"pastas": [r["path"] for r in rows]})
+        return jsonify({"pastas": _folders_to_json(rows)})
 
     if request.method == "POST":
         data = request.get_json(force=True) or {}
@@ -607,16 +644,29 @@ def api_folders():
         if not pasta or not os.path.isdir(pasta):
             return jsonify({"error": "Caminho inválido ou inexistente."}), 400
 
+        # Novos campos de Indexação Inteligente
+        prioridades = data.get("prioridades", ["tudo"])
+        perfil      = data.get("perfil_analise", "fast")
+        janela      = data.get("janela_processamento", "always")
+
         name = os.path.basename(pasta) or pasta
         conn = get_db()
         try:
             conn.execute(
-                "INSERT INTO folders (user_id, path, name, added_at) VALUES (?, ?, ?, ?)",
-                (uid, pasta, name, datetime.now().isoformat()),
+                "INSERT INTO folders (user_id, path, name, added_at, prioridades, perfil_analise, janela_processamento) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (uid, pasta, name, datetime.now().isoformat(),
+                 json.dumps(prioridades), perfil, janela),
             )
             conn.commit()
         except sqlite3.IntegrityError:
-            pass  # Pasta já cadastrada
+            # Pasta já existe — atualiza config
+            conn.execute(
+                "UPDATE folders SET prioridades=?, perfil_analise=?, janela_processamento=? "
+                "WHERE user_id=? AND path=?",
+                (json.dumps(prioridades), perfil, janela, uid, pasta),
+            )
+            conn.commit()
         finally:
             conn.close()
 
@@ -624,19 +674,20 @@ def api_folders():
         threading.Thread(target=_scan_folder, args=(pasta, uid), daemon=True).start()
 
         rows = _list_folders(uid)
-        return jsonify({"status": "ok", "pastas": [r["path"] for r in rows]})
+        return jsonify({"status": "ok", "pastas": _folders_to_json(rows)})
 
     # DELETE
     data = request.get_json(force=True) or {}
     pasta = (data.get("pasta") or "").strip()
 
     conn = get_db()
+    conn.execute("DELETE FROM files WHERE user_id = ? AND caminho LIKE ?", (uid, pasta + "%"))
     conn.execute("DELETE FROM folders WHERE user_id = ? AND path = ?", (uid, pasta))
     conn.commit()
     conn.close()
 
     rows = _list_folders(uid)
-    return jsonify({"status": "ok", "pastas": [r["path"] for r in rows]})
+    return jsonify({"status": "ok", "pastas": _folders_to_json(rows)})
 
 
 @app.route("/api/folders/<int:folder_id>", methods=["DELETE"])
@@ -646,12 +697,116 @@ def api_delete_folder_by_id(folder_id):
         return jsonify({"error": "Não autenticado."}), 401
 
     conn = get_db()
+    
+    # Pegar o path da pasta para deletar os arquivos
+    row = conn.execute("SELECT path FROM folders WHERE id = ? AND user_id = ?", (folder_id, uid)).fetchone()
+    if row:
+        pasta = row["path"]
+        conn.execute("DELETE FROM files WHERE user_id = ? AND caminho LIKE ?", (uid, pasta + "%"))
+
     conn.execute("DELETE FROM folders WHERE id = ? AND user_id = ?", (folder_id, uid))
     conn.commit()
     conn.close()
 
     rows = _list_folders(uid)
-    return jsonify({"status": "ok", "pastas": [r["path"] for r in rows]})
+    return jsonify({"status": "ok", "pastas": _folders_to_json(rows)})
+
+
+@app.route("/api/folders/update_config", methods=["GET", "POST"])
+def api_update_folder_config():
+    """Atualiza config de indexação (por ID ou Path)."""
+    print(f"[DEBUG] Recebido {request.method} em /api/folders/update_config")
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    if request.method == "GET":
+        return jsonify({"status": "error", "message": "Use POST"}), 400
+        
+    data = request.get_json(force=True) or {}
+    print(f"[DEBUG] Payload: {data}")
+    folder_id = data.get("id")
+    folder_path = data.get("path")
+    
+    sets, vals = [], []
+    if "prioridades" in data:
+        sets.append("prioridades = ?")
+        vals.append(json.dumps(data["prioridades"]))
+    if "perfil_analise" in data:
+        sets.append("perfil_analise = ?")
+        vals.append(data["perfil_analise"])
+    if "janela_processamento" in data:
+        sets.append("janela_processamento = ?")
+        vals.append(data["janela_processamento"])
+
+    if not sets:
+        return jsonify({"error": "Nenhum campo enviado."}), 400
+
+    conn = get_db()
+    if folder_id is not None:
+        vals.extend([folder_id, uid])
+        conn.execute(f"UPDATE folders SET {', '.join(sets)} WHERE id = ? AND user_id = ?", vals)
+    elif folder_path:
+        vals.extend([folder_path, uid])
+        conn.execute(f"UPDATE folders SET {', '.join(sets)} WHERE path = ? AND user_id = ?", vals)
+    else:
+        conn.close()
+        return jsonify({"error": "ID ou Path não fornecido."}), 400
+        
+    conn.commit()
+    conn.close()
+
+    rows = _list_folders(uid)
+    return jsonify({"status": "ok", "pastas": _folders_to_json(rows)})
+
+
+@app.route("/api/estimate_time")
+def api_estimate_time():
+    """Estima tempo de processamento baseado em nº de imagens e perfil."""
+    uid = _uid()
+    if not uid:
+        return jsonify({"estimativa_minutos": 0, "total_imagens": 0})
+
+    pasta  = request.args.get("pasta", "").strip()
+    perfil = request.args.get("perfil", "fast")
+    foco   = request.args.get("foco", "tudo")
+
+    if not pasta or not os.path.isdir(pasta):
+        return jsonify({"estimativa_minutos": 0, "total_imagens": 0})
+
+    count = 0
+    for root, _, filenames in os.walk(pasta):
+        for fname in filenames:
+            ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
+            if ext in _EXT_ALL:
+                count += 1
+
+    rate = 2 if perfil == "fast" else 10  # segundos por arquivo
+    
+    # Se o foco for específico, a grande maioria dos arquivos será pulada rapidamente pelo CLIP (~0.1s).
+    # Assumimos conservadoramente que 10% vão para a IA densa, e 90% são pulados.
+    if foco != "tudo" and foco != "":
+        rate = (rate * 0.1) + (0.1 * 0.9)
+
+    est_min = round((count * rate) / 60, 1)
+    # Se o tempo for menor que 0.1 mas maior que 0, mostre 0.1 min
+    if est_min == 0 and count > 0:
+        est_min = 0.1
+
+    return jsonify({"estimativa_minutos": est_min, "total_imagens": count})
+
+
+@app.route("/api/ollama_models")
+def api_ollama_models():
+    """Retorna lista de modelos Ollama disponíveis."""
+    if not OLLAMA_OK:
+        return jsonify({"disponivel": False, "modelos": []})
+    try:
+        models = _ollama.list()
+        nomes = [m.get("name", m.get("model", "")) for m in models.get("models", [])]
+        return jsonify({"disponivel": True, "modelos": nomes})
+    except Exception as exc:
+        return jsonify({"disponivel": False, "erro": str(exc), "modelos": []})
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -782,35 +937,20 @@ _FRASES_SEM_ANIMAL = (
 _SINONIMOS_QUERY: dict[str, list[str]] = {
     # ── Animais ──────────────────────────────────────────────────────────
     "cao":         ["cachorro", "caozinho", "cachorrinho", "cachorra", "dog", "pet"],
-    "caes":        ["cachorro", "cao", "caozinhos", "cachorrinhos", "dogs", "pets"],
-    "ca":          ["cao", "cachorro"],  # truncamento comum do LLaVA
-    "cae":         ["cao", "cachorro"],  # truncamento comum do LLaVA
     "cachorro":    ["cao", "caozinho", "cachorrinho", "cachorra", "filhote", "pet", "dog"],
-    "cachorros":   ["cachorro", "cao", "caes", "pets"],
     "caozinho":    ["cachorro", "cao", "cachorrinho", "filhote"],
-    "caozinhos":   ["cachorro", "caes", "cachorrinhos", "filhotes"],
     "cachorrinho": ["cachorro", "caozinho", "cao", "filhote"],
-    "cachorrinhos":["cachorros", "caozinhos", "caes", "filhotes"],
     "cachorra":    ["cachorro", "cao", "cadela"],
-    "cadela":      ["cachorra", "cachorro", "cao"],
-    "filhote":     ["cachorro", "cao", "caozinho", "bebe animal"],
-    "filhotes":    ["cachorros", "caes", "caozinhos"],
     "dog":         ["cachorro", "cao"],
-    "dogs":        ["cachorros", "caes"],
     "vira-lata":   ["cachorro", "cao"],
     "viralata":    ["cachorro", "cao"],
 
     "gato":      ["gatinho", "gata", "felino", "bichano", "cat"],
-    "gatos":     ["gatinhos", "gatas", "felinos", "bichanos"],
     "gatinha":   ["gata", "gato", "gatinho", "felina"],
     "gatinho":   ["gato", "gata", "felino", "filhote"],
-    "gatinhos":  ["gatos", "gatas", "felinos", "filhotes"],
     "gata":      ["gato", "gatinha", "felina"],
-    "gatas":     ["gatos", "gatinhas", "felinas"],
     "felino":    ["gato", "gatinho"],
-    "felinos":   ["gatos", "gatinhos"],
     "bichano":   ["gato", "gatinho"],
-    "bichanos":  ["gatos", "gatinhos"],
 
     "pet":      ["cachorro", "gato", "animal domestico", "bicho de estimacao"],
     "pets":     ["cachorros", "gatos", "animais"],
@@ -852,8 +992,6 @@ _SINONIMOS_QUERY: dict[str, list[str]] = {
     "nenem":    ["bebe", "crianca"],
     "crianca":  ["menino", "menina", "infante", "bebe"],
     "criancas": ["meninos", "meninas", "bebes"],
-    "jovem":    ["adolescente"],
-    "jovens":   ["adolescentes"],
 
     # ── Natureza / lugares ───────────────────────────────────────────────
     "praia":    ["litoral", "mar", "areia", "costa"],
@@ -1154,8 +1292,7 @@ def api_search():
             W_SBERT_DOC, W_BM25_DOC             = 0.65, 0.35
 
             # Match literal: palavras originais da query + variantes morfológicas
-            # (singular↔plural). Não usa a expansão inteira para evitar matches
-            # espúrios em sinônimos genéricos como "adulto", "feminino".
+            # (singular↔plural). Cobre 'homem' em 'homens' e similares.
             palavras_literais = set()
             for w in q["palavras"]:
                 if len(w) >= 3:
@@ -1169,7 +1306,6 @@ def api_search():
                     tem_texto     = s_sbert >= threshold_sbert
                     tem_visual    = (f["tipo"] in _EXT_IMG and CLIP_OK and s_clip >= 0.25)
                     tem_keyword   = s_bm25 >= 0.5 and bool(q["palavras_set"])
-                    # Match literal: palavra da query aparece na descrição (cobre 'carne' em 'kebab de carne')
                     match_literal = any(w in desc_norm_local for w in palavras_literais)
                     if not (tem_texto or tem_visual or tem_keyword or match_literal):
                         continue
@@ -1344,11 +1480,28 @@ def api_favorites_toggle():
 
 @app.route("/api/status")
 def api_status():
+    uid = _uid()
+    if not uid:
+        return jsonify({
+            "status": "Ocioso",
+            "arquivos_pendentes": 0,
+            "arquivos_processados_sessao": 0,
+        })
+    
+    try:
+        conn = get_db()
+        count = conn.execute("SELECT COUNT(*) FROM files WHERE user_id = ?", (uid,)).fetchone()[0]
+    except Exception:
+        count = 0
+    finally:
+        if 'conn' in locals():
+            conn.close()
+
     with _lock:
         return jsonify({
             "status":                    _status,
             "arquivos_pendentes":        _queue.qsize(),
-            "arquivos_processados_sessao": _processed,
+            "arquivos_processados_sessao": count,
         })
 
 
@@ -1613,6 +1766,34 @@ def api_delete_search_history(index):
     return jsonify({"status": "ok", "historico": historico})
 
 
+@app.route("/api/clear_history", methods=["POST"])
+def api_clear_history():
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+    conn = get_db()
+    row  = conn.execute("SELECT config_json FROM users WHERE id = ?", (uid,)).fetchone()
+    cfg  = json.loads(row["config_json"] or "{}") if row else {}
+    cfg["search_history"] = []
+    conn.execute("UPDATE users SET config_json = ? WHERE id = ?", (json.dumps(cfg), uid))
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok", "historico": []})
+
+
+@app.route("/api/clear_cache", methods=["POST"])
+def api_clear_cache():
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+    conn = get_db()
+    # Limpa apenas os arquivos do usuário, mantendo as pastas cadastradas
+    conn.execute("DELETE FROM files WHERE user_id = ?", (uid,))
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok"})
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Abrir local do arquivo no Explorer
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1670,6 +1851,8 @@ def _scan_folder(folder_path: str, uid: int) -> None:
                 (uid, fpath),
             ).fetchone()
 
+
+
             if existing and existing["processado"]:
                 conn.close()
                 continue
@@ -1688,11 +1871,78 @@ def _scan_folder(folder_path: str, uid: int) -> None:
                     pass
             conn.close()
 
-            _queue.put({"path": fpath, "nome": fname, "ext": ext, "uid": uid})
+            _queue.put({"path": fpath, "nome": fname, "ext": ext, "uid": uid, "folder_id": folder_id})
 
     with _lock:
         if _queue.empty():
             _status = "Ocioso"
+
+
+def _is_within_window(janela: str) -> bool:
+    """Verifica se a hora atual está dentro da janela de processamento."""
+    if not janela or janela == "always":
+        return True
+    
+
+        
+    try:
+        parts = janela.split("-")
+        if len(parts) != 2:
+            return True
+        h_start, h_end = int(parts[0].split(":")[0]), int(parts[1].split(":")[0])
+        now_h = datetime.now().hour
+        if h_start <= h_end:
+            return h_start <= now_h < h_end
+        else:  # ex: 22:00-06:00 (passa da meia-noite)
+            return now_h >= h_start or now_h < h_end
+    except (ValueError, IndexError):
+        return True
+
+
+def _get_folder_config(folder_id, uid):
+    """Busca config de indexação da pasta no banco."""
+    if not folder_id:
+        return ["tudo"], "fast", "always"
+    conn = get_db()
+    row = conn.execute(
+        "SELECT prioridades, perfil_analise, janela_processamento "
+        "FROM folders WHERE id = ? AND user_id = ?", (folder_id, uid)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return ["tudo"], "fast", "always"
+    try:
+        prio = json.loads(row["prioridades"] or '["tudo"]')
+    except (json.JSONDecodeError, TypeError):
+        prio = ["tudo"]
+    return prio, row["perfil_analise"] or "fast", row["janela_processamento"] or "always"
+
+
+# ── Caches de Vetores CLIP (Lazy Loading) ──
+_CLIP_TERMS = {
+    "pessoas": ["a photo of a person", "a photo of a human", "a face", "people"],
+    "animais": ["a photo of an animal", "a dog", "a cat", "wildlife", "pet"],
+    "paisagens": ["a landscape", "nature", "a photo of a city", "scenery", "outdoors"]
+}
+_CLIP_EMBS_CACHE = {}
+_CLIP_THRESHOLDS = {
+    "pessoas": 0.20,
+    "animais": 0.21,
+    "paisagens": 0.21
+}
+
+def _get_precomputed_clip_embs(category: str) -> list:
+    """Retorna os vetores de texto pré-computados para uma categoria."""
+    if category in _CLIP_EMBS_CACHE:
+        return _CLIP_EMBS_CACHE[category]
+    embs = []
+    if CLIP_OK:
+        for term in _CLIP_TERMS.get(category, []):
+            emb = _gerar_embedding_clip_texto(term)
+            if emb:
+                embs.append(emb)
+    _CLIP_EMBS_CACHE[category] = embs
+    return embs
 
 
 def _process_worker() -> None:
@@ -1706,16 +1956,68 @@ def _process_worker() -> None:
                 _status = "Ocioso"
             continue
 
-        fpath = item["path"]
-        fname = item["nome"]
-        ext   = item["ext"]
-        uid   = item["uid"]
+        fpath     = item["path"]
+        fname     = item["nome"]
+        ext       = item["ext"]
+        uid       = item["uid"]
+        folder_id = item.get("folder_id")
+
+        # ── Buscar config da pasta ──
+        prioridades, perfil, janela = _get_folder_config(folder_id, uid)
+
+        # ── Scheduling: verificar janela de processamento ──
+        if not _is_within_window(janela):
+            # Fora da janela — re-enfileira e espera
+            _queue.put(item)
+            _queue.task_done()
+            import time as _t
+            _t.sleep(30)  # Espera 30s antes de tentar novamente
+            continue
 
         with _lock:
             _status = f"Analisando ({_queue.qsize()} na fila): {fname}"
 
+        # ── CLIP pre-filter: Otimização Extrema ──
+        # Tenta pular o LLaVA se a imagem não contiver o que o usuário quer.
+        skip_llava = False
+        if ext in _EXT_IMG and CLIP_OK and prioridades and "tudo" not in prioridades:
+            clip_emb_img = _gerar_embedding_clip_imagem(fpath)
+            if clip_emb_img:
+                import numpy as np
+                clip_q = np.array([clip_emb_img])
+                
+                # Para CADA categoria desejada, verificamos se a imagem atinge o threshold.
+                # Se falhar em TODAS as categorias selecionadas, pulamos o LLaVA.
+                passou_no_filtro = False
+                
+                for cat in prioridades:
+                    if cat not in _CLIP_TERMS:
+                        passou_no_filtro = True # Categoria desconhecida, melhor analisar
+                        break
+                        
+                    cat_embs = _get_precomputed_clip_embs(cat)
+                    if not cat_embs:
+                        passou_no_filtro = True
+                        break
+                        
+                    max_sim = 0.0
+                    for t_emb in cat_embs:
+                        sim = float(cosine_similarity(clip_q, np.array([t_emb]))[0][0])
+                        max_sim = max(max_sim, sim)
+                        
+                    if max_sim >= _CLIP_THRESHOLDS.get(cat, 0.20):
+                        passou_no_filtro = True
+                        break
+                
+                if not passou_no_filtro:
+                    skip_llava = True
+                    print(f"[CLIP Pre-filter] Rejeitado visualmente pelas categorias {prioridades}: {fname}")
+
         try:
-            desc = _analyze_file(fpath, ext)
+            if skip_llava:
+                desc = f"Imagem: {fname}"
+            else:
+                desc = _analyze_file(fpath, ext, prioridades=prioridades, perfil=perfil)
         except Exception as exc:
             print(f"[ERRO] {fpath}: {exc}")
             desc = f"{ext.upper()}: {fname}"
@@ -1728,7 +2030,6 @@ def _process_worker() -> None:
             if emb:
                 emb_json = json.dumps(emb)
 
-        # CLIP visual — apenas para imagens, lê o próprio arquivo
         emb_clip_json = None
         if CLIP_OK and ext in _EXT_IMG:
             emb_clip = _gerar_embedding_clip_imagem(fpath)
@@ -1760,9 +2061,9 @@ def _process_worker() -> None:
 # Análise de arquivos
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _analyze_file(filepath: str, ext: str) -> str:
+def _analyze_file(filepath: str, ext: str, *, prioridades=None, perfil="fast") -> str:
     if ext in _EXT_IMG:
-        return _analyze_image(filepath)
+        return _analyze_image(filepath, prioridades=prioridades or ["tudo"], perfil=perfil)
     if ext == "pdf":
         return _extract_pdf(filepath)
     if ext in ("docx", "doc"):
@@ -1772,47 +2073,118 @@ def _analyze_file(filepath: str, ext: str) -> str:
     return f"{ext.upper()}: {os.path.basename(filepath)}"
 
 
-def _analyze_image(filepath: str) -> str:
-    llava_desc = None
+def _build_llava_prompt(prioridades: list) -> str:
+    """Constrói o prompt do LLaVA baseado nas prioridades do usuário."""
+    base = (
+        "Analise esta imagem e descreva APENAS o que VOCÊ VÊ. "
+        "NÃO INVENTE pessoas, animais ou objetos que não estão visíveis. "
+        "Se não tem pessoa, escreva 'nenhuma'. Se não tem animal, escreva 'nenhum'.\n\n"
+        "REGRAS DE VOCABULÁRIO (obrigatório):\n"
+        "• 'cachorro' (NUNCA 'cão' ou 'cãe')\n"
+        "• 'gato' (NUNCA 'felino' ou 'bichano')\n"
+        "• 'mulher' / 'menina' (NUNCA 'senhora', 'moça', 'dama')\n"
+        "• 'homem' / 'menino' (NUNCA 'senhor', 'rapaz', 'cavalheiro')\n\n"
+        "FORMATO (sempre em português):\n"
+        "- O que é: cena principal em uma frase curta\n"
+        "- Pessoas: liste somente as REALMENTE visíveis com gênero + idade + ação; "
+        "ou 'nenhuma' se não há pessoa\n"
+        "- Animais: liste somente os REALMENTE visíveis com espécie + ação; "
+        "ou 'nenhum' se não há animal\n"
+        "- Objetos: itens visíveis (vírgula-separado)\n"
+        "- Ambiente: local + cores dominantes\n"
+        "- Ações: o que está acontecendo (verbos no gerúndio)\n"
+        "- Tags: 6 a 10 palavras-chave usando o vocabulário acima"
+    )
 
-    # ── Etapa 1: LLaVA via Ollama ──────────────────────────────────────────
-    if OLLAMA_OK:
-        try:
-            resp = _ollama.chat(
-                model="llava:13b",
-                options={"temperature": 0.0, "top_p": 0.5},
-                messages=[{
-                    "role": "user",
-                    "content": (
-                        "Analise esta imagem e descreva APENAS o que VOCÊ VÊ. "
-                        "NÃO INVENTE pessoas, animais ou objetos que não estão visíveis. "
-                        "Se não tem pessoa, escreva 'nenhuma'. Se não tem animal, escreva 'nenhum'.\n\n"
-                        "REGRAS DE VOCABULÁRIO (obrigatório):\n"
-                        "• 'cachorro' (NUNCA 'cão' ou 'cãe')\n"
-                        "• 'gato' (NUNCA 'felino' ou 'bichano')\n"
-                        "• 'mulher' / 'menina' (NUNCA 'senhora', 'moça', 'dama')\n"
-                        "• 'homem' / 'menino' (NUNCA 'senhor', 'rapaz', 'cavalheiro')\n\n"
-                        "FORMATO (máx. 6 linhas, sempre em português):\n"
-                        "- O que é: cena principal em uma frase curta\n"
-                        "- Pessoas: liste somente as REALMENTE visíveis com gênero + idade + ação; "
-                        "ou 'nenhuma' se não há pessoa\n"
-                        "- Animais: liste somente os REALMENTE visíveis com espécie + ação; "
-                        "ou 'nenhum' se não há animal\n"
-                        "- Objetos: itens visíveis (vírgula-separado)\n"
-                        "- Ambiente: local + cores dominantes\n"
-                        "- Tags: 6 a 10 palavras-chave usando o vocabulário acima"
-                    ),
-                    "images": [filepath],
-                }],
+    extras = []
+    prio_set = set(prioridades)
+
+    if "tudo" in prio_set:
+        extras.append("Máximo 5 linhas.")
+    else:
+        if "animais" in prio_set:
+            extras.append(
+                "Foque a descrição estritamente em identificar espécies, raças e "
+                "comportamentos de animais visíveis na imagem."
             )
-            llava_desc = resp["message"]["content"]
-            print(f"[LLaVA] OK: {os.path.basename(filepath)}")
-        except Exception as exc:
-            print(f"[LLaVA] Indisponível: {exc}")
+        if "pessoas" in prio_set:
+            extras.append(
+                "Foque em descrever detalhadamente as pessoas: gênero, idade aproximada, "
+                "roupas, expressões faciais e ações."
+            )
+        if "paisagens" in prio_set:
+            extras.append(
+                "Foque em descrever o ambiente, paisagem, elementos naturais, "
+                "arquitetônicos e as cores dominantes da cena."
+            )
+        if not extras:
+            extras.append("Máximo 5 linhas.")
 
-    # ── Fallback: usa nome do arquivo se LLaVA falhou ─────────────────────
-    # Sinaliza com prefixo "Imagem:" para que o worker não marque como processado
-    # e uma próxima varredura tente novamente (evita travar em fallback permanente).
+    return base + "\n" + " ".join(extras)
+
+
+def _resize_image_for_llava(filepath: str, max_size=768) -> bytes:
+    """Redimensiona imagem em memória para otimizar processamento no LLaVA."""
+    if not PIL_OK:
+        with open(filepath, "rb") as f:
+            return f.read()
+            
+    try:
+        import io
+        with _PILImage.open(filepath) as img:
+            img = img.convert("RGB")
+            w, h = img.size
+            if max(w, h) > max_size:
+                ratio = max_size / float(max(w, h))
+                new_size = (int(w * ratio), int(h * ratio))
+                img = img.resize(new_size, _PILImage.Resampling.LANCZOS)
+            
+            buffer = io.BytesIO()
+            img.save(buffer, format="JPEG", quality=85)
+            return buffer.getvalue()
+    except Exception as exc:
+        print(f"[Otimização] Falha ao redimensionar {filepath}: {exc}")
+        with open(filepath, "rb") as f:
+            return f.read()
+
+
+def _analyze_image(filepath: str, *, prioridades=None, perfil="fast") -> str:
+    llava_desc = None
+    if prioridades is None:
+        prioridades = ["tudo"]
+
+    # ── Selecionar modelo baseado no perfil ─────────────────────────────────
+    if perfil == "deep":
+        models_to_try = ["llava:13b", "llava"]
+    else:
+        models_to_try = ["llava-llama3", "llava", "llava:13b"]
+
+    prompt = _build_llava_prompt(prioridades)
+
+    # ── LLaVA via Ollama com fallback automático ────────────────────────────
+    if OLLAMA_OK:
+        optimized_image_bytes = _resize_image_for_llava(filepath)
+        for model in models_to_try:
+            try:
+                resp = _ollama.chat(
+                    model=model,
+                    options={"temperature": 0.0, "top_p": 0.5},
+                    messages=[{
+                        "role": "user",
+                        "content": prompt,
+                        "images": [optimized_image_bytes],
+                    }],
+                )
+                llava_desc = resp["message"]["content"]
+                print(f"[LLaVA:{model}] OK (Otimizado): {os.path.basename(filepath)}")
+                break  # Sucesso — não tenta o próximo modelo
+            except Exception as exc:
+                error_msg = f"[LLaVA:{model}] Indisponível para {filepath}: {exc}"
+                print(error_msg)
+                with open("searchplus.log", "a") as f:
+                    f.write(error_msg + "\n")
+                continue  # Tenta próximo modelo
+
     return llava_desc or f"Imagem: {os.path.basename(filepath)}"
 
 
