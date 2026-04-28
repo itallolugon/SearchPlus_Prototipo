@@ -5,7 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Search+</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=2026">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=Inter:wght@400;600;700&family=Poppins:wght@400;600;700&family=Montserrat:wght@400;600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=2026_merge">
 </head>
 <body>
     <div id="viewPerfilModal" class="modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(7, 10, 19, 0.95); backdrop-filter:blur(12px); align-items:center; justify-content:center;">
@@ -13,14 +14,12 @@
         
         <div id="viewBanner" style="height:180px; background-size:cover; background-position:center; position:relative; background-color:#121212;">
             <div style="position:absolute; inset:0; background:linear-gradient(to bottom, transparent, rgba(0,0,0,0.4));"></div>
-            <button onclick="selecionarImagemExplorer('editBanner')" class="glass-btn" style="position:absolute; top:130px; right:20px; z-index:10; border-radius:50%; width:40px; height:40px; border:none; cursor:pointer; background:rgba(255,255,255,0.1); backdrop-filter:blur(5px); color:white;">✏️</button>
             <span onclick="fecharViewPerfil()" style="position:absolute; right:20px; top:15px; cursor:pointer; color:white; font-size:24px; z-index:10;">&times;</span>
         </div>
 
         <div style="padding:0 32px 32px 32px; display:flex; flex-direction:column; align-items:center; transform:translateY(-60px);">
             <div class="avatar-ring" style="width:120px; height:120px; border-radius:50%; border:4px solid var(--surface); background:#000; position:relative; overflow:hidden; box-shadow:0 10px 15px -3px rgba(0,0,0,0.4);">
                 <img id="viewAvatar" src="" style="width:100%; height:100%; object-fit:cover;">
-                <button onclick="selecionarImagemExplorer('editAvatar')" style="position:absolute; bottom:0; width:100%; background:rgba(168, 85, 247, 0.8); color:white; border:none; padding:6px; font-size:10px; font-weight:bold; cursor:pointer; backdrop-filter:blur(4px);">UPLOAD</button>
             </div>
 
             <h2 id="viewProfileName" style="margin:16px 0 4px 0; font-size:1.75rem; color:var(--text-primary); letter-spacing:-0.5px;">Lorenzo Osorio</h2>
@@ -67,6 +66,7 @@
 
             <div id="registerForm" class="auth-form" style="display: none;">
                 <input type="text" id="regUser" placeholder="Novo Usuário" onkeypress="if(event.key === 'Enter') fazerCadastro()">
+                <input type="text" id="regHandle" placeholder="Seu @ (ex: lontr4)" onkeypress="if(event.key === 'Enter') fazerCadastro()">
                 <input type="password" id="regPass" placeholder="Nova Senha" onkeypress="if(event.key === 'Enter') fazerCadastro()">
                 <button class="action-btn gradient-btn" onclick="fazerCadastro()" style="width: 100%; margin: 15px 0 0 0; padding: 15px; font-size: 1.1rem;">Cadastrar e Entrar</button>
             </div>
@@ -84,8 +84,48 @@
                     <p style="color: var(--text-secondary); font-size: 0.9rem;">Nenhuma pasta selecionada ainda.</p>
                 </div>
                 
-                <button onclick="adicionarPastaOnboarding()" class="action-btn" style="width: 100%; margin: 15px 0 30px 0; padding: 15px; font-size: 1.1rem;">📁 + Importar Pasta do Windows</button>
-                <button onclick="irParaOnboardingStep2()" class="action-btn gradient-btn" style="width: 100%; margin: 0; padding: 15px; font-size: 1.2rem;">Avançar &rarr;</button>
+                <button onclick="adicionarPastaOnboarding()" class="action-btn" style="width: 100%; margin: 15px 0 20px 0; padding: 15px; font-size: 1.1rem;">+ Importar Pasta do Windows</button>
+
+                <!-- INDEXAÇÃO INTELIGENTE SELETIVA -->
+                <div class="indexacao-config-section" id="obIndexacaoSection">
+                    <h4>Foco da Análise</h4>
+                    <p>Escolha o que a IA deve priorizar ao analisar os arquivos.</p>
+                    <div class="chips-container" id="obChipsFoco">
+                        <span class="chip-foco active" data-foco="tudo" onclick="toggleChipFoco(this, 'ob')">Analisar Tudo</span>
+                        <span class="chip-foco" data-foco="pessoas" onclick="toggleChipFoco(this, 'ob')">Pessoas</span>
+                        <span class="chip-foco" data-foco="animais" onclick="toggleChipFoco(this, 'ob')">Animais</span>
+                        <span class="chip-foco" data-foco="paisagens" onclick="toggleChipFoco(this, 'ob')">Paisagens</span>
+                    </div>
+
+                    <h4>Intensidade do Processamento</h4>
+                    <p>Fast: descrições rápidas. Deep: análise exaustiva e detalhada.</p>
+                    <div class="toggle-intensidade-container">
+                        <span class="toggle-label active-label" id="obLabelFast">Relâmpago</span>
+                        <div class="toggle-switch" id="obTogglePerfil" onclick="togglePerfil('ob')"></div>
+                        <span class="toggle-label" id="obLabelDeep">Profundo</span>
+                    </div>
+
+                    <h4>Janela de Processamento</h4>
+                    <p>Quando a IA deve processar os arquivos.</p>
+                    <div class="janela-selector">
+                        <select id="obJanelaSelect" onchange="onJanelaChange('ob')">
+                            <option value="always">Processar Imediatamente</option>
+                            <option value="02:00-06:00">Madrugada (02h - 06h)</option>
+                            <option value="custom">Horário Customizado</option>
+                        </select>
+                        <div class="janela-custom-inputs" id="obJanelaCustom" style="display:none;">
+                            <input type="time" id="obJanelaInicio" value="02:00">
+                            <span>até</span>
+                            <input type="time" id="obJanelaFim" value="06:00">
+                        </div>
+                    </div>
+
+                    <div class="estimativa-box" id="obEstimativa" style="display:none;">
+                        Tempo estimado: calculando...
+                    </div>
+                </div>
+
+                <button onclick="irParaOnboardingStep2()" class="action-btn gradient-btn" style="width: 100%; margin: 15px 0 0 0; padding: 15px; font-size: 1.2rem;">Avançar &rarr;</button>
             </div>
 
             <div id="onboardingStep2" style="display: none;">
@@ -101,9 +141,9 @@
                         
                         <label style="margin-top: 15px; font-size: 1.1rem;">Imagens:</label>
                         <div style="display: flex; gap: 15px;">
-                            <button onclick="selecionarImagemExplorer('obAvatar')" class="action-btn gradient-btn" style="flex: 1; margin: 0; padding: 12px; font-size: 0.95rem;">🖼️ Escolher Foto</button>
+                            <button onclick="selecionarImagemExplorer('obAvatar')" class="action-btn gradient-btn" style="flex: 1; margin: 0; padding: 12px; font-size: 0.95rem;">Escolher Foto</button>
                             <input type="hidden" id="obAvatar">
-                            <button onclick="selecionarImagemExplorer('obBanner')" class="action-btn gradient-btn" style="flex: 1; margin: 0; padding: 12px; font-size: 0.95rem;">🌅 Escolher Banner</button>
+                            <button onclick="selecionarImagemExplorer('obBanner')" class="action-btn gradient-btn" style="flex: 1; margin: 0; padding: 12px; font-size: 0.95rem;">Escolher Banner</button>
                             <input type="hidden" id="obBanner">
                         </div>
                     </div>
@@ -111,13 +151,13 @@
                     <div class="ob-preview-card">
                         <div id="obPreviewBanner" class="ob-preview-banner img-container-with-edit">
                             <button id="btnRemObBanner" onclick="removerImagemOnboarding('obBanner')" class="btn-remove-image" style="display: none;">&times;</button>
-                            <button onclick="selecionarImagemExplorer('obBanner')" class="btn-reedit" title="Editar Banner">✏️</button>
+                            <button onclick="selecionarImagemExplorer('obBanner')" class="btn-reedit" title="Editar Banner"></button>
                         </div>
                         <div class="ob-preview-info">
                             <div class="img-container-with-edit avatar-wrapper">
                                 <img id="obPreviewAvatar" src="" class="ob-preview-avatar">
                                 <button id="btnRemObAvatar" onclick="removerImagemOnboarding('obAvatar')" class="btn-remove-image avatar-remove" style="display: none;">&times;</button>
-                                <button onclick="selecionarImagemExplorer('obAvatar')" class="btn-reedit reedit-avatar" title="Editar Imagem">✏️</button>
+                                <button onclick="selecionarImagemExplorer('obAvatar')" class="btn-reedit reedit-avatar" title="Editar Imagem"></button>
                             </div>
                             <h3 id="obPreviewName">Nome</h3>
                             <p id="obPreviewHandle" style="color: var(--accent-primary); font-size: 0.9rem; margin: 0 0 5px 0;">@handle</p>
@@ -135,7 +175,7 @@
                 
                 <div class="identity-footer">
                     <button onclick="voltarParaOnboardingStep1()" class="action-btn" style="flex: 1; margin: 0; padding: 15px; font-size: 1.2rem;">&larr; Voltar</button>
-                    <button id="btnConcluirOnboarding" onclick="finalizarOnboarding()" class="action-btn gradient-btn" style="flex: 2; margin: 0; padding: 15px; font-size: 1.3rem;">Concluir ✔️</button>
+                    <button id="btnConcluirOnboarding" onclick="finalizarOnboarding()" class="action-btn gradient-btn" style="flex: 2; margin: 0; padding: 15px; font-size: 1.3rem;">Concluir </button>
                 </div>
             </div>
         </div>
@@ -176,8 +216,8 @@
 
     <div class="top-bar">
         <div class="nav-right">
-            <button class="action-btn" onclick="abrirFavoritos()" style="border-color: rgba(168, 85, 247, 0.5); color: #E879F9;">⭐ Favoritos</button>
-            <button class="action-btn gradient-btn" onclick="abrirModalPastas()">📁 Gerenciar Pastas</button>
+            <button class="action-btn" onclick="abrirFavoritos()" style="border-color: rgba(168, 85, 247, 0.5); color: #E879F9;">Favoritos</button>
+            <button class="action-btn gradient-btn" onclick="abrirModalPastas()">Gerenciar Pastas</button>
             
             <div class="profile-container">
                 <div class="mini-profile" onclick="toggleProfileMenu(event)">
@@ -193,10 +233,11 @@
                         </div>
                     </div>
                     <div class="dropdown-divider"></div>
-                    <a class="dropdown-item" onclick="abrirViewPerfil()"><span class="icon">👤</span> Meu Perfil</a>
-                    <a class="dropdown-item" onclick="abrirSidebarConfig()"><span class="icon">🎨</span> Personalização Visual</a>
+                    <a class="dropdown-item" onclick="abrirViewPerfil()"><span class="icon"></span> Meu Perfil</a>
+                    <a class="dropdown-item" onclick="abrirSidebarConfig()"><span class="icon"></span> Personalização Visual</a>
+                    <a class="dropdown-item" onclick="abrirModalConfigGerais()"><span class="icon"></span> Configurações Gerais</a>
                     <div class="dropdown-divider"></div>
-                    <a class="dropdown-item" onclick="fazerLogout()" style="color: #ef4444;"><span class="icon">🚪</span> Sair da Conta</a>
+                    <a class="dropdown-item" onclick="fazerLogout()" style="color: #ef4444;"><span class="icon"></span> Sair da Conta</a>
                 </div>
             </div>
         </div>
@@ -208,7 +249,7 @@
             
             <div class="search-container" id="searchContainer">
                 <div class="logo-wrapper text-center">
-                    <h1 id="mainLogo" class="gradient-text main-logo" onclick="voltarParaHomeSmooth()">SEARCH<span style="color: var(--accent-primary);">+</span></h1>
+                    <h1 id="mainLogo" class="main-logo" onclick="voltarParaHomeSmooth()"><span class="logo-text-white">SEARCH</span><span class="logo-plus gradient-text">+</span></h1>
                 </div>
                 
                 <div class="search-box">
@@ -229,15 +270,15 @@
                 </div>
             </div>
 
-            <div id="dashboardView" class="dashboard-section fade-transition" style="display: none; opacity: 0;">
-                <h2 style="font-size: 2rem; margin-bottom: 5px; color: var(--text-primary);">Olá, <span id="dashHandle" class="gradient-text">@usuario</span> 👋</h2>
+            <div id="dashboardView" class="dashboard-section fade-transition" style="display: none; opacity: 0; text-align: center;">
+                <h2 style="font-size: 2rem; margin-bottom: 5px; color: var(--text-primary);">Olá, <span id="dashHandle" class="gradient-text">@usuario</span> </h2>
                 <p style="color: var(--text-secondary); margin-bottom: 30px;">Pronto para continuar suas buscas?</p>
 
-                <h3 style="margin-top: 0; color: var(--text-primary);">📸 Fotos Recentes</h3>
+                <h3 style="margin-top: 0; color: var(--text-primary);">Fotos Recentes</h3>
                 <div class="recent-grid" id="recentImgs"></div>
-                <h3 style="margin-top: 30px; color: var(--text-primary);">📄 Documentos Recentes</h3>
+                <h3 style="margin-top: 30px; color: var(--text-primary);">Documentos Recentes</h3>
                 <div class="recent-grid" id="recentDocs"></div>
-                <h3 id="favDashTitle" style="margin-top: 30px; color: var(--text-primary); display: none;">💖 Seus Favoritos</h3>
+                <h3 id="favDashTitle" style="margin-top: 30px; color: var(--text-primary); display: none;">Seus Favoritos</h3>
                 <div class="recent-grid" id="recentFavsDash"></div>
             </div>
 
@@ -265,7 +306,7 @@
                     <h4 style="margin-top: 0;">Conteúdo Extraído pela IA:</h4>
                     <div id="sideText" class="side-text-content"></div>
                     <a id="sideDownloadBtn" href="#" target="_blank" class="action-btn gradient-btn" style="display: block; text-align: center; margin: 20px 0 0 0; padding: 15px; text-decoration: none;">Abrir Arquivo Original</a>
-                    <button id="sideOpenLocationBtn" onclick="abrirLocalDoArquivo()" class="action-btn" style="width:100%; margin: 8px 0 0 0; padding: 13px; background: transparent;">📂 Abrir Local no Explorer</button>
+                    <button id="sideOpenLocationBtn" onclick="abrirLocalDoArquivo()" class="action-btn" style="width:100%; margin: 8px 0 0 0; padding: 13px; background: transparent;">Abrir Local no Explorer</button>
                 </div>
             </div>
         </div>
@@ -292,18 +333,18 @@
                         <label>Foto do Perfil</label>
                         <div class="img-preview-box avatar-preview-box img-container-with-edit">
                             <img id="previewAvatar" src="" class="ob-preview-avatar">
-                            <button onclick="selecionarImagemExplorer('editAvatar')" class="btn-reedit reedit-avatar" title="Editar Imagem">✏️</button>
+                            <button onclick="selecionarImagemExplorer('editAvatar')" class="btn-reedit reedit-avatar" title="Editar Imagem"></button>
                         </div>
-                        <button onclick="selecionarImagemExplorer('editAvatar')" class="action-btn gradient-btn" style="width: 100%; margin: 0; padding: 8px;">🖼️ Alterar</button>
+                        <button onclick="selecionarImagemExplorer('editAvatar')" class="action-btn gradient-btn" style="width: 100%; margin: 0; padding: 8px;">Alterar</button>
                         <input type="hidden" id="editAvatar">
                     </div>
                     <div style="flex: 1; text-align: center;">
                         <label>Banner de Fundo</label>
                         <div class="img-preview-box banner-preview-box img-container-with-edit">
                             <img id="previewBanner" src="">
-                            <button onclick="selecionarImagemExplorer('editBanner')" class="btn-reedit" title="Editar Banner">✏️</button>
+                            <button onclick="selecionarImagemExplorer('editBanner')" class="btn-reedit" title="Editar Banner"></button>
                         </div>
-                        <button onclick="selecionarImagemExplorer('editBanner')" class="action-btn gradient-btn" style="width: 100%; margin: 0; padding: 8px;">🌅 Alterar</button>
+                        <button onclick="selecionarImagemExplorer('editBanner')" class="action-btn gradient-btn" style="width: 100%; margin: 0; padding: 8px;">Alterar</button>
                         <input type="hidden" id="editBanner">
                     </div>
                 </div>
@@ -312,6 +353,74 @@
                     <button onclick="fecharEditPerfil()" class="action-btn" style="flex: 1; margin: 0;">Cancelar</button>
                     <button id="btnSalvarEditPerfil" onclick="salvarPerfil()" class="action-btn gradient-btn" style="flex: 2; margin: 0; padding: 15px;">Salvar Alterações</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="modalConfigGerais" class="modal">
+        <div class="modal-content" style="max-width: 600px;">
+            <span class="close-btn" onclick="fecharModalConfigGerais()">&times;</span>
+            <h2 style="margin-top: 0; color: var(--text-primary); border-bottom: 1px solid var(--border-light); padding-bottom: 15px;">Configurações Gerais</h2>
+            
+            <div style="display: flex; gap: 10px; margin: 15px 0; border-bottom: 1px solid var(--border-light); padding-bottom: 10px;">
+                <button class="btn-tab-selector active" data-tab="cg-geral" onclick="selecionarTabCg('cg-geral', this)">Geral</button>
+                <button class="btn-tab-selector" data-tab="cg-privacidade" onclick="selecionarTabCg('cg-privacidade', this)">Privacidade</button>
+                <button class="btn-tab-selector" data-tab="cg-desempenho" onclick="selecionarTabCg('cg-desempenho', this)">Desempenho</button>
+            </div>
+
+            <div id="cgTabGeral" style="display: block;">
+                <div class="settings-group" style="margin-bottom: 15px;">
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                        <input type="checkbox" id="cgNotificacoes">
+                        <span>Ativar Notificações</span>
+                    </label>
+                    <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 5px 0 0 25px;">Receber alertas quando a IA terminar de analisar arquivos.</p>
+                </div>
+                <div class="settings-group" style="margin-bottom: 15px;">
+                    <label>Atalho de Busca Global:</label>
+                    <input type="text" id="cgAtalho" class="settings-input" placeholder="Ex: Ctrl+Shift+F" onkeydown="capturarAtalho(event)">
+                    <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 5px;">Pressione as teclas no campo acima para definir o atalho.</p>
+                </div>
+                <div class="settings-group" style="margin-bottom: 15px;">
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                        <input type="checkbox" id="cgIniciarSistema">
+                        <span>Iniciar com o Sistema (Windows)</span>
+                    </label>
+                    <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 5px 0 0 25px;">Permite que o Search+ ligue automaticamente no boot.</p>
+                </div>
+            </div>
+
+            <div id="cgTabPrivacidade" style="display: none;">
+                <div class="settings-group" style="margin-bottom: 15px;">
+                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                        <input type="checkbox" id="cgModoPrivado">
+                        <span>Modo Privado</span>
+                    </label>
+                    <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 5px 0 0 25px;">Não salva o histórico de termos buscados.</p>
+                </div>
+                <div class="settings-group" style="margin-bottom: 15px;">
+                    <label>Pastas Ignoradas pela IA (Blacklist):</label>
+                    <textarea id="cgPastasIgnoradas" class="settings-input" style="height: 60px; resize: none;" placeholder="Caminhos separados por vírgula. Ex: C:\Windows, C:\temp"></textarea>
+                </div>
+                <div style="display: flex; gap: 10px; margin-top: 20px;">
+                    <button class="action-btn" onclick="limparHistoricoBusca()" style="flex: 1; border-color: rgba(239, 68, 68, 0.4); color: #ef4444;">Limpar Histórico</button>
+                    <button class="action-btn" onclick="limparCacheIA()" style="flex: 1; border-color: rgba(239, 68, 68, 0.4); color: #ef4444;">Limpar Banco da IA</button>
+                </div>
+            </div>
+
+            <div id="cgTabDesempenho" style="display: none;">
+                <div class="settings-group" style="margin-bottom: 15px;">
+                    <label>Modo de Uso de Hardware (CPU/GPU):</label>
+                    <select id="cgModoDesempenho" class="settings-input" style="cursor: pointer; margin-top: 5px;">
+                        <option value="economico">Econômico (Processamento em segundo plano sem travar)</option>
+                        <option value="turbo">Turbo (Prioridade máxima, mais rápido)</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div style="display: flex; gap: 10px; margin-top: 20px; border-top: 1px solid var(--border-light); padding-top: 15px;">
+                <button onclick="fecharModalConfigGerais()" class="action-btn" style="flex: 1; margin: 0;">Cancelar</button>
+                <button onclick="salvarConfigGerais()" class="action-btn gradient-btn" style="flex: 2; margin: 0; padding: 15px;">Salvar Configurações</button>
             </div>
         </div>
     </div>
@@ -337,15 +446,140 @@
                 <h3>Esquema de Cores</h3>
                 <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 10px;">Defina a paleta principal do Search+.</p>
                 <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                    <button class="action-btn" onclick="setLiveTema('dark')" style="flex: 1; background: #0b0f19; color: #fff;">🌙 Escuro</button>
-                    <button class="action-btn" onclick="setLiveTema('light')" style="flex: 1; background: #f8fafc; color: #0b0f19;">☀️ Claro</button>
+                    <button class="action-btn" onclick="setLiveTema('dark')" style="flex: 1; background: #0b0f19; color: #fff;">Escuro</button>
+                    <button class="action-btn" onclick="setLiveTema('light')" style="flex: 1; background: #f8fafc; color: #0b0f19;">Claro</button>
                 </div>
                 <div style="display: flex; gap: 15px; margin-bottom: 10px;">
                     <div style="flex: 1;"><label>Cor Principal:</label><input type="color" id="corPrimaria" class="settings-color"></div>
                     <div style="flex: 1;"><label>Cor Destaque:</label><input type="color" id="corSecundaria" class="settings-color"></div>
                 </div>
                 <div style="display: flex; gap: 15px; margin-bottom: 10px;">
-                    <div style="flex: 1;"><label>Texto dos Botões:</label><input type="color" id="corTextoBotao" class="settings-color" value="#FFFFFF"></div>
+                    <div style="flex: 1;"><label>Texto Exclusivo dos Botões:</label><input type="color" id="corTextoBotao" class="settings-color" value="#FFFFFF"></div>
+                </div>
+            </div>
+
+            <div class="settings-group">
+                <h3>Design dos Botões</h3>
+                <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px;">Personalize cada botão individualmente ou aplique um estilo global.</p>
+
+                <!-- Tabs de botões individuais -->
+                <div class="btn-style-tabs" style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 15px;">
+                    <button class="btn-tab-selector active" data-tab="global" onclick="selecionarTabBotao('global', this)">Global</button>
+                    <button class="btn-tab-selector" data-tab="search" onclick="selecionarTabBotao('search', this)">Buscar</button>
+                    <button class="btn-tab-selector" data-tab="topbar" onclick="selecionarTabBotao('topbar', this)">Barra Top</button>
+                    <button class="btn-tab-selector" data-tab="actions" onclick="selecionarTabBotao('actions', this)">Ações</button>
+                    <button class="btn-tab-selector" data-tab="filters" onclick="selecionarTabBotao('filters', this)">Filtros</button>
+                </div>
+
+                <div id="btnTabGlobal">
+                    <div style="margin-bottom: 15px;">
+                        <label>Fonte Global dos Botões:</label>
+                        <select id="botaoFonte" class="settings-input" style="cursor: pointer; margin-top: 5px;">
+                            <option value="system-ui, -apple-system, sans-serif">Padrão Sistema</option>
+                            <option value="'Outfit', sans-serif">Outfit</option>
+                            <option value="'Inter', sans-serif">Inter</option>
+                            <option value="'Poppins', sans-serif">Poppins</option>
+                            <option value="'Montserrat', sans-serif">Montserrat</option>
+                            <option value="'Roboto', sans-serif">Roboto</option>
+                        </select>
+                    </div>
+                    <div style="margin-bottom: 15px;">
+                        <label>Estilo Global do Fundo:</label>
+                        <select id="botaoEstilo" class="settings-input" onchange="toggleOpcoesBotao()" style="cursor: pointer; margin-top: 5px;">
+                            <option value="default">Padrão (Cores Primárias)</option>
+                            <option value="glass">Glass (Apple Liquid)</option>
+                            <option value="gradient">Gradiente Avançado Custom.</option>
+                            <option value="image">Imagem Dinâmica (Corte)</option>
+                        </select>
+                    </div>
+                    <div id="btnGroupGradient" style="display: none; padding: 10px; background: rgba(0,0,0,0.1); border-radius: 8px; margin-bottom: 15px;">
+                        <div style="display: flex; gap: 10px; margin-bottom: 10px;">
+                            <div style="flex: 1;"><label>Gradiente 1:</label><input type="color" id="btnGrad1" class="settings-color" value="#FF512F"></div>
+                            <div style="flex: 1;"><label>Gradiente 2:</label><input type="color" id="btnGrad2" class="settings-color" value="#DD2476"></div>
+                        </div>
+                    </div>
+                    <div id="btnGroupImage" style="display: none; margin-bottom: 15px;">
+                        <label style="margin-bottom: 5px; display: block;">Imagem do Botão</label>
+                        <div class="bg-preview-box-sidebar img-container-with-edit" style="position: relative; width: 100%; height: 80px; margin-bottom: 10px; border-radius: 8px; overflow: hidden; background: var(--bg-deep);">
+                            <img id="previewBtnBg" src="" alt="Fundo Botão" style="width: 100%; height: 100%; object-fit: cover;">
+                            <button id="btnRemoverFundoBotao" onclick="removerFundoBotao()" class="btn-remove-image" style="top: 5px; right: 5px; display: none;">&times;</button>
+                            <button onclick="selecionarImagemExplorer('btnBgUrl')" class="btn-reedit" title="Cortar Imagem para Botões"></button>
+                        </div>
+                        <button onclick="selecionarImagemExplorer('btnBgUrl')" class="action-btn" style="width: 100%; margin: 0; padding: 10px; background: transparent; border: 1px dashed var(--border-light);">Cortar Nova Imagem</button>
+                        <input type="hidden" id="btnBgUrl">
+                    </div>
+                </div>
+
+                <!-- Tab: Botão Buscar -->
+                <div id="btnTabSearch" style="display:none;">
+                    <p style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:10px;">Estilo específico do botão <strong>Buscar</strong>.</p>
+                    <div style="margin-bottom:12px;">
+                        <label>Estilo:</label>
+                        <select id="btnSearchEstilo" class="settings-input" onchange="aplicarEstilosBotaoIndividual()" style="cursor:pointer; margin-top:5px;">
+                            <option value="inherit">Herdar Global</option>
+                            <option value="glass">Glass (Apple)</option>
+                            <option value="solid">Sólido (Cor Primária)</option>
+                            <option value="outline">Outline</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <div style="flex:1;"><label>Cor Fundo:</label><input type="color" id="btnSearchCor" class="settings-color" value="#A855F7" oninput="aplicarEstilosBotaoIndividual()"></div>
+                        <div style="flex:1;"><label>Cor Texto:</label><input type="color" id="btnSearchTexto" class="settings-color" value="#FFFFFF" oninput="aplicarEstilosBotaoIndividual()"></div>
+                    </div>
+                </div>
+
+                <!-- Tab: Top Bar -->
+                <div id="btnTabTopbar" style="display:none;">
+                    <p style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:10px;">Estilo dos botões da <strong>Barra Superior</strong> (Favoritos, Gerenciar).</p>
+                    <div style="margin-bottom:12px;">
+                        <label>Estilo:</label>
+                        <select id="btnTopbarEstilo" class="settings-input" onchange="aplicarEstilosBotaoIndividual()" style="cursor:pointer; margin-top:5px;">
+                            <option value="inherit">Herdar Global</option>
+                            <option value="glass">Glass (Apple)</option>
+                            <option value="solid">Sólido</option>
+                            <option value="outline">Outline</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <div style="flex:1;"><label>Cor Fundo:</label><input type="color" id="btnTopbarCor" class="settings-color" value="#151A2A" oninput="aplicarEstilosBotaoIndividual()"></div>
+                        <div style="flex:1;"><label>Cor Texto:</label><input type="color" id="btnTopbarTexto" class="settings-color" value="#F8FAFC" oninput="aplicarEstilosBotaoIndividual()"></div>
+                    </div>
+                </div>
+
+                <!-- Tab: Ações -->
+                <div id="btnTabActions" style="display:none;">
+                    <p style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:10px;">Estilo dos botões de <strong>Ação</strong> (Salvar, Abrir, etc.).</p>
+                    <div style="margin-bottom:12px;">
+                        <label>Estilo:</label>
+                        <select id="btnActionsEstilo" class="settings-input" onchange="aplicarEstilosBotaoIndividual()" style="cursor:pointer; margin-top:5px;">
+                            <option value="inherit">Herdar Global</option>
+                            <option value="glass">Glass (Apple)</option>
+                            <option value="solid">Sólido</option>
+                            <option value="outline">Outline</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <div style="flex:1;"><label>Cor Fundo:</label><input type="color" id="btnActionsCor" class="settings-color" value="#151A2A" oninput="aplicarEstilosBotaoIndividual()"></div>
+                        <div style="flex:1;"><label>Cor Texto:</label><input type="color" id="btnActionsTexto" class="settings-color" value="#F8FAFC" oninput="aplicarEstilosBotaoIndividual()"></div>
+                    </div>
+                </div>
+
+                <!-- Tab: Filtros -->
+                <div id="btnTabFilters" style="display:none;">
+                    <p style="font-size:0.8rem; color:var(--text-secondary); margin-bottom:10px;">Estilo das <strong>Tags de Filtro</strong> de busca.</p>
+                    <div style="margin-bottom:12px;">
+                        <label>Estilo:</label>
+                        <select id="btnFiltersEstilo" class="settings-input" onchange="aplicarEstilosBotaoIndividual()" style="cursor:pointer; margin-top:5px;">
+                            <option value="inherit">Herdar Global</option>
+                            <option value="glass">Glass (Apple)</option>
+                            <option value="pill">Pílula Colorida</option>
+                            <option value="outline">Outline</option>
+                        </select>
+                    </div>
+                    <div style="display:flex; gap:10px;">
+                        <div style="flex:1;"><label>Cor Ativo:</label><input type="color" id="btnFiltersCor" class="settings-color" value="#A855F7" oninput="aplicarEstilosBotaoIndividual()"></div>
+                        <div style="flex:1;"><label>Cor Texto:</label><input type="color" id="btnFiltersTexto" class="settings-color" value="#FFFFFF" oninput="aplicarEstilosBotaoIndividual()"></div>
+                    </div>
                 </div>
             </div>
 
@@ -355,10 +589,10 @@
                 
                 <div class="bg-preview-box-sidebar img-container-with-edit" style="position: relative; width: 100%; height: 160px; margin-bottom: 10px; border-radius: 8px; overflow: hidden; background: var(--bg-deep);">
                     <img id="previewBg" src="" alt="Fundo" style="width: 100%; height: 100%; object-fit: cover;">
-                    <button onclick="removerFundoSistema()" class="btn-remove-image" style="top: 5px; right: 5px;">&times;</button>
-                    <button onclick="selecionarImagemExplorer('bgUrl')" class="btn-reedit" title="Editar Fundo">✏️</button>
+                    <button id="btnRemoverFundo" onclick="removerFundoSistema()" class="btn-remove-image" style="top: 5px; right: 5px; display: none;">&times;</button>
+                    <button onclick="selecionarImagemExplorer('bgUrl')" class="btn-reedit" title="Editar Fundo"></button>
                 </div>
-                <button onclick="selecionarImagemExplorer('bgUrl')" class="action-btn gradient-btn" style="width: 100%; margin: 0 0 15px 0; padding: 10px;">✂️ Cortar e Escolher</button>
+                <button onclick="selecionarImagemExplorer('bgUrl')" class="action-btn gradient-btn" style="width: 100%; margin: 0 0 15px 0; padding: 10px;">Cortar e Escolher</button>
                 <input type="hidden" id="bgUrl">
                 
                 <label style="display: block;">Desfoque (Blur): <span id="blurValue">15</span>px</label>
@@ -374,22 +608,60 @@
     <div id="sidebarOverlay" class="sidebar-overlay" onclick="fecharSidebarConfig()"></div>
 
     <div id="foldersModal" class="modal">
-        <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-content" style="max-width: 650px;">
             <span class="close-btn" onclick="fecharModalPastas()">&times;</span>
             <h2 style="margin-top: 0; color: var(--text-primary);">Pastas Monitoradas</h2>
             <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 20px;">O motor de IA analisará os arquivos dentro destas pastas.</p>
             
             <div id="foldersList" class="folder-list"></div>
+
+            <!-- Config inline para pasta selecionada -->
+            <div id="folderConfigInline" class="indexacao-config-section" style="display:none;">
+                <h4>Configurar Indexação: <span id="folderConfigName" style="color:var(--accent-primary);"></span></h4>
+
+                <p>Foco da Análise</p>
+                <div class="chips-container" id="modalChipsFoco">
+                    <span class="chip-foco active" data-foco="tudo" onclick="toggleChipFoco(this, 'modal')">Tudo</span>
+                    <span class="chip-foco" data-foco="pessoas" onclick="toggleChipFoco(this, 'modal')">Pessoas</span>
+                    <span class="chip-foco" data-foco="animais" onclick="toggleChipFoco(this, 'modal')">Animais</span>
+                    <span class="chip-foco" data-foco="paisagens" onclick="toggleChipFoco(this, 'modal')">Paisagens</span>
+                </div>
+
+                <p>Intensidade</p>
+                <div class="toggle-intensidade-container">
+                    <span class="toggle-label active-label" id="modalLabelFast">Relâmpago</span>
+                    <div class="toggle-switch" id="modalTogglePerfil" onclick="togglePerfil('modal')"></div>
+                    <span class="toggle-label" id="modalLabelDeep">Profundo</span>
+                </div>
+
+                <p>Janela de Processamento</p>
+                <div class="janela-selector">
+                    <select id="modalJanelaSelect" onchange="onJanelaChange('modal')">
+                        <option value="always">Processar Imediatamente</option>
+                        <option value="02:00-06:00">Madrugada (02h - 06h)</option>
+                        <option value="custom">Horário Customizado</option>
+                    </select>
+                    <div class="janela-custom-inputs" id="modalJanelaCustom" style="display:none;">
+                        <input type="time" id="modalJanelaInicio" value="02:00">
+                        <span>até</span>
+                        <input type="time" id="modalJanelaFim" value="06:00">
+                    </div>
+                </div>
+
+                <div class="estimativa-box" id="modalEstimativa" style="display:none;">Tempo estimado: calculando...</div>
+
+                <button onclick="salvarConfigPasta()" class="action-btn gradient-btn" style="width:100%; margin-left:0; margin-top:15px; padding:12px;">Salvar Configuração</button>
+            </div>
             
             <button id="btnAdicionarPasta" onclick="adicionarPasta()" class="action-btn gradient-btn" style="width: 100%; margin-left: 0; margin-top: 20px; padding: 15px;">+ Importar Nova Pasta</button>
-            <button id="btnAnalisarPastas" onclick="forcarAnalise()" class="action-btn" style="width: 100%; margin-left: 0; margin-top: 10px; padding: 15px; background: transparent;">🔄 Analisar Pastas Agora</button>
-            <button id="btnReanalizar" onclick="reAnalizarArquivos()" class="action-btn" style="width: 100%; margin-left: 0; margin-top: 10px; padding: 15px; background: transparent; border-color: rgba(234,179,8,0.4); color: #EAB308;">⚡ Re-analisar Arquivos com Descrição Ruim</button>
+            <button id="btnAnalisarPastas" onclick="forcarAnalise()" class="action-btn" style="width: 100%; margin-left: 0; margin-top: 10px; padding: 15px; background: transparent;">Analisar Pastas Agora</button>
+            <button id="btnReanalizar" onclick="reAnalizarArquivos()" class="action-btn" style="width: 100%; margin-left: 0; margin-top: 10px; padding: 15px; background: transparent; border-color: rgba(234,179,8,0.4); color: #EAB308;">Re-analisar Arquivos com Descrição Ruim</button>
         </div>
     </div>
 
-    <div id="statusBar" class="status-bar">🔌 Conectando ao motor...</div>
+    <div id="statusBar" class="status-bar">Conectando ao motor...</div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
-    <script src="script.js?v=2026"></script>
+    <script src="script.js?v=2026_indexacao_v3"></script>
 </body>
 </html>
