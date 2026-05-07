@@ -316,6 +316,19 @@ def get_db() -> sqlite3.Connection:
     return conn
 
 
+def _safe_json_loads(raw, default=None):
+    """
+    Wrapper de json.loads que devolve um default em caso de erro.
+    Evita 500 quando um campo do DB tem JSON corrompido (embedding, config_json).
+    """
+    if not raw:
+        return default
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return default
+
+
 def init_db() -> None:
     conn = get_db()
     conn.executescript("""
@@ -387,6 +400,29 @@ try:
     print("[DB] Banco de dados pronto.")
 except Exception as _db_exc:
     print(f"[DB] ERRO na inicialização: {_db_exc}")
+
+
+@app.errorhandler(sqlite3.OperationalError)
+def _handle_sqlite_operational_error(exc):
+    """
+    Se um endpoint quebrou com 'no such table' (banco zerado durante uso),
+    recria o schema automaticamente e pede pro cliente tentar de novo.
+    Resto dos OperationalError vai como 500 normal.
+    """
+    msg = str(exc).lower()
+    if "no such table" in msg or "no such column" in msg:
+        print(f"[DB] Schema ausente/incompleto detectado: {exc}. Recriando...")
+        try:
+            init_db()
+        except Exception as init_exc:
+            print(f"[DB] Falha ao recriar schema: {init_exc}")
+            return jsonify({"error": "Falha ao restaurar banco de dados."}), 500
+        return jsonify({
+            "error": "Banco de dados foi restaurado. Tente a operação novamente.",
+            "retry": True,
+        }), 503
+    print(f"[DB] OperationalError: {exc}")
+    return jsonify({"error": f"Erro de banco: {exc}"}), 500
 
 
 def _hash(pw: str) -> str:
@@ -573,7 +609,7 @@ def api_config():
         ).fetchall()
         conn.close()
 
-        cfg = {**_DEFAULT_CFG, **json.loads(row["config_json"] or "{}")} if row else dict(_DEFAULT_CFG)
+        cfg = {**_DEFAULT_CFG, **_safe_json_loads(row["config_json"], {})} if row else dict(_DEFAULT_CFG)
         rows = _list_folders(uid)
         cfg["pastas"] = _folders_to_json(rows)
         cfg["historico_pastas"] = len(cfg["pastas"]) > 0
@@ -613,10 +649,7 @@ def _folders_to_json(rows):
     """Converte rows do banco em lista de dicts para o frontend."""
     result = []
     for r in rows:
-        try:
-            prio = json.loads(r["prioridades"] or '["tudo"]')
-        except (json.JSONDecodeError, TypeError):
-            prio = ["tudo"]
+        prio = _safe_json_loads(r["prioridades"], ["tudo"])
         result.append({
             "id": r["id"],
             "path": r["path"],
@@ -774,12 +807,23 @@ def api_estimate_time():
     if not pasta or not os.path.isdir(pasta):
         return jsonify({"estimativa_minutos": 0, "total_imagens": 0})
 
+    # Limite de tempo + arquivos para não travar com pastas gigantes (ex: C:\)
+    LIMITE_ARQUIVOS = 50_000
+    LIMITE_TEMPO_S = 5
+    t_inicio = time.time()
     count = 0
+    truncado = False
     for root, _, filenames in os.walk(pasta):
+        if (time.time() - t_inicio) > LIMITE_TEMPO_S or count >= LIMITE_ARQUIVOS:
+            truncado = True
+            break
         for fname in filenames:
             ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
             if ext in _EXT_ALL:
                 count += 1
+                if count >= LIMITE_ARQUIVOS:
+                    truncado = True
+                    break
 
     rate = 2 if perfil == "fast" else 10  # segundos por arquivo
     
@@ -793,7 +837,11 @@ def api_estimate_time():
     if est_min == 0 and count > 0:
         est_min = 0.1
 
-    return jsonify({"estimativa_minutos": est_min, "total_imagens": count})
+    return jsonify({
+        "estimativa_minutos": est_min,
+        "total_imagens": count,
+        "truncado": truncado,
+    })
 
 
 @app.route("/api/ollama_models")
@@ -815,12 +863,38 @@ def api_ollama_models():
 
 @app.route("/api/file/<path:filepath>")
 def api_serve_file(filepath):
+    # Auth: precisa estar logado
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
     # Flask decodifica %XX automaticamente; backslash (%5C) também
     filepath = unquote(filepath)
     filepath = os.path.normpath(filepath)
 
     if not os.path.isfile(filepath):
         return jsonify({"error": "Arquivo não encontrado."}), 404
+
+    # Anti-path-traversal: o arquivo precisa estar dentro de UMA das pastas
+    # monitoradas do usuário. Sem isso, qualquer caminho do disco poderia
+    # ser servido (ex: C:\Users\X\.ssh\id_rsa).
+    abs_path = os.path.abspath(filepath)
+    conn = get_db()
+    pastas = conn.execute(
+        "SELECT path FROM folders WHERE user_id = ?", (uid,)
+    ).fetchall()
+    conn.close()
+
+    autorizado = False
+    for p in pastas:
+        pasta_abs = os.path.abspath(p["path"])
+        # Garante separador no fim para 'C:\foo' não casar com 'C:\foobar'
+        if abs_path.lower().startswith(pasta_abs.lower() + os.sep) or abs_path.lower() == pasta_abs.lower():
+            autorizado = True
+            break
+
+    if not autorizado:
+        return jsonify({"error": "Arquivo fora das pastas monitoradas."}), 403
 
     mime, _ = mimetypes.guess_type(filepath)
     return send_file(filepath, mimetype=mime or "application/octet-stream")
@@ -859,6 +933,8 @@ def _tk_pick(mode: str):
 
 @app.route("/api/choose_image")
 def api_choose_image():
+    if not _uid():
+        return jsonify({"status": "erro", "mensagem": "Não autenticado."}), 401
     try:
         path = _tk_pick("image")
         if path:
@@ -870,6 +946,8 @@ def api_choose_image():
 
 @app.route("/api/choose_folder")
 def api_choose_folder():
+    if not _uid():
+        return jsonify({"status": "erro", "mensagem": "Não autenticado."}), 401
     try:
         path = _tk_pick("folder")
         if path:
@@ -1261,8 +1339,21 @@ def api_search():
             import numpy as np
 
             # 1) SBERT — score semântico sobre o texto da descrição
+            # Se algum embedding estiver corrompido no DB, descarta o item
+            # antes de montar a matriz (np.array quebra com formas mistas).
+            files_emb_validos = []
+            doc_embs_list = []
+            for f in files_emb:
+                vec = _safe_json_loads(f["embedding"], None)
+                if isinstance(vec, list) and vec:
+                    files_emb_validos.append(f)
+                    doc_embs_list.append(vec)
+            files_emb = files_emb_validos
+            if not files_emb:
+                return jsonify({"resultados": [], "tempo": round(time.time() - t0, 3)})
+
             query_emb = _SBERT.encode(q["expandida"], convert_to_numpy=True)
-            doc_embs  = np.array([json.loads(f["embedding"]) for f in files_emb])
+            doc_embs  = np.array(doc_embs_list)
             sbert_sims = cosine_similarity([query_emb], doc_embs)[0].tolist()
 
             # 2) BM25 — score de palavra-chave sobre descrição + nome
@@ -1280,11 +1371,13 @@ def api_search():
                     clip_q_np = np.array([clip_query_vec])
                     for i, f in enumerate(files_emb):
                         if f["tipo"] in _EXT_IMG and f["embedding_clip"]:
-                            try:
-                                img_vec = np.array([json.loads(f["embedding_clip"])])
-                                clip_sims[i] = float(cosine_similarity(clip_q_np, img_vec)[0][0])
-                            except Exception:
-                                pass
+                            vec_clip = _safe_json_loads(f["embedding_clip"], None)
+                            if isinstance(vec_clip, list) and vec_clip:
+                                try:
+                                    img_vec = np.array([vec_clip])
+                                    clip_sims[i] = float(cosine_similarity(clip_q_np, img_vec)[0][0])
+                                except Exception:
+                                    pass
 
             # 4) Blend dos três scores — pesos diferentes para imagens vs outros
             # Imagens: CLIP entra com peso; outros: só SBERT + BM25
@@ -1562,15 +1655,27 @@ def api_debug_scores():
         import numpy as np
         from sklearn.metrics.pairwise import cosine_similarity as _cos_sim
         q = _analisar_query(query)
+
+        # Filtra rows com embedding válido
+        rows_validos = []
+        embs_list = []
+        for r in rows_emb:
+            vec = _safe_json_loads(r["embedding"], None)
+            if isinstance(vec, list) and vec:
+                rows_validos.append(r)
+                embs_list.append(vec)
+        if not rows_validos:
+            return jsonify({"query": query, "erro": "Todos os embeddings estavam corrompidos."})
+
         query_emb = _SBERT.encode(q["expandida"], convert_to_numpy=True)
-        doc_embs  = np.array([json.loads(r["embedding"]) for r in rows_emb])
+        doc_embs  = np.array(embs_list)
         sims      = _cos_sim([query_emb], doc_embs)[0].tolist()
 
         resultados = sorted([
             {"nome": r["nome"], "tipo": r["tipo"],
              "score": round(s, 4), "passa_threshold": s >= 0.35,
              "desc_preview": r["desc_preview"]}
-            for r, s in zip(rows_emb, sims)
+            for r, s in zip(rows_validos, sims)
         ], key=lambda x: x["score"], reverse=True)
 
         return jsonify({
@@ -1719,7 +1824,7 @@ def api_search_history():
     conn = get_db()
     row  = conn.execute("SELECT config_json FROM users WHERE id = ?", (uid,)).fetchone()
     conn.close()
-    cfg  = json.loads(row["config_json"] or "{}") if row else {}
+    cfg  = _safe_json_loads(row["config_json"] if row else None, {}) or {}
     return jsonify({"historico": cfg.get("search_history", [])})
 
 
@@ -1734,7 +1839,7 @@ def api_add_search_history():
 
     conn = get_db()
     row  = conn.execute("SELECT config_json FROM users WHERE id = ?", (uid,)).fetchone()
-    cfg  = json.loads(row["config_json"] or "{}") if row else {}
+    cfg  = _safe_json_loads(row["config_json"] if row else None, {}) or {}
 
     historico = cfg.get("search_history", [])
     if query in historico:
@@ -1755,7 +1860,7 @@ def api_delete_search_history(index):
         return jsonify({"error": "Não autenticado."}), 401
     conn = get_db()
     row  = conn.execute("SELECT config_json FROM users WHERE id = ?", (uid,)).fetchone()
-    cfg  = json.loads(row["config_json"] or "{}") if row else {}
+    cfg  = _safe_json_loads(row["config_json"] if row else None, {}) or {}
     historico = cfg.get("search_history", [])
     if 0 <= index < len(historico):
         historico.pop(index)
@@ -1773,7 +1878,7 @@ def api_clear_history():
         return jsonify({"error": "Não autenticado."}), 401
     conn = get_db()
     row  = conn.execute("SELECT config_json FROM users WHERE id = ?", (uid,)).fetchone()
-    cfg  = json.loads(row["config_json"] or "{}") if row else {}
+    cfg  = _safe_json_loads(row["config_json"] if row else None, {}) or {}
     cfg["search_history"] = []
     conn.execute("UPDATE users SET config_json = ? WHERE id = ?", (json.dumps(cfg), uid))
     conn.commit()
@@ -1882,9 +1987,6 @@ def _is_within_window(janela: str) -> bool:
     """Verifica se a hora atual está dentro da janela de processamento."""
     if not janela or janela == "always":
         return True
-    
-
-        
     try:
         parts = janela.split("-")
         if len(parts) != 2:
@@ -1911,10 +2013,7 @@ def _get_folder_config(folder_id, uid):
     conn.close()
     if not row:
         return ["tudo"], "fast", "always"
-    try:
-        prio = json.loads(row["prioridades"] or '["tudo"]')
-    except (json.JSONDecodeError, TypeError):
-        prio = ["tudo"]
+    prio = _safe_json_loads(row["prioridades"], ["tudo"])
     return prio, row["perfil_analise"] or "fast", row["janela_processamento"] or "always"
 
 
@@ -1948,12 +2047,18 @@ def _get_precomputed_clip_embs(category: str) -> list:
 def _process_worker() -> None:
     global _processed, _status
 
+    # Contador de itens consecutivos descartados por janela. Quando bate o
+    # tamanho da fila, dormimos uma vez e zeramos — evita o ciclo
+    # "pega → re-enfileira → sleep 30s → pega o próximo → ...".
+    fora_da_janela_consecutivos = 0
+
     while True:
         try:
             item = _queue.get(timeout=5)
         except queue.Empty:
             with _lock:
                 _status = "Ocioso"
+            fora_da_janela_consecutivos = 0
             continue
 
         fpath     = item["path"]
@@ -1967,12 +2072,19 @@ def _process_worker() -> None:
 
         # ── Scheduling: verificar janela de processamento ──
         if not _is_within_window(janela):
-            # Fora da janela — re-enfileira e espera
             _queue.put(item)
             _queue.task_done()
-            import time as _t
-            _t.sleep(30)  # Espera 30s antes de tentar novamente
+            fora_da_janela_consecutivos += 1
+            # Se já passamos por uma volta inteira da fila sem nada entrar,
+            # dorme uma vez ao invés de 30s × N itens.
+            if fora_da_janela_consecutivos >= max(_queue.qsize(), 1):
+                with _lock:
+                    _status = f"Aguardando janela de processamento ({janela})"
+                import time as _t
+                _t.sleep(60)  # 1 min antes de tentar de novo (granularidade da janela é hora)
+                fora_da_janela_consecutivos = 0
             continue
+        fora_da_janela_consecutivos = 0
 
         with _lock:
             _status = f"Analisando ({_queue.qsize()} na fila): {fname}"

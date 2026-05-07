@@ -1020,16 +1020,27 @@ async function carregarHistorico() {
     } catch(e) {}
 }
 
+// Escapa caracteres HTML perigosos pra evitar XSS quando texto vai para innerHTML
+function _escapeHtml(s) {
+    return String(s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function mostrarHistorico() {
     if (_historicoCache.length === 0) return;
     const dropdown = document.getElementById('searchHistoryDropdown');
     const list = document.getElementById('searchHistoryList');
-    list.innerHTML = _historicoCache.map((q, i) => `
+    list.innerHTML = _historicoCache.map((q, i) => {
+        const qEsc      = _escapeHtml(q);
+        const qAttrSafe = _escapeHtml(q.replace(/'/g, "\\'"));  // pra dentro do onclick='...'
+        return `
         <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 16px; cursor:pointer; border-bottom:1px solid var(--border-light); transition:background 0.15s;"
              onmouseenter="this.style.background='rgba(168,85,247,0.1)'" onmouseleave="this.style.background='transparent'">
-            <span onclick="usarHistorico('${q.replace(/'/g, "\\'")}')" style="flex:1; color:var(--text-primary); font-size:0.95rem;">${q}</span>
+            <span onclick="usarHistorico('${qAttrSafe}')" style="flex:1; color:var(--text-primary); font-size:0.95rem;">${qEsc}</span>
             <span onclick="removerHistorico(${i})" style="color:var(--text-secondary); font-size:1.2rem; padding:0 4px; line-height:1;">&times;</span>
-        </div>`).join('');
+        </div>`;
+    }).join('');
     dropdown.style.display = 'block';
 }
 
