@@ -1,6 +1,11 @@
 # Search+
 
-Aplicativo de busca semântica local: você aponta para uma pasta de imagens (e documentos) e pesquisa por elas escrevendo o que quer encontrar em linguagem natural — tipo "cachorro brincando" ou "prato de comida com kebab". A IA roda 100% no seu computador, sem mandar nada pra nuvem.
+Aplicativo de busca semântica para imagens (e documentos): você aponta para uma pasta e pesquisa em linguagem natural — tipo "cachorro brincando" ou "prato de comida com kebab".
+
+**Como funciona:**
+- A IA de análise (LLaVA + embeddings) roda 100% local no seu computador via Ollama.
+- O banco de dados fica no **Supabase** (Postgres com pgvector) — gratuito, free tier permanente.
+- Cada usuário precisa de um arquivo `.env` com suas credenciais Supabase.
 
 ---
 
@@ -79,6 +84,15 @@ py -m venv .venv
 py -m pip install -r backend/requirements.txt
 ```
 
+### Configurar o Supabase (banco de dados)
+
+1. Crie uma conta gratuita em [supabase.com](https://supabase.com) e crie um projeto novo.
+2. Em **Database → Extensions**, habilite a extensão `vector`.
+3. Em **Project Settings → API**, copie a Project URL, anon key e service_role key.
+4. Em **Project Settings → Database**, copie a connection string (URI).
+5. Copie `backend/.env.example` para `backend/.env` e cole suas credenciais.
+6. Rode uma vez para criar as tabelas (o app faz isso automaticamente na primeira execução, lendo `backend/schema.sql`).
+
 ### Rodar
 
 Com o Ollama rodando em paralelo:
@@ -94,9 +108,12 @@ Acesse `http://127.0.0.1:5000`. O Flask serve tanto a API quanto o frontend (`in
 | Biblioteca | Uso |
 |------------|-----|
 | `flask` + `flask-cors` | Servidor web, API e CORS |
+| `psycopg2-binary` | Driver Postgres (Supabase) |
+| `pgvector` | Adapter pgvector pra embeddings nativos |
+| `python-dotenv` | Carrega credenciais do `.env` |
 | `ollama` | Cliente Python para LLaVA + Llama 3.2 |
-| `sentence-transformers` | Embeddings semânticos (SBERT multilingual) |
-| `scikit-learn` + `numpy` | Cosine similarity, fallback TF-IDF |
+| `sentence-transformers` | Embeddings semânticos (SBERT multilingual, 384 dim) |
+| `scikit-learn` + `numpy` | Cosine similarity auxiliar (CLIP visual) |
 | `rank_bm25` | Ranking BM25 (camada keyword da busca híbrida) |
 | `PyMuPDF` (fitz) | Extração de texto de PDFs |
 | `python-docx` | Extração de texto de DOCX |
@@ -113,7 +130,9 @@ SearchPlus_Prototipo/
 ├── backend/
 │   ├── app.py               # Flask: API + arquivos estáticos + worker de IA
 │   ├── requirements.txt
-│   └── searchplus.db        # SQLite gerado em runtime (não versionado)
+│   ├── schema.sql           # Schema Postgres com pgvector
+│   ├── .env.example         # Template de credenciais Supabase
+│   └── .env                 # Credenciais reais (gitignored)
 ├── installer/               # Empacotador para distribuição
 │   ├── empacotar.bat / .ps1
 │   ├── 1-INSTALAR-DEPENDENCIAS.bat
@@ -125,10 +144,10 @@ SearchPlus_Prototipo/
 
 ### Como funciona a busca
 
-Pipeline híbrido com 3 camadas + re-ranking:
+Pipeline híbrido com 3 camadas + re-ranking, usando **pgvector** no Supabase:
 
-1. **SBERT** (sentence-transformers/MiniLM-L12 multilingual) — embedding semântico do texto da descrição
-2. **BM25** — ranking por palavra-chave sobre descrição + nome do arquivo
+1. **SBERT no banco** (`embedding <=> query_vec` com índice HNSW) — top 100 candidatos por similaridade vetorial, ordenados pelo Postgres. **Sem carregar embeddings em RAM**.
+2. **BM25** — ranking por palavra-chave sobre os 100 candidatos
 3. **CLIP** (opcional) — match visual texto↔pixel direto, quando disponível
 4. **LLM-juiz** (`llama3.2`) — re-rank dos top-20 com salvaguardas anti-rejeição
 
@@ -143,5 +162,5 @@ Detalhes adicionais:
 ### Notas
 
 - **Windows-only para diálogos nativos**: `/api/choose_folder` e `/api/choose_image` usam `tkinter`. Em Linux/macOS essas rotas falham — o resto do app funciona.
-- **Banco de dados**: `backend/searchplus.db` é gerado em runtime e está gitignored. Apagá-lo reseta usuários e arquivos indexados.
+- **Banco de dados**: Postgres no Supabase, configurado via `backend/.env`. O schema é criado automaticamente pelo `app.py` (lê `backend/schema.sql`). Apagar as tabelas no dashboard do Supabase reseta usuários e arquivos.
 - **Latência da busca**: o re-rank com LLM adiciona ~300 ms quando há 2+ candidatos. Em caso de falha do Ollama, degrada gracioso para SBERT+BM25 puro.

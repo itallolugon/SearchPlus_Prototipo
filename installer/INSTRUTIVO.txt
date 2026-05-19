@@ -8,7 +8,8 @@ maquina. Voce so precisa seguir 3 passos na ordem.
 REQUISITOS:
   - Windows 10 ou 11
   - ~12 GB livres em disco
-  - Conexao com a internet (so na primeira instalacao)
+  - Conexao com a internet (na primeira instalacao E para uso do app)
+  - Conta gratuita no Supabase (https://supabase.com)
   - Cerca de 30-50 minutos para instalar tudo
 
 
@@ -47,7 +48,32 @@ PASSO 2 - INSTALAR OLLAMA E MODELOS DE IA
 
 
 ============================================================
-PASSO 3 - INICIAR O APP
+PASSO 3 - CONFIGURAR O BANCO DE DADOS (SUPABASE)
+============================================================
+
+  O Search+ guarda seus usuarios, pastas e analises em um
+  banco gratuito chamado Supabase. Voce precisa criar o seu.
+
+  1. Acesse https://supabase.com e clique em "Start your project"
+  2. Faca login com Google ou GitHub
+  3. Clique em "New project":
+     - Name: SearchPlus
+     - Database Password: crie uma senha forte e ANOTE
+     - Region: South America (Sao Paulo)
+  4. Espere ~2 min ele provisionar
+  5. No menu lateral, va em Database -> Extensions
+     - Procure "vector" e ATIVE
+  6. No menu lateral, va em Project Settings -> Database
+     - Copie a "Connection string" (URI)
+     - Substitua [YOUR-PASSWORD] pela senha que voce criou
+  7. Abra o arquivo "backend/.env.example" nesta pasta
+     - Copie o conteudo para um novo arquivo "backend/.env"
+     - Cole a connection string em DATABASE_URL
+  8. Pronto - o app vai criar as tabelas sozinho na primeira execucao
+
+
+============================================================
+PASSO 4 - INICIAR O APP
 ============================================================
 
   Clique 2x no arquivo:  INICIAR.bat

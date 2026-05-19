@@ -20,6 +20,24 @@ if "%PYCMD%"=="" (
     exit /b 1
 )
 
+REM Verifica se .env existe (credenciais do Supabase)
+if not exist "%~dp0backend\.env" (
+    echo ============================================================
+    echo   [ERRO] Arquivo backend\.env nao encontrado
+    echo ============================================================
+    echo.
+    echo Voce precisa criar o arquivo de credenciais antes de iniciar.
+    echo.
+    echo 1. Copie o arquivo "backend\.env.example" para "backend\.env"
+    echo 2. Abra o backend\.env em um editor de texto
+    echo 3. Cole sua connection string do Supabase em DATABASE_URL
+    echo.
+    echo Veja o INSTRUTIVO.txt - Passo 3 para detalhes.
+    echo.
+    pause
+    exit /b 1
+)
+
 REM Garante que o Ollama esta rodando
 where ollama >nul 2>&1
 if %errorlevel% equ 0 (

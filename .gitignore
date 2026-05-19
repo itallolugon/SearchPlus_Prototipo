@@ -1,6 +1,10 @@
 # Build / distribuição
 dist/
 
+# Credenciais (Supabase, etc) - NUNCA COMMITAR
+.env
+backend/.env
+
 .venv/
 __pycache__/
 *.pyc

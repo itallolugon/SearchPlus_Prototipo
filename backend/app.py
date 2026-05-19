@@ -8,25 +8,40 @@ import json
 import hashlib
 import mimetypes
 import queue
-import sqlite3
 import subprocess
 import threading
 import time
 import unicodedata
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import unquote
+
+import psycopg2
+import psycopg2.errors
+from psycopg2 import pool as pg_pool
+from psycopg2.extras import RealDictCursor
+from pgvector.psycopg2 import register_vector
+from dotenv import load_dotenv
 
 from flask import Flask, jsonify, request, send_file, send_from_directory, session
 from flask_cors import CORS
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Configuração de caminhos e chaves
+# Configuração de caminhos e ambiente
 # ──────────────────────────────────────────────────────────────────────────────
 
-BASE_DIR = Path(__file__).parent          # .../SearchPlus-front-end/backend/
-FRONTEND_DIR = BASE_DIR.parent            # .../SearchPlus-front-end/
-DB_PATH = BASE_DIR / "searchplus.db"
+BASE_DIR = Path(__file__).parent          # .../backend/
+FRONTEND_DIR = BASE_DIR.parent            # .../
+
+# Carrega .env do diretório do backend
+load_dotenv(BASE_DIR / ".env")
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL não definida. Crie backend/.env baseado em .env.example."
+    )
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Libs opcionais (sem crash se não instaladas)
@@ -305,22 +320,77 @@ def _rerank_com_llm(query: str, candidatos: list[dict], topk: int = 20) -> list[
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Banco de dados SQLite
+# Banco de dados Postgres (Supabase) — pool de conexões
 # ──────────────────────────────────────────────────────────────────────────────
 
-def get_db() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+# Pool com 1-10 conexões. Cada request pega uma do pool; devolve no close.
+_pg_pool = pg_pool.ThreadedConnectionPool(1, 10, dsn=DATABASE_URL)
+print(f"[DB] Pool Postgres pronto ({DATABASE_URL.split('@')[-1]})")
+
+
+class _PooledConnection:
+    """
+    Wrapper de conexão Postgres que devolve ao pool no .close() em vez de fechar.
+    Mantém a mesma interface do sqlite3.Connection (conn.execute, conn.commit, conn.close)
+    pra minimizar refactor das chamadas existentes.
+    """
+    def __init__(self, raw):
+        self._raw = raw
+        # Registra o adapter pgvector pra aceitar/devolver listas como vector(N)
+        try:
+            register_vector(raw)
+        except Exception as e:
+            # Se a extensão vector não está habilitada ainda, ignora silencioso
+            print(f"[DB] pgvector adapter nao registrado: {e}")
+        self._cursor = raw.cursor(cursor_factory=RealDictCursor)
+
+    def execute(self, sql, params=None):
+        self._cursor.execute(sql, params or ())
+        return self._cursor
+
+    def executescript(self, sql):
+        # No Postgres rodamos como um único bloco
+        self._cursor.execute(sql)
+
+    def commit(self):
+        self._raw.commit()
+
+    def rollback(self):
+        self._raw.rollback()
+
+    def close(self):
+        try:
+            self._cursor.close()
+        except Exception:
+            pass
+        # Garante que a conexão volta limpa ao pool — se ficou em transaction
+        # com erro, a próxima query daria InFailedSqlTransaction.
+        try:
+            self._raw.rollback()
+        except Exception:
+            pass
+        try:
+            _pg_pool.putconn(self._raw)
+        except Exception:
+            pass
+
+
+def get_db():
+    """Pega uma conexão do pool. Sempre chame .close() no final pra devolver."""
+    raw = _pg_pool.getconn()
+    return _PooledConnection(raw)
 
 
 def _safe_json_loads(raw, default=None):
     """
-    Wrapper de json.loads que devolve um default em caso de erro.
-    Evita 500 quando um campo do DB tem JSON corrompido (embedding, config_json).
+    Wrapper tolerante de json.loads. No Postgres com JSONB, vem como dict
+    direto — só usamos esta função quando o campo é TEXT ou pode ser str.
     """
+    if raw is None:
+        return default
+    # JSONB do Postgres já vem como dict/list direto
+    if isinstance(raw, (dict, list)):
+        return raw
     if not raw:
         return default
     try:
@@ -330,99 +400,40 @@ def _safe_json_loads(raw, default=None):
 
 
 def init_db() -> None:
+    """Roda schema.sql — idempotente (todas as DDL têm IF NOT EXISTS)."""
+    schema_path = BASE_DIR / "schema.sql"
+    with open(schema_path, "r", encoding="utf-8") as f:
+        schema_sql = f.read()
     conn = get_db()
-    conn.executescript("""
-        CREATE TABLE IF NOT EXISTS users (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            username      TEXT    UNIQUE NOT NULL,
-            password_hash TEXT    NOT NULL,
-            config_json   TEXT    DEFAULT '{}'
-        );
-
-        CREATE TABLE IF NOT EXISTS folders (
-            id       INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id  INTEGER NOT NULL,
-            path     TEXT    NOT NULL,
-            name     TEXT    NOT NULL,
-            added_at TEXT    NOT NULL,
-            UNIQUE (user_id, path),
-            FOREIGN KEY (user_id) REFERENCES users(id)
-        );
-
-        CREATE TABLE IF NOT EXISTS files (
-            id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            folder_id       INTEGER,
-            user_id         INTEGER NOT NULL,
-            nome            TEXT    NOT NULL,
-            caminho         TEXT    NOT NULL,
-            tipo            TEXT    NOT NULL,
-            descricao_ia    TEXT    DEFAULT '',
-            embedding       TEXT    DEFAULT NULL,
-            embedding_clip  TEXT    DEFAULT NULL,
-            data_adicionado TEXT    NOT NULL,
-            favorito        INTEGER DEFAULT 0,
-            processado      INTEGER DEFAULT 0,
-            UNIQUE (user_id, caminho),
-            FOREIGN KEY (user_id) REFERENCES users(id)
-        );
-    """)
-    # Migrações idempotentes para bancos antigos
-    for coluna, ddl in (
-        ("embedding",      "ALTER TABLE files ADD COLUMN embedding TEXT DEFAULT NULL"),
-        ("embedding_clip", "ALTER TABLE files ADD COLUMN embedding_clip TEXT DEFAULT NULL"),
-    ):
-        try:
-            conn.execute(ddl)
-            conn.commit()
-            print(f"[DB] Coluna '{coluna}' adicionada.")
-        except sqlite3.OperationalError:
-            pass
-
-    # Migrações: Indexação Inteligente Seletiva (colunas na tabela folders)
-    for coluna, ddl in (
-        ("prioridades",          "ALTER TABLE folders ADD COLUMN prioridades TEXT DEFAULT '[\"tudo\"]'"),
-        ("perfil_analise",       "ALTER TABLE folders ADD COLUMN perfil_analise TEXT DEFAULT 'fast'"),
-        ("janela_processamento", "ALTER TABLE folders ADD COLUMN janela_processamento TEXT DEFAULT 'always'"),
-    ):
-        try:
-            conn.execute(ddl)
-            conn.commit()
-            print(f"[DB] Coluna '{coluna}' adicionada.")
-        except sqlite3.OperationalError:
-            pass  # Coluna já existe
-    conn.commit()
-    conn.close()
+    try:
+        conn._cursor.execute(schema_sql)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 # Garante que as tabelas existam ao carregar o módulo (idempotente)
 try:
     init_db()
-    print("[DB] Banco de dados pronto.")
+    print("[DB] Schema verificado.")
 except Exception as _db_exc:
     print(f"[DB] ERRO na inicialização: {_db_exc}")
 
 
-@app.errorhandler(sqlite3.OperationalError)
-def _handle_sqlite_operational_error(exc):
-    """
-    Se um endpoint quebrou com 'no such table' (banco zerado durante uso),
-    recria o schema automaticamente e pede pro cliente tentar de novo.
-    Resto dos OperationalError vai como 500 normal.
-    """
-    msg = str(exc).lower()
-    if "no such table" in msg or "no such column" in msg:
-        print(f"[DB] Schema ausente/incompleto detectado: {exc}. Recriando...")
-        try:
-            init_db()
-        except Exception as init_exc:
-            print(f"[DB] Falha ao recriar schema: {init_exc}")
-            return jsonify({"error": "Falha ao restaurar banco de dados."}), 500
-        return jsonify({
-            "error": "Banco de dados foi restaurado. Tente a operação novamente.",
-            "retry": True,
-        }), 503
-    print(f"[DB] OperationalError: {exc}")
-    return jsonify({"error": f"Erro de banco: {exc}"}), 500
+@app.errorhandler(psycopg2.errors.UndefinedTable)
+@app.errorhandler(psycopg2.errors.UndefinedColumn)
+def _handle_missing_schema(exc):
+    """Se as tabelas sumirem em runtime, recria o schema e pede retry."""
+    print(f"[DB] Schema ausente/incompleto detectado: {exc}. Recriando...")
+    try:
+        init_db()
+    except Exception as init_exc:
+        print(f"[DB] Falha ao recriar schema: {init_exc}")
+        return jsonify({"error": "Falha ao restaurar banco de dados."}), 500
+    return jsonify({
+        "error": "Banco de dados foi restaurado. Tente a operação novamente.",
+        "retry": True,
+    }), 503
 
 
 def _hash(pw: str) -> str:
@@ -489,7 +500,7 @@ def api_login():
 
     conn = get_db()
     row = conn.execute(
-        "SELECT id, password_hash FROM users WHERE username = ?", (username,)
+        "SELECT id, password_hash FROM users WHERE username = %s", (username,)
     ).fetchone()
     conn.close()
 
@@ -525,14 +536,14 @@ def api_register():
 
     try:
         conn.execute(
-            "INSERT INTO users (username, password_hash, config_json) VALUES (?, ?, ?)",
+            "INSERT INTO users (username, password_hash, config_json) VALUES (%s, %s, %s)",
             (username, _hash(password), json.dumps(cfg)),
         )
         conn.commit()
         return jsonify({"status": "ok"})
-    except sqlite3.IntegrityError:
+    except psycopg2.errors.UniqueViolation:
         return jsonify({"mensagem": "Este usuário já existe."}), 409
-    except sqlite3.OperationalError as exc:
+    except psycopg2.errors.UndefinedTable as exc:
         # Banco existe mas sem schema (ex: arquivo zerado durante uso) — recria e tenta de novo
         if "no such table" in str(exc).lower():
             print(f"[DB] Schema ausente, recriando: {exc}")
@@ -541,7 +552,7 @@ def api_register():
             conn = get_db()
             try:
                 conn.execute(
-                    "INSERT INTO users (username, password_hash, config_json) VALUES (?, ?, ?)",
+                    "INSERT INTO users (username, password_hash, config_json) VALUES (%s, %s, %s)",
                     (username, _hash(password), json.dumps(cfg)),
                 )
                 conn.commit()
@@ -572,7 +583,7 @@ def api_check_session():
 
     # Verifica se o usuário ainda existe no banco (ex: após deletar o DB)
     conn = get_db()
-    user = conn.execute("SELECT username FROM users WHERE id = ?", (uid,)).fetchone()
+    user = conn.execute("SELECT username FROM users WHERE id = %s", (uid,)).fetchone()
     conn.close()
 
     if user:
@@ -603,9 +614,9 @@ def api_config():
             return jsonify({**_DEFAULT_CFG, "pastas": [], "historico_pastas": False})
 
         conn = get_db()
-        row = conn.execute("SELECT config_json FROM users WHERE id = ?", (uid,)).fetchone()
+        row = conn.execute("SELECT config_json FROM users WHERE id = %s", (uid,)).fetchone()
         folders = conn.execute(
-            "SELECT path FROM folders WHERE user_id = ? ORDER BY added_at", (uid,)
+            "SELECT path FROM folders WHERE user_id = %s ORDER BY added_at", (uid,)
         ).fetchall()
         conn.close()
 
@@ -625,7 +636,7 @@ def api_config():
     data.pop("historico_pastas", None)
 
     conn = get_db()
-    conn.execute("UPDATE users SET config_json = ? WHERE id = ?", (json.dumps(data), uid))
+    conn.execute("UPDATE users SET config_json = %s WHERE id = %s", (json.dumps(data), uid))
     conn.commit()
     conn.close()
     return jsonify({"status": "ok"})
@@ -639,7 +650,7 @@ def _list_folders(uid: int):
     conn = get_db()
     rows = conn.execute(
         "SELECT id, path, prioridades, perfil_analise, janela_processamento "
-        "FROM folders WHERE user_id = ? ORDER BY added_at", (uid,)
+        "FROM folders WHERE user_id = %s ORDER BY added_at", (uid,)
     ).fetchall()
     conn.close()
     return rows
@@ -687,16 +698,16 @@ def api_folders():
         try:
             conn.execute(
                 "INSERT INTO folders (user_id, path, name, added_at, prioridades, perfil_analise, janela_processamento) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
                 (uid, pasta, name, datetime.now().isoformat(),
                  json.dumps(prioridades), perfil, janela),
             )
             conn.commit()
-        except sqlite3.IntegrityError:
+        except psycopg2.errors.UniqueViolation:
             # Pasta já existe — atualiza config
             conn.execute(
-                "UPDATE folders SET prioridades=?, perfil_analise=?, janela_processamento=? "
-                "WHERE user_id=? AND path=?",
+                "UPDATE folders SET prioridades=%s, perfil_analise=%s, janela_processamento=%s "
+                "WHERE user_id=%s AND path=%s",
                 (json.dumps(prioridades), perfil, janela, uid, pasta),
             )
             conn.commit()
@@ -714,8 +725,8 @@ def api_folders():
     pasta = (data.get("pasta") or "").strip()
 
     conn = get_db()
-    conn.execute("DELETE FROM files WHERE user_id = ? AND caminho LIKE ?", (uid, pasta + "%"))
-    conn.execute("DELETE FROM folders WHERE user_id = ? AND path = ?", (uid, pasta))
+    conn.execute("DELETE FROM files WHERE user_id = %s AND caminho LIKE %s", (uid, pasta + "%"))
+    conn.execute("DELETE FROM folders WHERE user_id = %s AND path = %s", (uid, pasta))
     conn.commit()
     conn.close()
 
@@ -732,12 +743,12 @@ def api_delete_folder_by_id(folder_id):
     conn = get_db()
     
     # Pegar o path da pasta para deletar os arquivos
-    row = conn.execute("SELECT path FROM folders WHERE id = ? AND user_id = ?", (folder_id, uid)).fetchone()
+    row = conn.execute("SELECT path FROM folders WHERE id = %s AND user_id = %s", (folder_id, uid)).fetchone()
     if row:
         pasta = row["path"]
-        conn.execute("DELETE FROM files WHERE user_id = ? AND caminho LIKE ?", (uid, pasta + "%"))
+        conn.execute("DELETE FROM files WHERE user_id = %s AND caminho LIKE %s", (uid, pasta + "%"))
 
-    conn.execute("DELETE FROM folders WHERE id = ? AND user_id = ?", (folder_id, uid))
+    conn.execute("DELETE FROM folders WHERE id = %s AND user_id = %s", (folder_id, uid))
     conn.commit()
     conn.close()
 
@@ -763,13 +774,13 @@ def api_update_folder_config():
     
     sets, vals = [], []
     if "prioridades" in data:
-        sets.append("prioridades = ?")
+        sets.append("prioridades = %s")
         vals.append(json.dumps(data["prioridades"]))
     if "perfil_analise" in data:
-        sets.append("perfil_analise = ?")
+        sets.append("perfil_analise = %s")
         vals.append(data["perfil_analise"])
     if "janela_processamento" in data:
-        sets.append("janela_processamento = ?")
+        sets.append("janela_processamento = %s")
         vals.append(data["janela_processamento"])
 
     if not sets:
@@ -778,10 +789,10 @@ def api_update_folder_config():
     conn = get_db()
     if folder_id is not None:
         vals.extend([folder_id, uid])
-        conn.execute(f"UPDATE folders SET {', '.join(sets)} WHERE id = ? AND user_id = ?", vals)
+        conn.execute(f"UPDATE folders SET {', '.join(sets)} WHERE id = %s AND user_id = %s", vals)
     elif folder_path:
         vals.extend([folder_path, uid])
-        conn.execute(f"UPDATE folders SET {', '.join(sets)} WHERE path = ? AND user_id = ?", vals)
+        conn.execute(f"UPDATE folders SET {', '.join(sets)} WHERE path = %s AND user_id = %s", vals)
     else:
         conn.close()
         return jsonify({"error": "ID ou Path não fornecido."}), 400
@@ -881,7 +892,7 @@ def api_serve_file(filepath):
     abs_path = os.path.abspath(filepath)
     conn = get_db()
     pastas = conn.execute(
-        "SELECT path FROM folders WHERE user_id = ?", (uid,)
+        "SELECT path FROM folders WHERE user_id = %s", (uid,)
     ).fetchall()
     conn.close()
 
@@ -1300,6 +1311,13 @@ def _trecho(desc: str, query: str) -> str:
 
 @app.route("/api/search", methods=["GET", "POST"])
 def api_search():
+    """
+    Busca híbrida com pgvector:
+    1. SBERT (no banco): top 100 candidatos por cosine distance (HNSW index)
+    2. BM25 (em Python): re-pontuação por palavra-chave nos 100 candidatos
+    3. CLIP (em Python, opcional): similaridade visual quando disponível
+    4. Match literal + ajustes de score + re-rank com LLM-juiz
+    """
     uid = _uid()
     if not uid:
         return jsonify({"error": "Não autenticado."}), 401
@@ -1315,193 +1333,130 @@ def api_search():
     if not query:
         return jsonify({"resultados": [], "tempo": 0})
 
+    t0 = time.time()
+
+    if not SBERT_OK:
+        return jsonify({"resultados": [], "tempo": 0,
+                        "erro": "SBERT indisponível — busca semântica desligada."})
+
+    q = _analisar_query(query)
+    query_emb = _SBERT.encode(q["expandida"], convert_to_numpy=True).tolist()
+
+    # Filtro por tipo no SQL (mais rápido que filtrar em Python depois)
+    sql_filtro_tipo = ""
+    params_filtro = ()
+    if filtro == "imagem":
+        sql_filtro_tipo = " AND tipo = ANY(%s)"
+        params_filtro = (list(_EXT_IMG),)
+    elif filtro == "midia":
+        sql_filtro_tipo = " AND tipo = ANY(%s)"
+        params_filtro = (list(_EXT_VID | _EXT_AUD),)
+    elif filtro == "documento":
+        sql_filtro_tipo = " AND tipo != ALL(%s)"
+        params_filtro = (list(_EXT_IMG | _EXT_VID | _EXT_AUD),)
+
+    # Top 100 por SBERT via pgvector (HNSW index — O(log n))
     conn = get_db()
     rows = conn.execute(
-        "SELECT * FROM files WHERE user_id = ? AND processado = 1", (uid,)
+        f"""
+        SELECT id, folder_id, nome, caminho, tipo, descricao_ia,
+               embedding_clip, data_adicionado, favorito,
+               1 - (embedding <=> %s::vector) AS sbert_score
+        FROM files
+        WHERE user_id = %s AND processado = 1 AND embedding IS NOT NULL
+        {sql_filtro_tipo}
+        ORDER BY embedding <=> %s::vector
+        LIMIT 100
+        """,
+        (query_emb, uid, *params_filtro, query_emb)
     ).fetchall()
     conn.close()
 
-    files = [r for r in rows if _match_filter(r["tipo"], filtro)]
-    if not files:
-        return jsonify({"resultados": [], "tempo": 0})
+    if not rows:
+        return jsonify({"resultados": [], "tempo": round(time.time() - t0, 3)})
 
-    t0 = time.time()
+    sbert_sims = [max(0.0, float(r["sbert_score"])) for r in rows]
 
-    # ── Busca híbrida: SBERT (semântica) + BM25 (keyword) + CLIP (visual) ────
-    if SBERT_OK:
-        files_emb = [f for f in files if f["embedding"]]
-        files_sem_emb = [f for f in files if not f["embedding"]]
+    # BM25 (palavra-chave) sobre os candidatos
+    corpus_tokens = [
+        _tokenizar((f["descricao_ia"] or "") + " " + (f["nome"] or ""))
+        for f in rows
+    ]
+    bm25_sims = _bm25_scores(corpus_tokens, q["palavras"])
 
-        results = []
-        q = _analisar_query(query)
-
-        if files_emb:
+    # CLIP (visual): só pra imagens com embedding_clip
+    clip_sims = [0.0] * len(rows)
+    if CLIP_OK:
+        clip_query_vec = _gerar_embedding_clip_texto(q["original"])
+        if clip_query_vec is not None:
             import numpy as np
+            clip_q_np = np.array([clip_query_vec])
+            for i, f in enumerate(rows):
+                if f["tipo"] in _EXT_IMG and f["embedding_clip"] is not None:
+                    try:
+                        img_vec = np.array([f["embedding_clip"]])
+                        clip_sims[i] = float(cosine_similarity(clip_q_np, img_vec)[0][0])
+                    except Exception:
+                        pass
 
-            # 1) SBERT — score semântico sobre o texto da descrição
-            # Se algum embedding estiver corrompido no DB, descarta o item
-            # antes de montar a matriz (np.array quebra com formas mistas).
-            files_emb_validos = []
-            doc_embs_list = []
-            for f in files_emb:
-                vec = _safe_json_loads(f["embedding"], None)
-                if isinstance(vec, list) and vec:
-                    files_emb_validos.append(f)
-                    doc_embs_list.append(vec)
-            files_emb = files_emb_validos
-            if not files_emb:
-                return jsonify({"resultados": [], "tempo": round(time.time() - t0, 3)})
+    # Pesos do blend
+    W_SBERT_IMG, W_BM25_IMG, W_CLIP_IMG = 0.45, 0.25, 0.30
+    W_SBERT_DOC, W_BM25_DOC             = 0.65, 0.35
 
-            query_emb = _SBERT.encode(q["expandida"], convert_to_numpy=True)
-            doc_embs  = np.array(doc_embs_list)
-            sbert_sims = cosine_similarity([query_emb], doc_embs)[0].tolist()
+    # Match literal (cobre plural nasal pt-BR: homem ↔ homens)
+    palavras_literais = set()
+    for w in q["palavras"]:
+        if len(w) >= 3:
+            palavras_literais.update(_variantes_morfologicas(w))
 
-            # 2) BM25 — score de palavra-chave sobre descrição + nome
-            corpus_tokens = [
-                _tokenizar((f["descricao_ia"] or "") + " " + (f["nome"] or ""))
-                for f in files_emb
-            ]
-            bm25_sims = _bm25_scores(corpus_tokens, q["palavras"])
-
-            # 3) CLIP — score visual (texto↔imagem) só para imagens com embedding CLIP
-            clip_sims: list[float] = [0.0] * len(files_emb)
-            if CLIP_OK:
-                clip_query_vec = _gerar_embedding_clip_texto(q["original"])
-                if clip_query_vec is not None:
-                    clip_q_np = np.array([clip_query_vec])
-                    for i, f in enumerate(files_emb):
-                        if f["tipo"] in _EXT_IMG and f["embedding_clip"]:
-                            vec_clip = _safe_json_loads(f["embedding_clip"], None)
-                            if isinstance(vec_clip, list) and vec_clip:
-                                try:
-                                    img_vec = np.array([vec_clip])
-                                    clip_sims[i] = float(cosine_similarity(clip_q_np, img_vec)[0][0])
-                                except Exception:
-                                    pass
-
-            # 4) Blend dos três scores — pesos diferentes para imagens vs outros
-            # Imagens: CLIP entra com peso; outros: só SBERT + BM25
-            W_SBERT_IMG, W_BM25_IMG, W_CLIP_IMG = 0.45, 0.25, 0.30
-            W_SBERT_DOC, W_BM25_DOC             = 0.65, 0.35
-
-            # Match literal: palavras originais da query + variantes morfológicas
-            # (singular↔plural). Cobre 'homem' em 'homens' e similares.
-            palavras_literais = set()
-            for w in q["palavras"]:
-                if len(w) >= 3:
-                    palavras_literais.update(_variantes_morfologicas(w))
-
-            def _filtrar_e_pontuar(threshold_sbert: float) -> list:
-                """Aplica filtro+score com um threshold específico. Usado para fallback adaptativo."""
-                out = []
-                for f, s_sbert, s_bm25, s_clip in zip(files_emb, sbert_sims, bm25_sims, clip_sims):
-                    desc_norm_local = _normalizar(f["descricao_ia"] or "")
-                    tem_texto     = s_sbert >= threshold_sbert
-                    tem_visual    = (f["tipo"] in _EXT_IMG and CLIP_OK and s_clip >= 0.25)
-                    tem_keyword   = s_bm25 >= 0.5 and bool(q["palavras_set"])
-                    match_literal = any(w in desc_norm_local for w in palavras_literais)
-                    if not (tem_texto or tem_visual or tem_keyword or match_literal):
-                        continue
-
-                    if f["tipo"] in _EXT_IMG and CLIP_OK and s_clip > 0:
-                        blended = W_SBERT_IMG * s_sbert + W_BM25_IMG * s_bm25 + W_CLIP_IMG * s_clip
-                    else:
-                        blended = W_SBERT_DOC * s_sbert + W_BM25_DOC * s_bm25
-
-                    desc      = f["descricao_ia"] or ""
-                    desc_norm = _normalizar(desc)
-                    nome_norm = _normalizar(f["nome"])
-                    score = _ajustar_score(float(blended), q, desc_norm, nome_norm)
-                    if score is None:
-                        continue
-                    out.append((f, desc, score))
-                return out
-
-            # Busca adaptativa: tenta threshold normal; se vazio, afrouxa só um pouco
-            # (0.30 ainda bloqueia falso-positivo tipo 'gato' → cachorro em 0.28).
-            candidatos = _filtrar_e_pontuar(0.35)
-            if not candidatos:
-                candidatos = _filtrar_e_pontuar(0.30)
-
-            for f, desc, score in candidatos:
-                results.append({
-                    "id": f["id"], "nome": f["nome"], "caminho": f["caminho"],
-                    "tipo": f["tipo"], "descricao_ia": desc, "conteudo": desc,
-                    "trecho": _trecho(desc, query), "data": f["data_adicionado"],
-                    "favorito": bool(f["favorito"]), "score": round(score, 4),
-                })
-
-        # Arquivos ainda sem embedding: fallback por nome de arquivo
-        for f in files_sem_emb:
-            nome_norm = _normalizar(f["nome"])
-            if q["normalizada"] and q["normalizada"] in nome_norm:
-                desc = f["descricao_ia"] or ""
-                results.append({
-                    "id": f["id"], "nome": f["nome"], "caminho": f["caminho"],
-                    "tipo": f["tipo"], "descricao_ia": desc, "conteudo": desc,
-                    "trecho": _trecho(desc, query), "data": f["data_adicionado"],
-                    "favorito": bool(f["favorito"]), "score": 0.5,
-                })
-
-    # ── Fallback TF-IDF (quando SBERT não está disponível) ──────────────────
-    else:
-        corpus = [_normalizar(r["descricao_ia"] or r["nome"]) for r in files]
-        q_norm = _normalizar(query)
-        if SKLEARN_OK:
-            try:
-                vec  = TfidfVectorizer(min_df=1, sublinear_tf=True, analyzer="word")
-                mat  = vec.fit_transform(corpus + [q_norm])
-                sims = cosine_similarity(mat[-1:], mat[:-1])[0].tolist()
-            except Exception:
-                sims = _fallback_sims(files, q_norm)
-        else:
-            sims = _fallback_sims(files, q_norm)
-
-        max_sim = max(sims) if sims else 0.0
-        sims_n  = [s / max_sim for s in sims] if max_sim >= 0.02 else [0.0] * len(sims)
-
-        results = []
-        for f, score, score_raw in zip(files, sims_n, sims):
-            if score_raw < 0.02 or score < 0.20:
+    def _filtrar_e_pontuar(threshold_sbert: float) -> list:
+        out = []
+        for f, s_sbert, s_bm25, s_clip in zip(rows, sbert_sims, bm25_sims, clip_sims):
+            desc_norm_local = _normalizar(f["descricao_ia"] or "")
+            tem_texto     = s_sbert >= threshold_sbert
+            tem_visual    = (f["tipo"] in _EXT_IMG and CLIP_OK and s_clip >= 0.25)
+            tem_keyword   = s_bm25 >= 0.5 and bool(q["palavras_set"])
+            match_literal = any(w in desc_norm_local for w in palavras_literais)
+            if not (tem_texto or tem_visual or tem_keyword or match_literal):
                 continue
-            if query.lower() in f["nome"].lower():
-                score = min(1.0, score + 0.20)
-            desc = f["descricao_ia"] or ""
-            results.append({
-                "id": f["id"], "nome": f["nome"], "caminho": f["caminho"],
-                "tipo": f["tipo"], "descricao_ia": desc, "conteudo": desc,
-                "trecho": _trecho(desc, query), "data": f["data_adicionado"],
-                "favorito": bool(f["favorito"]), "score": round(float(score), 4),
-            })
+
+            if f["tipo"] in _EXT_IMG and CLIP_OK and s_clip > 0:
+                blended = W_SBERT_IMG * s_sbert + W_BM25_IMG * s_bm25 + W_CLIP_IMG * s_clip
+            else:
+                blended = W_SBERT_DOC * s_sbert + W_BM25_DOC * s_bm25
+
+            desc      = f["descricao_ia"] or ""
+            desc_norm = _normalizar(desc)
+            nome_norm = _normalizar(f["nome"])
+            score = _ajustar_score(float(blended), q, desc_norm, nome_norm)
+            if score is None:
+                continue
+            out.append((f, desc, score))
+        return out
+
+    candidatos = _filtrar_e_pontuar(0.35)
+    if not candidatos:
+        candidatos = _filtrar_e_pontuar(0.30)
+
+    results = []
+    for f, desc, score in candidatos:
+        results.append({
+            "id": f["id"], "nome": f["nome"], "caminho": f["caminho"],
+            "tipo": f["tipo"], "descricao_ia": desc, "conteudo": desc,
+            "trecho": _trecho(desc, query),
+            "data": f["data_adicionado"].isoformat() if f["data_adicionado"] else "",
+            "favorito": bool(f["favorito"]),
+            "score": round(score, 4),
+        })
 
     results.sort(key=lambda x: x["score"], reverse=True)
 
-    # Re-rank com LLM-juiz sobre os top-20. Se o Ollama não responder a tempo,
-    # devolve a ordem SBERT+BM25 pura (degrada gracioso).
     if results:
         results = _rerank_com_llm(query, results, topk=20)
-        # Corte final: depois do LLM, tudo < 0.20 vira ruído. Remove.
         results = [r for r in results if r["score"] >= 0.20]
 
     tempo = round(time.time() - t0, 3)
     return jsonify({"resultados": results[:60], "tempo": tempo})
-
-
-def _fallback_sims(files, query: str):
-    q = query.lower()
-    sims = []
-    for f in files:
-        desc = (f["descricao_ia"] or "").lower()
-        nome = f["nome"].lower()
-        if q in desc:
-            sims.append(0.8)
-        elif q in nome:
-            sims.append(0.5)
-        elif any(w in desc for w in q.split() if len(w) > 2):
-            sims.append(0.3)
-        else:
-            sims.append(0.0)
-    return sims
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1516,7 +1471,7 @@ def api_favorites():
 
     conn = get_db()
     rows = conn.execute(
-        "SELECT * FROM files WHERE user_id = ? AND favorito = 1 ORDER BY data_adicionado DESC",
+        "SELECT * FROM files WHERE user_id = %s AND favorito = 1 ORDER BY data_adicionado DESC",
         (uid,),
     ).fetchall()
     conn.close()
@@ -1530,7 +1485,7 @@ def api_favorites():
             "descricao_ia": r["descricao_ia"] or "",
             "conteudo":    r["descricao_ia"] or "",
             "trecho":      (r["descricao_ia"] or "")[:200],
-            "data":        r["data_adicionado"],
+            "data":        r["data_adicionado"].isoformat() if r["data_adicionado"] else "",
             "favorito":    True,
             "score":       1.0,
         }
@@ -1550,7 +1505,7 @@ def api_favorites_toggle():
 
     conn = get_db()
     row  = conn.execute(
-        "SELECT favorito FROM files WHERE id = ? AND user_id = ?", (file_id, uid)
+        "SELECT favorito FROM files WHERE id = %s AND user_id = %s", (file_id, uid)
     ).fetchone()
 
     if not row:
@@ -1559,7 +1514,7 @@ def api_favorites_toggle():
 
     new_fav = 1 - int(row["favorito"])
     conn.execute(
-        "UPDATE files SET favorito = ? WHERE id = ? AND user_id = ?", (new_fav, file_id, uid)
+        "UPDATE files SET favorito = %s WHERE id = %s AND user_id = %s", (new_fav, file_id, uid)
     )
     conn.commit()
     conn.close()
@@ -1583,7 +1538,7 @@ def api_status():
     
     try:
         conn = get_db()
-        count = conn.execute("SELECT COUNT(*) FROM files WHERE user_id = ?", (uid,)).fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM files WHERE user_id = %s", (uid,)).fetchone()[0]
     except Exception:
         count = 0
     finally:
@@ -1607,7 +1562,7 @@ def api_debug_files():
     conn = get_db()
     rows = conn.execute(
         "SELECT id, nome, tipo, processado, embedding IS NOT NULL as tem_embedding, "
-        "substr(descricao_ia,1,120) as desc_preview FROM files WHERE user_id = ?",
+        "substr(descricao_ia,1,120) as desc_preview FROM files WHERE user_id = %s",
         (uid,)
     ).fetchall()
     conn.close()
@@ -1633,18 +1588,28 @@ def api_debug_scores():
         return jsonify({"error": "SBERT nao carregou. Verifique o log do servidor."}), 400
 
     try:
+        q = _analisar_query(query)
+        query_emb = _SBERT.encode(q["expandida"], convert_to_numpy=True).tolist()
+
         conn = get_db()
         todos = conn.execute(
-            "SELECT COUNT(*) as n FROM files WHERE user_id = ?", (uid,)
+            "SELECT COUNT(*) as n FROM files WHERE user_id = %s", (uid,)
         ).fetchone()["n"]
-        rows_emb = conn.execute(
-            "SELECT nome, tipo, embedding, substr(descricao_ia,1,200) as desc_preview "
-            "FROM files WHERE user_id = ? AND embedding IS NOT NULL",
-            (uid,),
+        # Busca scores SBERT via pgvector (no banco)
+        rows = conn.execute(
+            """
+            SELECT nome, tipo, substr(descricao_ia, 1, 200) AS desc_preview,
+                   1 - (embedding <=> %s::vector) AS score
+            FROM files
+            WHERE user_id = %s AND embedding IS NOT NULL
+            ORDER BY embedding <=> %s::vector
+            LIMIT 200
+            """,
+            (query_emb, uid, query_emb)
         ).fetchall()
         conn.close()
 
-        if not rows_emb:
+        if not rows:
             return jsonify({
                 "query": query,
                 "erro": "Nenhum arquivo tem embedding ainda.",
@@ -1652,38 +1617,20 @@ def api_debug_scores():
                 "dica": "Clique em 'Analisar Pastas' para gerar os embeddings.",
             })
 
-        import numpy as np
-        from sklearn.metrics.pairwise import cosine_similarity as _cos_sim
-        q = _analisar_query(query)
-
-        # Filtra rows com embedding válido
-        rows_validos = []
-        embs_list = []
-        for r in rows_emb:
-            vec = _safe_json_loads(r["embedding"], None)
-            if isinstance(vec, list) and vec:
-                rows_validos.append(r)
-                embs_list.append(vec)
-        if not rows_validos:
-            return jsonify({"query": query, "erro": "Todos os embeddings estavam corrompidos."})
-
-        query_emb = _SBERT.encode(q["expandida"], convert_to_numpy=True)
-        doc_embs  = np.array(embs_list)
-        sims      = _cos_sim([query_emb], doc_embs)[0].tolist()
-
-        resultados = sorted([
+        resultados = [
             {"nome": r["nome"], "tipo": r["tipo"],
-             "score": round(s, 4), "passa_threshold": s >= 0.35,
+             "score": round(float(r["score"]), 4),
+             "passa_threshold": float(r["score"]) >= 0.35,
              "desc_preview": r["desc_preview"]}
-            for r, s in zip(rows_validos, sims)
-        ], key=lambda x: x["score"], reverse=True)
+            for r in rows
+        ]
 
         return jsonify({
             "query": query,
             "query_expandida": q["expandida"],
             "threshold_atual": 0.35,
             "total_arquivos": todos,
-            "com_embedding": len(rows_emb),
+            "com_embedding": len(rows),
             "resultados": resultados,
         })
     except Exception as exc:
@@ -1702,7 +1649,7 @@ def api_analyze_folders():
 
     conn    = get_db()
     folders = conn.execute(
-        "SELECT path FROM folders WHERE user_id = ?", (uid,)
+        "SELECT path FROM folders WHERE user_id = %s", (uid,)
     ).fetchall()
     conn.close()
 
@@ -1727,17 +1674,18 @@ def api_reanalyze():
     conn = get_db()
     # Marca como não processado: arquivos com descrição ruim (fallback) ou vazios
     conditions = " OR ".join(
-        f"descricao_ia LIKE ?" for _ in _DESCRICOES_RUINS
+        "descricao_ia LIKE %s" for _ in _DESCRICOES_RUINS
     )
     rows = conn.execute(
-        f"SELECT id, caminho, nome, tipo FROM files WHERE user_id = ? AND (processado = 0 OR embedding IS NULL OR {conditions})",
+        f"SELECT id, caminho, nome, tipo FROM files WHERE user_id = %s AND (processado = 0 OR embedding IS NULL OR {conditions})",
         (uid, *[f"{p}%" for p in _DESCRICOES_RUINS])
     ).fetchall()
 
     ids = [r["id"] for r in rows]
     if ids:
+        placeholders = ','.join(['%s'] * len(ids))
         conn.execute(
-            f"UPDATE files SET processado = 0, descricao_ia = '', embedding = NULL WHERE id IN ({','.join('?'*len(ids))})",
+            f"UPDATE files SET processado = 0, descricao_ia = '', embedding = NULL WHERE id IN ({placeholders})",
             ids
         )
         conn.commit()
@@ -1771,7 +1719,7 @@ def api_reembed():
     conn = get_db()
     rows = conn.execute(
         "SELECT id, caminho, tipo, descricao_ia FROM files "
-        "WHERE user_id = ? AND processado = 1 AND descricao_ia != ''",
+        "WHERE user_id = %s AND processado = 1 AND descricao_ia != ''",
         (uid,),
     ).fetchall()
     conn.close()
@@ -1789,21 +1737,21 @@ def api_reembed():
                 texto_emb = _texto_para_embedding(r["descricao_ia"])
                 emb = _gerar_embedding(texto_emb)
                 if emb:
-                    sets.append("embedding = ?")
-                    vals.append(json.dumps(emb))
+                    sets.append("embedding = %s")
+                    vals.append(emb)  # pgvector adapter converte lista → vector
                     ok_sbert += 1
 
             if CLIP_OK and r["tipo"] in _EXT_IMG and os.path.isfile(r["caminho"]):
                 emb_clip = _gerar_embedding_clip_imagem(r["caminho"])
                 if emb_clip:
-                    sets.append("embedding_clip = ?")
-                    vals.append(json.dumps(emb_clip))
+                    sets.append("embedding_clip = %s")
+                    vals.append(emb_clip)
                     ok_clip += 1
 
             if sets:
                 vals.append(r["id"])
                 c = get_db()
-                c.execute(f"UPDATE files SET {', '.join(sets)} WHERE id = ?", vals)
+                c.execute(f"UPDATE files SET {', '.join(sets)} WHERE id = %s", vals)
                 c.commit()
                 c.close()
         print(f"[Reembed] SBERT: {ok_sbert} | CLIP: {ok_clip} | Total varrido: {total}")
@@ -1822,7 +1770,7 @@ def api_search_history():
     if not uid:
         return jsonify({"historico": []})
     conn = get_db()
-    row  = conn.execute("SELECT config_json FROM users WHERE id = ?", (uid,)).fetchone()
+    row  = conn.execute("SELECT config_json FROM users WHERE id = %s", (uid,)).fetchone()
     conn.close()
     cfg  = _safe_json_loads(row["config_json"] if row else None, {}) or {}
     return jsonify({"historico": cfg.get("search_history", [])})
@@ -1838,7 +1786,7 @@ def api_add_search_history():
         return jsonify({"error": "Query vazia."}), 400
 
     conn = get_db()
-    row  = conn.execute("SELECT config_json FROM users WHERE id = ?", (uid,)).fetchone()
+    row  = conn.execute("SELECT config_json FROM users WHERE id = %s", (uid,)).fetchone()
     cfg  = _safe_json_loads(row["config_json"] if row else None, {}) or {}
 
     historico = cfg.get("search_history", [])
@@ -1847,7 +1795,7 @@ def api_add_search_history():
     historico.insert(0, query)
     cfg["search_history"] = historico[:10]  # Mantém só as 10 últimas
 
-    conn.execute("UPDATE users SET config_json = ? WHERE id = ?", (json.dumps(cfg), uid))
+    conn.execute("UPDATE users SET config_json = %s WHERE id = %s", (json.dumps(cfg), uid))
     conn.commit()
     conn.close()
     return jsonify({"status": "ok", "historico": cfg["search_history"]})
@@ -1859,13 +1807,13 @@ def api_delete_search_history(index):
     if not uid:
         return jsonify({"error": "Não autenticado."}), 401
     conn = get_db()
-    row  = conn.execute("SELECT config_json FROM users WHERE id = ?", (uid,)).fetchone()
+    row  = conn.execute("SELECT config_json FROM users WHERE id = %s", (uid,)).fetchone()
     cfg  = _safe_json_loads(row["config_json"] if row else None, {}) or {}
     historico = cfg.get("search_history", [])
     if 0 <= index < len(historico):
         historico.pop(index)
     cfg["search_history"] = historico
-    conn.execute("UPDATE users SET config_json = ? WHERE id = ?", (json.dumps(cfg), uid))
+    conn.execute("UPDATE users SET config_json = %s WHERE id = %s", (json.dumps(cfg), uid))
     conn.commit()
     conn.close()
     return jsonify({"status": "ok", "historico": historico})
@@ -1877,10 +1825,10 @@ def api_clear_history():
     if not uid:
         return jsonify({"error": "Não autenticado."}), 401
     conn = get_db()
-    row  = conn.execute("SELECT config_json FROM users WHERE id = ?", (uid,)).fetchone()
+    row  = conn.execute("SELECT config_json FROM users WHERE id = %s", (uid,)).fetchone()
     cfg  = _safe_json_loads(row["config_json"] if row else None, {}) or {}
     cfg["search_history"] = []
-    conn.execute("UPDATE users SET config_json = ? WHERE id = ?", (json.dumps(cfg), uid))
+    conn.execute("UPDATE users SET config_json = %s WHERE id = %s", (json.dumps(cfg), uid))
     conn.commit()
     conn.close()
     return jsonify({"status": "ok", "historico": []})
@@ -1893,7 +1841,7 @@ def api_clear_cache():
         return jsonify({"error": "Não autenticado."}), 401
     conn = get_db()
     # Limpa apenas os arquivos do usuário, mantendo as pastas cadastradas
-    conn.execute("DELETE FROM files WHERE user_id = ?", (uid,))
+    conn.execute("DELETE FROM files WHERE user_id = %s", (uid,))
     conn.commit()
     conn.close()
     return jsonify({"status": "ok"})
@@ -1937,7 +1885,7 @@ def _scan_folder(folder_path: str, uid: int) -> None:
 
     conn = get_db()
     row  = conn.execute(
-        "SELECT id FROM folders WHERE user_id = ? AND path = ?", (uid, folder_path)
+        "SELECT id FROM folders WHERE user_id = %s AND path = %s", (uid, folder_path)
     ).fetchone()
     folder_id = row["id"] if row else None
     conn.close()
@@ -1952,7 +1900,7 @@ def _scan_folder(folder_path: str, uid: int) -> None:
 
             conn = get_db()
             existing = conn.execute(
-                "SELECT processado FROM files WHERE user_id = ? AND caminho = ?",
+                "SELECT processado FROM files WHERE user_id = %s AND caminho = %s",
                 (uid, fpath),
             ).fetchone()
 
@@ -1968,12 +1916,12 @@ def _scan_folder(folder_path: str, uid: int) -> None:
                         """INSERT INTO files
                            (folder_id, user_id, nome, caminho, tipo,
                             data_adicionado, favorito, processado)
-                           VALUES (?, ?, ?, ?, ?, ?, 0, 0)""",
+                           VALUES (%s, %s, %s, %s, %s, %s, 0, 0)""",
                         (folder_id, uid, fname, fpath, ext, datetime.now().isoformat()),
                     )
                     conn.commit()
-                except sqlite3.IntegrityError:
-                    pass
+                except psycopg2.errors.UniqueViolation:
+                    conn.rollback()
             conn.close()
 
             _queue.put({"path": fpath, "nome": fname, "ext": ext, "uid": uid, "folder_id": folder_id})
@@ -2008,7 +1956,7 @@ def _get_folder_config(folder_id, uid):
     conn = get_db()
     row = conn.execute(
         "SELECT prioridades, perfil_analise, janela_processamento "
-        "FROM folders WHERE id = ? AND user_id = ?", (folder_id, uid)
+        "FROM folders WHERE id = %s AND user_id = %s", (folder_id, uid)
     ).fetchone()
     conn.close()
     if not row:
@@ -2134,31 +2082,28 @@ def _process_worker() -> None:
             print(f"[ERRO] {fpath}: {exc}")
             desc = f"{ext.upper()}: {fname}"
 
-        emb_json = None
+        emb_vec = None  # pgvector adapter converte lista direto pra vector
         if SBERT_OK and desc:
-            # Texto expandido com sinônimos → embedding casa com variações do termo
             texto_emb = _texto_para_embedding(desc)
             emb = _gerar_embedding(texto_emb)
             if emb:
-                emb_json = json.dumps(emb)
+                emb_vec = emb
 
-        emb_clip_json = None
+        emb_clip_vec = None
         if CLIP_OK and ext in _EXT_IMG:
             emb_clip = _gerar_embedding_clip_imagem(fpath)
             if emb_clip:
-                emb_clip_json = json.dumps(emb_clip)
+                emb_clip_vec = emb_clip
 
         # Se caiu no fallback conhecido (LLaVA/extrator falhou), deixa processado=0
-        # para que uma próxima varredura tente de novo. Não depende de emb_json
-        # porque o SBERT gera embedding até de texto curto ("imagem a.jpg").
         caiu_no_fallback = any(desc.startswith(prefix) for prefix in _DESCRICOES_RUINS)
         processado_flag = 0 if caiu_no_fallback else 1
 
         conn = get_db()
         conn.execute(
-            "UPDATE files SET descricao_ia = ?, embedding = ?, embedding_clip = ?, processado = ? "
-            "WHERE user_id = ? AND caminho = ?",
-            (desc, emb_json, emb_clip_json, processado_flag, uid, fpath),
+            "UPDATE files SET descricao_ia = %s, embedding = %s, embedding_clip = %s, processado = %s "
+            "WHERE user_id = %s AND caminho = %s",
+            (desc, emb_vec, emb_clip_vec, processado_flag, uid, fpath),
         )
         conn.commit()
         conn.close()
