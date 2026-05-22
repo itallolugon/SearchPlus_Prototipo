@@ -44,6 +44,42 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
+// ==========================================
+// SISTEMA DE TOAST (notificações ao usuário)
+// ==========================================
+// Substitui alert() nativo e os console.error silenciosos.
+// Tipos: 'sucesso' | 'erro' | 'info' | 'aviso'
+function mostrarToast(mensagem, tipo = 'info', duracaoMs = 4500) {
+    const container = document.getElementById('toastContainer');
+    if (!container) { console.log(`[${tipo}] ${mensagem}`); return; }
+
+    const icones = { sucesso: '✓', erro: '✕', info: 'ℹ', aviso: '⚠' };
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${tipo}`;
+    toast.innerHTML = `
+        <span class="toast-icone">${icones[tipo] || 'ℹ'}</span>
+        <span class="toast-msg"></span>
+        <button class="toast-fechar" aria-label="Fechar">&times;</button>
+    `;
+    // textContent evita XSS — a mensagem pode conter dados do servidor
+    toast.querySelector('.toast-msg').textContent = mensagem;
+
+    const remover = () => {
+        toast.classList.add('saindo');
+        setTimeout(() => toast.remove(), 300);
+    };
+    toast.querySelector('.toast-fechar').onclick = remover;
+    container.appendChild(toast);
+
+    if (duracaoMs > 0) setTimeout(remover, duracaoMs);
+}
+
+// Atalhos semânticos
+const toastOk   = (m) => mostrarToast(m, 'sucesso');
+const toastErro = (m) => mostrarToast(m, 'erro', 6000);
+const toastInfo = (m) => mostrarToast(m, 'info');
+const toastAviso = (m) => mostrarToast(m, 'aviso', 5500);
+
 const dicasUX = [
     "A IA faz buscas semânticas. Descreva o arquivo com linguagem natural.",
     "O motor lê textos dentro de Imagens e PDFs automaticamente.",
@@ -75,7 +111,7 @@ window.onload = async () => {
         } else {
             document.getElementById('authOverlay').style.display = 'flex';
         }
-    } catch (e) { console.error("Servidor API offline."); }
+    } catch (e) { console.error(e); toastErro("Servidor offline. Verifique se o backend Python está rodando."); }
 };
 
 // ==========================================
@@ -137,7 +173,7 @@ function salvarCropper() {
             maxHeight: isHighRes ? 1080 : 600
         });
 
-        if (!canvas) { alert("Erro: Não foi possível processar a área recortada."); return; }
+        if (!canvas) { toastErro("Não foi possível processar a área recortada."); return; }
 
         const croppedDataUrl = canvas.toDataURL('image/jpeg', isHighRes ? 0.8 : 0.6);
         const targetEl = document.getElementById(targetCropInput);
@@ -147,7 +183,7 @@ function salvarCropper() {
         fecharCropper();
     } catch (e) {
         console.error("Erro no Cropper:", e);
-        alert("Erro de Segurança (CORS) ao processar imagem, ou imagem é inválida. Tente outra imagem.");
+        toastErro("Não foi possível processar essa imagem. Tente outra.");
     }
 }
 
@@ -257,7 +293,7 @@ async function fazerLogin() {
     const pass = document.getElementById('loginPass').value.trim();
     const lembrar = document.getElementById('lembrarLogin').checked;
 
-    if (!user || !pass) { alert("Preencha usuário e senha."); return; }
+    if (!user || !pass) { toastAviso("Preencha usuário e senha."); return; }
 
     try {
         const res = await fetch(`${API_BASE_URL}/api/login`, { method: 'POST', headers: fetchOptions.headers, body: JSON.stringify({ username: user, password: pass }) });
@@ -265,10 +301,10 @@ async function fazerLogin() {
             if (lembrar) localStorage.setItem('searchplus_user', user);
             else localStorage.removeItem('searchplus_user');
             loginBemSucedido(user);
-        } else { const data = await res.json(); alert(data.mensagem); }
+        } else { const data = await res.json(); toastErro(data.mensagem || "Não foi possível entrar."); }
     } catch (e) {
         console.error(e);
-        alert("Erro fatal de conexão. Verifique se o servidor Python está rodando e recarregue a página.");
+        toastErro("Erro de conexão. Verifique se o servidor Python está rodando.");
     }
 }
 
@@ -276,13 +312,13 @@ async function fazerCadastro() {
     const user = document.getElementById('regUser').value.trim();
     const handle = document.getElementById('regHandle').value.trim();
     const pass = document.getElementById('regPass').value.trim();
-    if (!user || !pass || !handle) { alert("Preencha usuário, handle e senha."); return; }
+    if (!user || !pass || !handle) { toastAviso("Preencha usuário, handle e senha."); return; }
 
     try {
         const res = await fetch(`${API_BASE_URL}/api/register`, { method: 'POST', headers: fetchOptions.headers, body: JSON.stringify({ username: user, handle: handle, password: pass }) });
         if (res.ok) { document.getElementById('loginUser').value = user; document.getElementById('loginPass').value = pass; fazerLogin(); }
-        else { const data = await res.json(); alert(data.mensagem); }
-    } catch (e) { alert("Erro de conexão com o banco de dados."); }
+        else { const data = await res.json(); toastErro(data.mensagem || "Não foi possível criar a conta."); }
+    } catch (e) { console.error(e); toastErro("Erro de conexão com o banco de dados."); }
 }
 
 async function loginBemSucedido(username) {
@@ -370,7 +406,7 @@ async function removerPastaOnboarding(path) {
             document.getElementById('obEstimativa').style.display = 'none';
         }
         atualizarListaPastasOnboarding();
-    } catch (e) { console.error("Erro ao remover pasta:", e); }
+    } catch (e) { console.error(e); toastErro("Não foi possível remover a pasta."); }
 }
 
 function irParaOnboardingStep2() {
@@ -418,7 +454,7 @@ async function finalizarOnboarding() {
     const foldersRes = await fetch(`${API_BASE_URL}/api/folders`);
     const foldersData = await foldersRes.json();
     if (!foldersData.pastas || foldersData.pastas.length === 0) {
-        alert("Por favor, adicione pelo menos uma pasta para a IA monitorar antes de concluir.");
+        toastAviso("Adicione pelo menos uma pasta antes de concluir.");
         voltarParaOnboardingStep1();
         btn.innerText = "Concluir "; btn.disabled = false;
         return;
@@ -935,14 +971,14 @@ async function limparHistoricoBusca() {
         await fetch(`${API_BASE_URL}/api/clear_history`, { method: 'POST' });
         window.searchHistoryExists = false;
         document.getElementById('searchHistoryList').innerHTML = "";
-        alert("Histórico de busca limpo com sucesso!");
+        toastOk("Histórico de busca limpo.");
     }
 }
 
 async function limparCacheIA() {
     if (confirm("ATENÇÃO: Isto irá apagar todas as descrições e vetores da IA gerados até agora. O motor precisará reanalisar todos os arquivos nas pastas configuradas do zero. Deseja continuar?")) {
         await fetch(`${API_BASE_URL}/api/clear_cache`, { method: 'POST' });
-        alert("Banco de dados da IA foi limpo! A análise recomeçará em breve.");
+        toastOk("Cache da IA limpo. A análise vai recomeçar.");
     }
 }
 
@@ -997,11 +1033,11 @@ async function salvarPerfil() {
             fecharEditPerfil();
             abrirViewPerfil();
         } else {
-            alert("Erro ao salvar perfil.");
+            toastErro("Não foi possível salvar o perfil.");
         }
     } catch (e) {
         console.error("Erro de rede:", e);
-        alert("Erro de conexão ao salvar perfil.");
+        toastErro("Erro de conexão ao salvar o perfil.");
     } finally {
         btn.innerText = "Salvar Alterações"; btn.disabled = false;
     }
@@ -1165,7 +1201,7 @@ async function realizarBusca() {
         window.resultadosAtuais = Array.isArray(dados) ? dados : (dados.resultados || []);
         salvarBuscaNoHistorico(query.trim());
 
-    } catch (e) { console.error("Erro na busca."); } finally {
+    } catch (e) { console.error(e); toastErro("Erro ao buscar. Verifique a conexão."); } finally {
         const tempoRestante = Math.max(0, 2000 - (Date.now() - startTime));
         setTimeout(() => {
             clearInterval(tipInterval);
@@ -1486,7 +1522,7 @@ async function toggleFavorito(event, id, btnElement, fromModal = false) {
             }
         }
     } catch (e) {
-        console.error("Erro ao favoritar", e);
+        console.error(e); toastErro("Não foi possível favoritar.");
     }
 }
 
@@ -1518,7 +1554,7 @@ async function carregarFavoritosDash() {
                     midia = `<div class="recent-img"><img src="${formatImagePath(r.caminho)}"></div>`;
                 }
 
-                const cardBox = `<div class="recent-card" onclick="alert('Inspecionado nos favoritos!')" id="favDash_${r.id}">
+                const cardBox = `<div class="recent-card" onclick="abrirFavoritos()" id="favDash_${r.id}">
                     <div style="position:relative; width:100%; height:100%; pointer-events: none;">
                         ${midia}
                     </div>
@@ -1742,27 +1778,109 @@ async function salvarConfigPasta() {
 }
 
 // STATUS BAR COM FEEDBACK DE CONCLUSÃO
+let _ultimaFila = 0;  // pra detectar quando a análise termina
+
 async function buscarStatus() {
+    const b = document.getElementById('statusBar');
     try {
         const res = await fetch(`${API_BASE_URL}/api/status`);
         const s = await res.json();
-        const b = document.getElementById('statusBar');
+        const pend = s.arquivos_pendentes || 0;
 
-        let statusTexto = s.status;
+        // Detecta transição fila>0 -> fila=0: análise terminou
+        if (_ultimaFila > 0 && pend === 0) {
+            toastOk("Análise concluída! Os arquivos já podem ser buscados.");
+        }
+        _ultimaFila = pend;
 
-        if (s.arquivos_pendentes === 0 && s.arquivos_processados_sessao > 0) {
-            statusTexto = "✅ Verificação Concluída";
+        // Monta o texto do status
+        let texto;
+        if (pend > 0) {
+            texto = `🔍 Analisando arquivos — ${pend} na fila`;
+        } else if (s.status && s.status.startsWith('Aguardando janela')) {
+            texto = `🕐 ${s.status}`;
+        } else if (s.status && s.status.startsWith('Escaneando')) {
+            texto = `📂 ${s.status}`;
+        } else {
+            texto = "Motor pronto";
         }
 
-        let m = `Motor: ${statusTexto}`;
-        if (s.arquivos_pendentes > 0) m += ` | ⏳ Fila: ${s.arquivos_pendentes}`;
-        m += ` | 📦 Processados: ${s.arquivos_processados_sessao}`;
+        // Reconstrói a barra: texto (textContent, anti-XSS) + botão cancelar
+        b.innerHTML = '';
+        const span = document.createElement('span');
+        span.textContent = texto;
+        b.appendChild(span);
 
-        b.innerText = m;
+        if (pend > 0) {
+            const btn = document.createElement('button');
+            btn.textContent = '✕ Cancelar análise';
+            btn.className = 'status-cancelar';
+            btn.onclick = cancelarAnalise;
+            b.appendChild(btn);
+        }
         b.style.color = "var(--telemetry)";
     } catch (e) {
-        document.getElementById('statusBar').innerText = "API Desconectada.";
-        document.getElementById('statusBar').style.color = "#ef4444";
+        b.textContent = "⚠ Servidor desconectado — verifique se o backend está rodando.";
+        b.style.color = "#ef4444";
+    }
+}
+
+async function cancelarAnalise() {
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/cancel_analysis`, { method: 'POST' });
+        const d = await res.json();
+        toastInfo(`Análise cancelada — ${d.descartados || 0} arquivo(s) removidos da fila.`);
+        _ultimaFila = 0;
+    } catch (e) {
+        console.error(e);
+        toastErro("Não foi possível cancelar a análise.");
     }
 }
 setInterval(buscarStatus, 2000);
+// ==========================================
+// MODAL DE AJUDA
+// ==========================================
+function abrirAjuda() {
+    document.getElementById('ajudaModal').style.display = 'flex';
+}
+function fecharAjuda() {
+    document.getElementById('ajudaModal').style.display = 'none';
+}
+
+// ==========================================
+// ATALHOS DE TECLADO
+// ==========================================
+// "/" foca a busca · "Esc" fecha janelas abertas
+document.addEventListener('keydown', (e) => {
+    // Esc: fecha o modal/painel aberto mais relevante
+    if (e.key === 'Escape') {
+        const fechaveis = [
+            ['ajudaModal', fecharAjuda],
+            ['cropperModal', () => { if (typeof fecharCropper === 'function') fecharCropper(); }],
+            ['modalFavoritos', () => { if (typeof fecharFavoritos === 'function') fecharFavoritos(); }],
+            ['foldersModal', () => { if (typeof fecharModalPastas === 'function') fecharModalPastas(); }],
+            ['editPerfilModal', () => { if (typeof fecharEditPerfil === 'function') fecharEditPerfil(); }],
+            ['viewPerfilModal', () => { if (typeof fecharViewPerfil === 'function') fecharViewPerfil(); }],
+        ];
+        for (const [id, fechar] of fechaveis) {
+            const el = document.getElementById(id);
+            if (el && getComputedStyle(el).display !== 'none') {
+                fechar();
+                return;
+            }
+        }
+        return;
+    }
+
+    // "/" foca a barra de busca (se não estiver digitando em outro campo)
+    if (e.key === '/' ) {
+        const tag = (document.activeElement && document.activeElement.tagName) || '';
+        if (tag !== 'INPUT' && tag !== 'TEXTAREA') {
+            const busca = document.getElementById('searchInput');
+            if (busca && getComputedStyle(busca).display !== 'none') {
+                e.preventDefault();
+                busca.focus();
+            }
+        }
+    }
+});

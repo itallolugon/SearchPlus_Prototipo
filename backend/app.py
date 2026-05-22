@@ -1553,6 +1553,31 @@ def api_status():
         })
 
 
+@app.route("/api/cancel_analysis", methods=["POST"])
+def api_cancel_analysis():
+    """Esvazia a fila de análise — interrompe a indexação em andamento."""
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    global _status
+    descartados = 0
+    # Esvazia a fila. O item que já está sendo processado no worker
+    # termina normalmente (não dá pra abortar uma chamada LLaVA em curso).
+    while True:
+        try:
+            _queue.get_nowait()
+            _queue.task_done()
+            descartados += 1
+        except queue.Empty:
+            break
+
+    with _lock:
+        _status = "Ocioso"
+
+    return jsonify({"status": "ok", "descartados": descartados})
+
+
 @app.route("/api/debug/files")
 def api_debug_files():
     """Mostra todos os arquivos indexados com preview da descrição."""

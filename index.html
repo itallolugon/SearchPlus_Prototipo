@@ -216,6 +216,7 @@
 
     <div class="top-bar">
         <div class="nav-right">
+            <button class="action-btn btn-ajuda" onclick="abrirAjuda()" title="Ajuda (como usar)" aria-label="Ajuda">?</button>
             <button class="action-btn" onclick="abrirFavoritos()" style="border-color: rgba(168, 85, 247, 0.5); color: #E879F9;">Favoritos</button>
             <button class="action-btn gradient-btn" onclick="abrirModalPastas()">Gerenciar Pastas</button>
             
@@ -661,7 +662,46 @@
 
     <div id="statusBar" class="status-bar">Conectando ao motor...</div>
 
+    <!-- Container de notificações (toasts) -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Modal de Ajuda -->
+    <div id="ajudaModal" class="modal" style="z-index: 10001;">
+        <div class="modal-content" style="max-width: 640px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+                <h3 class="gradient-text" style="margin:0; font-size:1.8rem; font-family:'Inter',sans-serif;">Como usar o Search+</h3>
+                <span class="close-btn" onclick="fecharAjuda()" style="position:static;">&times;</span>
+            </div>
+            <div class="ajuda-conteudo">
+                <div class="ajuda-item">
+                    <h4>🔍 Como buscar</h4>
+                    <p>Digite o que você quer encontrar em linguagem natural — ex: "cachorro na grama", "prato de comida", "foto de festa". A IA entende o significado, não só palavras exatas.</p>
+                </div>
+                <div class="ajuda-item">
+                    <h4>📁 Adicionar pastas</h4>
+                    <p>Clique em "Gerenciar Pastas" e escolha pastas do seu computador. A IA vai analisar todas as imagens e documentos dentro delas.</p>
+                </div>
+                <div class="ajuda-item">
+                    <h4>⏳ Primeira análise</h4>
+                    <p>Ao adicionar uma pasta, a IA precisa analisar cada arquivo (alguns segundos por imagem). Acompanhe o progresso na barra inferior. Você pode buscar enquanto ela trabalha.</p>
+                </div>
+                <div class="ajuda-item">
+                    <h4>⌨️ Atalhos de teclado</h4>
+                    <p><b>/</b> — foca a barra de busca · <b>Esc</b> — fecha janelas abertas · <b>Enter</b> — busca</p>
+                </div>
+                <div class="ajuda-item">
+                    <h4>⭐ Favoritos</h4>
+                    <p>Clique no coração de qualquer resultado para favoritar. Acesse depois pelo botão "Favoritos".</p>
+                </div>
+                <div class="ajuda-item">
+                    <h4>⚠️ Algo não funciona?</h4>
+                    <p>Verifique se o <b>Ollama</b> está aberto e se você tem <b>conexão com a internet</b> (o banco de dados fica na nuvem). Se a busca não traz nada, espere a IA terminar de analisar a pasta.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
-    <script src="script.js?v=2026_indexacao_v3"></script>
+    <script src="script.js?v=2026_ux"></script>
 </body>
 </html>

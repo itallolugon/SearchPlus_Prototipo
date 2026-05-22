@@ -526,3 +526,95 @@ body {
 .indexacao-config-section p {
     margin: 0 0 10px 0; color: var(--text-secondary); font-size: 0.8rem;
 }
+/* ============================================
+   SISTEMA DE TOAST (notificações)
+   ============================================ */
+.toast-container {
+    position: fixed;
+    bottom: 70px;
+    right: 24px;
+    z-index: 99999;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    pointer-events: none;
+}
+.toast {
+    min-width: 280px;
+    max-width: 420px;
+    padding: 14px 18px;
+    border-radius: 12px;
+    color: #fff;
+    font-size: 0.92rem;
+    font-weight: 600;
+    box-shadow: 0 10px 30px -8px rgba(0,0,0,0.6);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    pointer-events: auto;
+    animation: toastIn 0.25s ease-out;
+    border-left: 4px solid rgba(255,255,255,0.5);
+}
+.toast.saindo { animation: toastOut 0.3s ease-in forwards; }
+.toast-sucesso { background: #1f7a4d; border-left-color: #34d399; }
+.toast-erro    { background: #9a2b2b; border-left-color: #f87171; }
+.toast-info    { background: #2b4a8a; border-left-color: #60a5fa; }
+.toast-aviso   { background: #8a6a1f; border-left-color: #fbbf24; }
+.toast-icone { font-size: 1.2rem; flex-shrink: 0; }
+.toast-msg { flex: 1; line-height: 1.35; }
+.toast-fechar {
+    cursor: pointer; opacity: 0.7; font-size: 1.1rem;
+    background: none; border: none; color: #fff; padding: 0 4px;
+}
+.toast-fechar:hover { opacity: 1; }
+@keyframes toastIn  { from { opacity: 0; transform: translateX(40px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes toastOut { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(40px); } }
+
+/* ============================================
+   BOTÃO DE AJUDA + MODAL DE AJUDA
+   ============================================ */
+.btn-ajuda {
+    width: 38px; height: 38px;
+    border-radius: 50% !important;
+    padding: 0 !important;
+    font-weight: 800;
+    font-size: 1.1rem;
+    display: flex; align-items: center; justify-content: center;
+}
+.ajuda-conteudo {
+    max-height: 60vh;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+.ajuda-item h4 {
+    margin: 0 0 6px 0;
+    color: var(--text-primary);
+    font-size: 1.05rem;
+}
+.ajuda-item p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    line-height: 1.55;
+}
+.ajuda-item b { color: var(--accent-primary); }
+
+/* Botão de cancelar análise na status bar */
+.status-cancelar {
+    margin-left: 14px;
+    padding: 3px 12px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    background: rgba(239, 68, 68, 0.18);
+    color: #f87171;
+    border: 1px solid rgba(239, 68, 68, 0.45);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.status-cancelar:hover {
+    background: rgba(239, 68, 68, 0.35);
+    color: #fff;
+}
