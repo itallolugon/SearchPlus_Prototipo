@@ -2231,19 +2231,22 @@ def _resize_image_for_llava(filepath: str, max_size=768) -> bytes:
 
 
 def _analyze_image(filepath: str, *, prioridades=None, perfil="fast") -> str:
-    llava_desc = None
+    vlm_desc = None
     if prioridades is None:
         prioridades = ["tudo"]
 
-    # ── Selecionar modelo baseado no perfil ─────────────────────────────────
+    # ── Modelos de visão a tentar ───────────────────────────────────────────
+    # LLaVA é o modelo usado: nos testes, o qwen2.5vl ficou inviável neste
+    # hardware (7-12 min/imagem — vision encoder mal otimizado no llama.cpp).
+    # LLaVA roda em ~1 min/imagem. Ordem de fallback caso um não esteja instalado.
     if perfil == "deep":
         models_to_try = ["llava:13b", "llava"]
     else:
-        models_to_try = ["llava-llama3", "llava", "llava:13b"]
+        models_to_try = ["llava", "llava:13b"]
 
     prompt = _build_llava_prompt(prioridades)
 
-    # ── LLaVA via Ollama com fallback automático ────────────────────────────
+    # ── Modelo de visão via Ollama com fallback automático ──────────────────
     if OLLAMA_OK:
         optimized_image_bytes = _resize_image_for_llava(filepath)
         for model in models_to_try:
@@ -2257,17 +2260,17 @@ def _analyze_image(filepath: str, *, prioridades=None, perfil="fast") -> str:
                         "images": [optimized_image_bytes],
                     }],
                 )
-                llava_desc = resp["message"]["content"]
-                print(f"[LLaVA:{model}] OK (Otimizado): {os.path.basename(filepath)}")
+                vlm_desc = resp["message"]["content"]
+                print(f"[VLM:{model}] OK: {os.path.basename(filepath)}")
                 break  # Sucesso — não tenta o próximo modelo
             except Exception as exc:
-                error_msg = f"[LLaVA:{model}] Indisponível para {filepath}: {exc}"
+                error_msg = f"[VLM:{model}] Indisponível para {filepath}: {exc}"
                 print(error_msg)
                 with open("searchplus.log", "a") as f:
                     f.write(error_msg + "\n")
                 continue  # Tenta próximo modelo
 
-    return llava_desc or f"Imagem: {os.path.basename(filepath)}"
+    return vlm_desc or f"Imagem: {os.path.basename(filepath)}"
 
 
 def _extract_pdf(filepath: str) -> str:
