@@ -9,59 +9,7 @@ Aplicativo de busca semântica para imagens (e documentos): você aponta para um
 
 ---
 
-## 🟢 Quero só USAR o app (não sei programar)
-
-### O que você precisa
-- Windows 10 ou 11
-- ~12 GB livres em disco
-- Internet (só na primeira instalação)
-- ~30-50 minutos para instalar tudo
-
-### Passo 1: Conseguir o pacote `SearchPlus_Portatil.zip`
-
-**Opção A** — alguém já te mandou o ZIP. Pula pra "Passo 2".
-
-**Opção B** — você quer baixar do GitHub. Faça assim:
-
-1. Vá em: https://github.com/itallolugon/SearchPlus_Prototipo
-2. Clique no botão verde **`<> Code`** → **`Download ZIP`**
-3. Descompacte o ZIP que baixou
-4. Entre na pasta descompactada e vá em **`installer/`**
-5. Clique 2 vezes em **`empacotar.bat`** — ele cria a pasta `dist/` com o arquivo `SearchPlus_Portatil.zip` pronto
-
-### Passo 2: Instalar e usar
-
-1. **Descompacte** o `SearchPlus_Portatil.zip` em qualquer pasta (ex: `C:\Search+`).
-2. **Abra** o arquivo `INSTRUTIVO.txt` dentro da pasta — ele explica tudo passo a passo.
-3. Em resumo, você vai clicar 2 vezes em 3 arquivos, **na ordem**:
-   - `1-INSTALAR-DEPENDENCIAS.bat` — instala o Python e as bibliotecas (~10 min)
-   - `2-INSTALAR-OLLAMA.bat` — instala o Ollama e baixa os modelos de IA (~30 min, ~10 GB)
-   - `INICIAR.bat` — sobe o app e abre o navegador
-
-A partir do dia seguinte, é só clicar em **`INICIAR.bat`** sempre que quiser usar.
-
-### Deu problema?
-
-| Erro | Solução |
-|---|---|
-| "Python não foi encontrado" | Reinstale o Python e **marque** "Add Python to PATH" |
-| "Ollama não foi encontrado" | Instale o Ollama em https://ollama.com/download/windows |
-| O navegador não abre | Abra manualmente em `http://127.0.0.1:5000` |
-| A busca não retorna nada | Espere a IA terminar de analisar a pasta (acompanhe pelo status no canto da tela) |
-
----
-
-## 📦 Quero DISTRIBUIR o ZIP para outras pessoas
-
-1. Clone ou baixe o repositório.
-2. Rode `installer/empacotar.bat`.
-3. O arquivo `dist/SearchPlus_Portatil.zip` (~270 KB) fica pronto pra enviar por WeTransfer, Drive, etc.
-
-A pessoa que receber só precisa seguir as instruções da seção verde acima.
-
----
-
-## 🛠️ Quero DESENVOLVER no projeto
+## 🛠️ Setup e uso
 
 ### Pré-requisitos
 
@@ -133,13 +81,7 @@ SearchPlus_Prototipo/
 │   ├── schema.sql           # Schema Postgres com pgvector
 │   ├── .env.example         # Template de credenciais Supabase
 │   └── .env                 # Credenciais reais (gitignored)
-├── installer/               # Empacotador para distribuição
-│   ├── empacotar.bat / .ps1
-│   ├── 1-INSTALAR-DEPENDENCIAS.bat
-│   ├── 2-INSTALAR-OLLAMA.bat
-│   ├── INICIAR.bat
-│   └── INSTRUTIVO.txt
-└── dist/                    # ZIP gerado pelo empacotador (gitignored)
+└── fonts/                   # Fontes locais
 ```
 
 ### Como funciona a busca

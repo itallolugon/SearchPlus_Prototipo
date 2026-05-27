@@ -1,6 +1,3 @@
-# Build / distribuição
-dist/
-
 # Credenciais (Supabase, etc) - NUNCA COMMITAR
 .env
 backend/.env
