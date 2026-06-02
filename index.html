@@ -260,13 +260,18 @@
                     <h1 id="mainLogo" class="main-logo" onclick="voltarParaHomeSmooth()"><span class="logo-text-white">SEARCH</span><span class="logo-plus gradient-text">+</span></h1>
                 </div>
                 
-                <div class="search-box">
-                    <input type="text" id="searchInput" placeholder="Pesquise o que você lembra..." onkeypress="verificarEnter(event)" onfocus="mostrarHistorico()" onblur="setTimeout(esconderHistorico,150)">
-                    <button class="search-btn-img" onclick="abrirBuscaImagem()" title="Buscar por imagem">📷</button>
-                    <button class="gradient-btn search-btn" onclick="realizarBusca()">Buscar</button>
-                </div>
-                <div id="searchHistoryDropdown" style="display:none; position:relative; width:100%; max-width:700px; margin:0 auto;">
-                    <div id="searchHistoryList" style="background:var(--surface); border:1px solid var(--border-light); border-radius:12px; overflow:hidden; box-shadow:0 8px 24px rgba(0,0,0,0.3);"></div>
+                <div class="search-box-wrapper">
+                    <div class="search-box">
+                        <input type="text" id="searchInput" placeholder="Pesquise o que você lembra..." onkeypress="verificarEnter(event)" onfocus="mostrarHistorico()" onblur="setTimeout(esconderHistorico,150)">
+                        <button class="search-btn-img" onclick="abrirBuscaImagem()" title="Buscar por imagem">📷</button>
+                        <button class="gradient-btn search-btn" onclick="realizarBusca()">Buscar</button>
+                    </div>
+                    <div id="searchHistoryDropdown" class="history-dropdown">
+                        <div class="history-header">
+                            <span>🕐 Buscas recentes</span>
+                        </div>
+                        <div id="searchHistoryList"></div>
+                    </div>
                 </div>
                 
                 <div class="filter-bar-container fade-transition" id="filterBarContainer" style="display: none; opacity: 0;">
@@ -799,6 +804,6 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
-    <script src="script.js?v=2026_galeria"></script>
+    <script src="script.js?v=2026_historico"></script>
 </body>
 </html>

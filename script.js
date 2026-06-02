@@ -1140,21 +1140,45 @@ function mostrarHistorico() {
     if (_historicoCache.length === 0) return;
     const dropdown = document.getElementById('searchHistoryDropdown');
     const list = document.getElementById('searchHistoryList');
-    list.innerHTML = _historicoCache.map((q, i) => {
-        const qEsc      = _escapeHtml(q);
-        const qAttrSafe = _escapeHtml(q.replace(/'/g, "\\'"));  // pra dentro do onclick='...'
-        return `
-        <div style="display:flex; align-items:center; justify-content:space-between; padding:10px 16px; cursor:pointer; border-bottom:1px solid var(--border-light); transition:background 0.15s;"
-             onmouseenter="this.style.background='rgba(168,85,247,0.1)'" onmouseleave="this.style.background='transparent'">
-            <span onclick="usarHistorico('${qAttrSafe}')" style="flex:1; color:var(--text-primary); font-size:0.95rem;">${qEsc}</span>
-            <span onclick="removerHistorico(${i})" style="color:var(--text-secondary); font-size:1.2rem; padding:0 4px; line-height:1;">&times;</span>
-        </div>`;
-    }).join('');
+
+    // Render via DOM (anti-XSS) com itens animados em cascata
+    list.innerHTML = '';
+    _historicoCache.forEach((q, i) => {
+        const item = document.createElement('div');
+        item.className = 'history-item';
+        item.style.animationDelay = `${i * 0.03}s`;
+
+        const texto = document.createElement('span');
+        texto.className = 'history-item-text';
+        texto.textContent = q;
+        texto.onclick = () => usarHistorico(q);
+
+        const lupa = document.createElement('span');
+        lupa.className = 'history-item-icon';
+        lupa.textContent = '🔍';
+
+        const remover = document.createElement('span');
+        remover.className = 'history-item-remove';
+        remover.textContent = '×';
+        remover.title = 'Remover do histórico';
+        remover.onclick = (e) => { e.stopPropagation(); removerHistorico(i); };
+
+        item.append(lupa, texto, remover);
+        list.appendChild(item);
+    });
+
+    // Mostra e dispara a animação de entrada (classe 'aberto')
     dropdown.style.display = 'block';
+    requestAnimationFrame(() => dropdown.classList.add('aberto'));
 }
 
 function esconderHistorico() {
-    document.getElementById('searchHistoryDropdown').style.display = 'none';
+    const dropdown = document.getElementById('searchHistoryDropdown');
+    dropdown.classList.remove('aberto');
+    // Espera a transição de saída antes de ocultar de fato
+    setTimeout(() => {
+        if (!dropdown.classList.contains('aberto')) dropdown.style.display = 'none';
+    }, 200);
 }
 
 function usarHistorico(query) {
@@ -1166,7 +1190,11 @@ function usarHistorico(query) {
 async function removerHistorico(index) {
     await fetch(`${API_BASE_URL}/api/search_history/${index}`, { method: 'DELETE' });
     await carregarHistorico();
-    mostrarHistorico();
+    if (_historicoCache.length === 0) {
+        esconderHistorico();  // sem itens: fecha o dropdown
+    } else {
+        mostrarHistorico();
+    }
 }
 
 async function salvarBuscaNoHistorico(query) {
