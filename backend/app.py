@@ -1709,6 +1709,67 @@ def api_stats():
     })
 
 
+def _categorias_do_arquivo(descricao_ia: str) -> list[str]:
+    """Retorna as categorias temáticas de um arquivo a partir da descrição da IA.
+    Reusa _CATEGORIAS_STATS e ignora linhas de negação (Pessoas: Nenhuma)."""
+    desc_norm = _normalizar(descricao_ia or "")
+    linhas_validas = []
+    for linha in desc_norm.splitlines():
+        if any(neg in linha for neg in ("nenhum", "nenhuma", "nao ha", "ausente")):
+            continue
+        linhas_validas.append(linha)
+    desc_filtrada = " ".join(linhas_validas)
+    return [cat for cat, palavras in _CATEGORIAS_STATS.items()
+            if any(p in desc_filtrada for p in palavras)]
+
+
+@app.route("/api/gallery")
+def api_gallery():
+    """
+    Galeria de imagens agrupadas por categoria temática, para a home.
+    Cada imagem pode aparecer em mais de um grupo. Retorna também um grupo
+    'outras' para imagens que não casaram com nenhuma categoria.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT id, nome, caminho, tipo, descricao_ia, data_adicionado, favorito "
+        "FROM files WHERE user_id = %s AND processado = 1 AND tipo = ANY(%s) "
+        "ORDER BY data_adicionado DESC",
+        (uid, list(_EXT_IMG))
+    ).fetchall()
+    conn.close()
+
+    grupos = {k: [] for k in _CATEGORIAS_STATS}
+    grupos["outras"] = []
+
+    for r in rows:
+        item = {
+            "id": r["id"], "nome": r["nome"], "caminho": r["caminho"],
+            "tipo": r["tipo"], "descricao_ia": r["descricao_ia"] or "",
+            "conteudo": r["descricao_ia"] or "",
+            "trecho": (r["descricao_ia"] or "")[:200],
+            "data": r["data_adicionado"].isoformat() if r["data_adicionado"] else "",
+            "favorito": bool(r["favorito"]), "score": 1.0,
+        }
+        cats = _categorias_do_arquivo(r["descricao_ia"])
+        if cats:
+            for c in cats:
+                grupos[c].append(item)
+        else:
+            grupos["outras"].append(item)
+
+    # Só devolve grupos não-vazios, na ordem definida
+    ordem = list(_CATEGORIAS_STATS.keys()) + ["outras"]
+    resultado = [{"categoria": c, "total": len(grupos[c]), "itens": grupos[c]}
+                 for c in ordem if grupos[c]]
+
+    return jsonify({"grupos": resultado, "total_imagens": len(rows)})
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Favoritos
 # ──────────────────────────────────────────────────────────────────────────────

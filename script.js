@@ -346,6 +346,7 @@ async function loginBemSucedido(username) {
 
     document.getElementById('authOverlay').style.display = 'none';
     verificarOnboarding();
+    carregarGaleria();
 }
 
 async function fazerLogout() {
@@ -1227,6 +1228,7 @@ function voltarParaHomeSmooth() {
         if (searchHistoryExists) {
             document.getElementById('dashboardView').style.display = 'block';
             carregarFavoritosDash();
+            carregarGaleria();
             setTimeout(() => {
                 document.getElementById('dashboardView').classList.remove('fade-out');
                 document.getElementById('dashboardView').style.opacity = '1';
@@ -1761,6 +1763,86 @@ async function carregarFavoritosDash() {
             title.style.display = 'none';
         }
     } catch (e) { }
+}
+
+// ==========================================
+// GALERIA AGRUPADA POR CATEGORIA (home)
+// ==========================================
+const _CAT_GALERIA = {
+    pessoas:  { icone: '👥', nome: 'Pessoas' },
+    animais:  { icone: '🐾', nome: 'Animais' },
+    comida:   { icone: '🍽️', nome: 'Comida' },
+    natureza: { icone: '🌳', nome: 'Natureza' },
+    urbano:   { icone: '🏙️', nome: 'Urbano' },
+    outras:   { icone: '📦', nome: 'Outras' },
+};
+
+async function carregarGaleria() {
+    const container = document.getElementById('galeriaCategorias');
+    if (!container) return;
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/gallery`, { headers: fetchOptions.headers });
+        const d = await res.json();
+        const grupos = d.grupos || [];
+        container.innerHTML = '';
+        if (grupos.length === 0) return;
+
+        grupos.forEach(g => {
+            const meta = _CAT_GALERIA[g.categoria] || { icone: '📁', nome: g.categoria };
+
+            const secao = document.createElement('div');
+            secao.style.cssText = 'margin-bottom: 32px;';
+
+            const titulo = document.createElement('h3');
+            titulo.style.cssText = 'color: var(--text-primary); margin: 0 0 14px 0; display:flex; align-items:center; gap:8px; justify-content:center;';
+            titulo.textContent = `${meta.icone} ${meta.nome}`;
+            const cont = document.createElement('span');
+            cont.style.cssText = 'font-size:0.8rem; color:var(--text-secondary); font-weight:normal;';
+            cont.textContent = `(${g.total})`;
+            titulo.appendChild(cont);
+            secao.appendChild(titulo);
+
+            const grid = document.createElement('div');
+            grid.className = 'recent-grid';
+
+            // Guarda os itens do grupo numa janela global pra reusar o painel lateral
+            g.itens.forEach(r => {
+                const card = document.createElement('div');
+                card.className = 'recent-card';
+                card.onclick = () => abrirPainelGaleria(g.categoria, r.id);
+
+                const ext = (r.tipo || '').toLowerCase();
+                const imgBox = document.createElement('div');
+                imgBox.className = 'recent-img';
+                if (extensoesImagem.includes(ext)) {
+                    const img = document.createElement('img');
+                    img.src = formatImagePath(r.caminho);
+                    img.loading = 'lazy';
+                    imgBox.appendChild(img);
+                }
+                const nm = document.createElement('p');
+                nm.textContent = r.nome;
+                card.append(imgBox, nm);
+                grid.appendChild(card);
+            });
+
+            secao.appendChild(grid);
+            container.appendChild(secao);
+        });
+
+        // Mapa categoria -> itens, pra abrir o painel lateral corretamente
+        window._galeriaGrupos = {};
+        grupos.forEach(g => { window._galeriaGrupos[g.categoria] = g.itens; });
+    } catch (e) { console.error(e); }
+}
+
+// Abre o painel lateral usando os itens da categoria como resultadosAtuais
+function abrirPainelGaleria(categoria, fileId) {
+    const itens = (window._galeriaGrupos || {})[categoria] || [];
+    const idx = itens.findIndex(x => x.id === fileId);
+    if (idx === -1) return;
+    window.resultadosAtuais = itens;
+    abrirPainelLateral(idx);
 }
 
 // Restaura a função de apertar Enter no teclado para buscar
