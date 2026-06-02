@@ -948,9 +948,31 @@ def api_choose_image():
         return jsonify({"status": "erro", "mensagem": "Não autenticado."}), 401
     try:
         path = _tk_pick("image")
-        if path:
-            return jsonify({"status": "sucesso", "caminho": path})
-        return jsonify({"status": "cancelado"})
+        if not path:
+            return jsonify({"status": "cancelado"})
+
+        # Devolve a imagem já em base64 (data URL). Isso é usado por avatar/
+        # banner, que tipicamente são imagens FORA das pastas monitoradas —
+        # então não dá pra servir via /api/file (que só libera pastas do user).
+        # Limite de 20 MB no arquivo de origem (o cropper reduz a resolução
+        # final, então o que é salvo no config fica pequeno).
+        try:
+            tamanho = os.path.getsize(path)
+        except OSError:
+            return jsonify({"status": "erro", "mensagem": "Não foi possível ler o arquivo."})
+        if tamanho > 20 * 1024 * 1024:
+            return jsonify({"status": "erro",
+                            "mensagem": "Imagem muito grande (máx. 20 MB). Escolha uma menor."})
+
+        import base64
+        mime, _ = mimetypes.guess_type(path)
+        if not mime or not mime.startswith("image/"):
+            mime = "image/jpeg"
+        with open(path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode("ascii")
+        data_url = f"data:{mime};base64,{b64}"
+
+        return jsonify({"status": "sucesso", "caminho": path, "data_url": data_url})
     except Exception as exc:
         return jsonify({"status": "erro", "mensagem": str(exc)})
 

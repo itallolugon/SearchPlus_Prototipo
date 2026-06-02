@@ -123,15 +123,11 @@ async function selecionarImagemExplorer(inputId) {
         const data = await res.json();
 
         if (data.status === "sucesso") {
-            // Busca a imagem como blob (com cookie de sessão) e cria uma URL
-            // local. Blob local NÃO contamina o canvas — assim o cropper
-            // consegue exportar com toDataURL() sem SecurityError.
-            const imgResp = await fetch(formatImagePath(data.caminho));
-            if (!imgResp.ok) { toastErro("Não foi possível abrir a imagem."); return; }
-            const blob = await imgResp.blob();
-            const blobUrl = URL.createObjectURL(blob);
+            // O backend já devolve a imagem em base64 (data URL). Carregar
+            // direto evita o /api/file (que bloqueia imagens fora das pastas
+            // monitoradas) e não contamina o canvas do cropper.
             targetCropInput = inputId;
-            abrirEditorCorte(blobUrl, inputId);
+            abrirEditorCorte(data.data_url, inputId);
         } else if (data.status === "erro") {
             toastErro(data.mensagem || "Erro ao selecionar imagem.");
         }
