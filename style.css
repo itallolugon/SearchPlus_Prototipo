@@ -705,3 +705,38 @@ body {
 .colecao-del:hover {
     background: rgba(239,68,68,0.15) !important;
 }
+
+/* ============================================
+   INSPEÇÃO RÁPIDA (preview no hover)
+   ============================================ */
+.hover-preview {
+    display: none;
+    position: fixed;
+    z-index: 99998;
+    pointer-events: none;
+    background: var(--surface, #16181f);
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    padding: 8px;
+    box-shadow: 0 18px 40px -10px rgba(0,0,0,0.7);
+    max-width: 320px;
+}
+.hover-preview img {
+    display: block;
+    max-width: 300px;
+    max-height: 300px;
+    border-radius: 8px;
+    object-fit: contain;
+}
+.hover-preview-doc { padding: 10px 12px; max-width: 300px; }
+.hover-preview-nome {
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+    word-break: break-word;
+}
+.hover-preview-texto {
+    font-size: 0.82rem;
+    color: var(--text-secondary);
+    line-height: 1.45;
+}

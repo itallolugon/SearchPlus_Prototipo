@@ -1491,11 +1491,66 @@ function renderizarResultados() {
         const favIcon = r.favorito ? '' : '🤍';
         const favBtn = `<div class="btn-fav-abs ${favClass}" onclick="toggleFavorito(event, ${r.id}, this)">${favIcon}</div>`;
 
-        return `<div class="card" onclick="abrirPainelLateral(${idx})">${favBtn}<div class="media-container">${midia}</div><div class="card-content"><h3>${r.nome}</h3><div class="tags"><span class="badge type">${ext.toUpperCase()}</span><span class="badge score">SCORE: ${Math.round(r.score * 100)}%</span></div>${trecho}</div></div>`;
+        return `<div class="card" data-idx="${idx}" onclick="abrirPainelLateral(${idx})" onmouseenter="mostrarHoverPreview(event, ${idx})" onmousemove="moverHoverPreview(event)" onmouseleave="esconderHoverPreview()">${favBtn}<div class="media-container">${midia}</div><div class="card-content"><h3>${r.nome}</h3><div class="tags"><span class="badge type">${ext.toUpperCase()}</span><span class="badge score">SCORE: ${Math.round(r.score * 100)}%</span></div>${trecho}</div></div>`;
     };
 
     melhores.forEach(r => mGrid.innerHTML += buildCard(r));
     outras.forEach(r => oGrid.innerHTML += buildCard(r));
+}
+
+// ==========================================
+// INSPEÇÃO RÁPIDA (preview no hover)
+// ==========================================
+let _hoverTimer = null;
+
+function mostrarHoverPreview(ev, idx) {
+    const r = window.resultadosAtuais[idx];
+    if (!r) return;
+    const ext = (r.tipo || '').toLowerCase();
+    const box = document.getElementById('hoverPreview');
+    const img = document.getElementById('hoverPreviewImg');
+    const doc = document.getElementById('hoverPreviewDoc');
+
+    // Pequeno atraso pra não piscar ao passar rápido
+    clearTimeout(_hoverTimer);
+    _hoverTimer = setTimeout(() => {
+        if (extensoesImagem.includes(ext)) {
+            img.src = formatImagePath(r.caminho);
+            img.style.display = 'block';
+            doc.style.display = 'none';
+        } else {
+            // Documento / mídia: mostra nome + trecho da descrição
+            img.style.display = 'none';
+            doc.style.display = 'block';
+            document.getElementById('hoverPreviewNome').textContent = r.nome;
+            const txt = (r.descricao_ia || r.trecho || 'Sem descrição disponível.').slice(0, 300);
+            document.getElementById('hoverPreviewTexto').textContent = txt;
+        }
+        box.style.display = 'block';
+        moverHoverPreview(ev);
+    }, 250);
+}
+
+function moverHoverPreview(ev) {
+    const box = document.getElementById('hoverPreview');
+    if (box.style.display === 'none') return;
+    // Posiciona perto do cursor, evitando sair da tela
+    const margem = 18;
+    const w = box.offsetWidth || 280;
+    const h = box.offsetHeight || 220;
+    let x = ev.clientX + margem;
+    let y = ev.clientY + margem;
+    if (x + w > window.innerWidth)  x = ev.clientX - w - margem;
+    if (y + h > window.innerHeight) y = ev.clientY - h - margem;
+    box.style.left = Math.max(8, x) + 'px';
+    box.style.top  = Math.max(8, y) + 'px';
+}
+
+function esconderHoverPreview() {
+    clearTimeout(_hoverTimer);
+    const box = document.getElementById('hoverPreview');
+    box.style.display = 'none';
+    document.getElementById('hoverPreviewImg').src = '';
 }
 
 function abrirPainelLateral(id) {
