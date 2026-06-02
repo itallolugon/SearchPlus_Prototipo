@@ -123,16 +123,29 @@ async function selecionarImagemExplorer(inputId) {
         const data = await res.json();
 
         if (data.status === "sucesso") {
-            const imgPath = formatImagePath(data.caminho);
+            // Busca a imagem como blob (com cookie de sessão) e cria uma URL
+            // local. Blob local NÃO contamina o canvas — assim o cropper
+            // consegue exportar com toDataURL() sem SecurityError.
+            const imgResp = await fetch(formatImagePath(data.caminho));
+            if (!imgResp.ok) { toastErro("Não foi possível abrir a imagem."); return; }
+            const blob = await imgResp.blob();
+            const blobUrl = URL.createObjectURL(blob);
             targetCropInput = inputId;
-            abrirEditorCorte(imgPath, inputId);
+            abrirEditorCorte(blobUrl, inputId);
+        } else if (data.status === "erro") {
+            toastErro(data.mensagem || "Erro ao selecionar imagem.");
         }
-    } catch (e) { console.error("Erro ao selecionar imagem:", e); }
+    } catch (e) {
+        console.error("Erro ao selecionar imagem:", e);
+        toastErro("Erro ao abrir a imagem selecionada.");
+    }
 }
 
 function abrirEditorCorte(imgSrc, inputId) {
     const cropImg = document.getElementById('cropperImage');
-    cropImg.crossOrigin = "use-credentials";
+    // imgSrc é uma blob: URL local — não precisa de crossOrigin e não
+    // contamina o canvas.
+    cropImg.removeAttribute('crossorigin');
     cropImg.src = imgSrc;
     document.getElementById('cropperModal').style.display = 'flex';
 
@@ -159,6 +172,11 @@ function abrirEditorCorte(imgSrc, inputId) {
 function fecharCropper() {
     document.getElementById('cropperModal').style.display = 'none';
     if (cropper) { cropper.destroy(); cropper = null; }
+    // Libera a blob URL local pra não vazar memória
+    const cropImg = document.getElementById('cropperImage');
+    if (cropImg && cropImg.src.startsWith('blob:')) {
+        URL.revokeObjectURL(cropImg.src);
+    }
 }
 
 function salvarCropper() {
