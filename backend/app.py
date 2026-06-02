@@ -4,6 +4,7 @@ Serve o frontend em http://127.0.0.1:5000 e expõe todos os endpoints da API.
 """
 
 import os
+import re
 import json
 import hashlib
 import mimetypes
@@ -1709,18 +1710,89 @@ def api_stats():
     })
 
 
-def _categorias_do_arquivo(descricao_ia: str) -> list[str]:
-    """Retorna as categorias temáticas de um arquivo a partir da descrição da IA.
-    Reusa _CATEGORIAS_STATS e ignora linhas de negação (Pessoas: Nenhuma)."""
-    desc_norm = _normalizar(descricao_ia or "")
-    linhas_validas = []
+_NEGACOES = ("nenhum", "nenhuma", "nao ha", "ausente", "n/a", "sem ")
+
+# Palavras-chave por categoria temática para campos descritivos
+# (usadas SÓ nos campos certos, não na descrição inteira — evita falso-positivo
+# tipo 'cachorro-quente' caindo em animais, ou 'bebida' numa festa caindo em comida)
+_KW_COMIDA = ["comida", "refeicao", "alimento", "almoco", "janta", "lanche",
+              "prato de comida", "arroz", "kebab", "pizza", "hamburguer", "sushi",
+              "fruta", "salada", "sobremesa", "restaurante"]
+_KW_NATUREZA = ["paisagem", "praia", "montanha", "floresta", "mata", "oceano",
+                "cachoeira", "arvore", "arvores", "jardim", "campo", "flor",
+                "por do sol", "natureza", "lago", "rio"]
+_KW_URBANO = ["cidade", "rua", "predio", "edificio", "avenida", "metropole",
+              "arranha-ceu", "carro", "veiculo", "moto", "transito", "urbano"]
+
+
+def _campo_llava(desc_norm: str, nome_campo: str) -> str:
+    """Extrai o conteúdo de um campo da descrição (ex: 'pessoas', 'animais').
+    Retorna '' se o campo não existe ou está negado (Nenhum/Nenhuma)."""
     for linha in desc_norm.splitlines():
-        if any(neg in linha for neg in ("nenhum", "nenhuma", "nao ha", "ausente")):
+        linha = linha.strip().lstrip("-• ").strip()
+        if ":" not in linha:
             continue
-        linhas_validas.append(linha)
-    desc_filtrada = " ".join(linhas_validas)
-    return [cat for cat, palavras in _CATEGORIAS_STATS.items()
-            if any(p in desc_filtrada for p in palavras)]
+        campo, _, valor = linha.partition(":")
+        if campo.strip() == nome_campo:
+            valor = valor.strip()
+            # Campo negado conta como vazio
+            if not valor or any(neg in valor for neg in _NEGACOES):
+                return ""
+            return valor
+    return ""
+
+
+def _categorias_do_arquivo(descricao_ia: str) -> list[str]:
+    """
+    Categoriza um arquivo usando os CAMPOS ESTRUTURADOS da descrição LLaVA,
+    não busca solta. Isso evita os falsos-positivos:
+      - prato com 'cachorro-quente' caindo em Animais
+      - festa com 'bebida' caindo em Comida
+    """
+    desc_norm = _normalizar(descricao_ia or "")
+    cats = []
+
+    # Pessoas: SÓ se o campo "Pessoas" tiver conteúdo real (não negado)
+    if _campo_llava(desc_norm, "pessoas"):
+        cats.append("pessoas")
+
+    # Animais: SÓ se o campo "Animais" tiver conteúdo real.
+    # Ignora "cachorro-quente"/"cachorro quente" (é comida, não animal).
+    animais_val = _campo_llava(desc_norm, "animais")
+    if animais_val:
+        sem_hotdog = animais_val.replace("cachorro-quente", "").replace("cachorro quente", "")
+        if sem_hotdog.strip():
+            cats.append("animais")
+
+    # Comida / Natureza / Urbano: por palavra-chave nos campos descritivos
+    # (o que e / objetos / ambiente / acoes / tags), não em pessoas/animais.
+    contexto = " ".join(
+        _campo_llava(desc_norm, c) or ""
+        for c in ("o que e", "objetos", "ambiente", "acoes", "tags")
+    )
+    # Tokeniza por palavra inteira pra evitar substring (ex: 'cidade' em
+    # 'feli-cidade', 'mar' em 'marca'). Mantém termos compostos via checagem
+    # separada de frase.
+    tokens = set(re.findall(r"[a-z]+", contexto))
+
+    def _bate(kw_list):
+        for kw in kw_list:
+            if " " in kw or "-" in kw:
+                # termo composto: procura a frase literal
+                if kw in contexto:
+                    return True
+            elif kw in tokens:
+                return True
+        return False
+
+    if _bate(_KW_COMIDA):
+        cats.append("comida")
+    if _bate(_KW_NATUREZA):
+        cats.append("natureza")
+    if _bate(_KW_URBANO):
+        cats.append("urbano")
+
+    return cats
 
 
 @app.route("/api/gallery")
