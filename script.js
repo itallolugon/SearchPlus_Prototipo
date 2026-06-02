@@ -1503,6 +1503,7 @@ function abrirPainelLateral(id) {
     const q = document.getElementById('searchInput').value.trim().toLowerCase();
 
     _caminhoArquivoAtual = res.caminho;
+    _fileIdAtual = res.id;
 
     document.getElementById('sideTitle').innerText = res.nome;
     document.getElementById('sideBadgeType').innerText = res.tipo.toUpperCase();
@@ -2007,3 +2008,170 @@ document.addEventListener('keydown', (e) => {
         }
     }
 });
+
+// ==========================================
+// COLEÇÕES (playlists de arquivos)
+// ==========================================
+let _fileIdAtual = null;
+
+async function abrirColecoes() {
+    document.getElementById('colecoesModal').style.display = 'flex';
+    document.getElementById('colecoesTitulo').innerText = 'Minhas Coleções';
+    document.getElementById('colecaoConteudo').style.display = 'none';
+    document.getElementById('colecoesLista').style.display = 'grid';
+    document.getElementById('colecoesCriar').style.display = 'flex';
+    await carregarColecoes();
+}
+function fecharColecoes() {
+    document.getElementById('colecoesModal').style.display = 'none';
+}
+
+async function carregarColecoes() {
+    const lista = document.getElementById('colecoesLista');
+    lista.innerHTML = '<p style="color:var(--text-secondary);">Carregando...</p>';
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/collections`);
+        const d = await res.json();
+        const cols = d.colecoes || [];
+        if (cols.length === 0) {
+            lista.innerHTML = '<p style="color:var(--text-secondary);">Nenhuma coleção ainda. Crie uma acima ou use "Adicionar à coleção" num resultado.</p>';
+            return;
+        }
+        lista.innerHTML = '';
+        cols.forEach(c => {
+            const card = document.createElement('div');
+            card.className = 'colecao-card';
+            const titulo = document.createElement('div');
+            titulo.className = 'colecao-card-nome';
+            titulo.textContent = c.nome;
+            const meta = document.createElement('div');
+            meta.className = 'colecao-card-meta';
+            meta.textContent = c.total + (c.total === 1 ? ' arquivo' : ' arquivos');
+            const acoes = document.createElement('div');
+            acoes.className = 'colecao-card-acoes';
+            const verBtn = document.createElement('button');
+            verBtn.className = 'action-btn';
+            verBtn.textContent = 'Ver';
+            verBtn.onclick = () => verColecao(c.id, c.nome);
+            const delBtn = document.createElement('button');
+            delBtn.className = 'action-btn colecao-del';
+            delBtn.textContent = '🗑';
+            delBtn.title = 'Excluir coleção';
+            delBtn.onclick = () => excluirColecao(c.id, c.nome);
+            acoes.append(verBtn, delBtn);
+            card.append(titulo, meta, acoes);
+            lista.appendChild(card);
+        });
+    } catch (e) {
+        console.error(e);
+        lista.innerHTML = '<p style="color:#f87171;">Erro ao carregar coleções.</p>';
+    }
+}
+
+async function criarColecao() {
+    const input = document.getElementById('novaColecaoNome');
+    const nome = input.value.trim();
+    if (!nome) { toastAviso("Digite um nome para a coleção."); return; }
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/collections`, {
+            method: 'POST', headers: fetchOptions.headers,
+            body: JSON.stringify({ nome })
+        });
+        const d = await res.json();
+        if (res.ok) {
+            input.value = '';
+            toastOk(`Coleção "${nome}" criada.`);
+            carregarColecoes();
+        } else {
+            toastErro(d.error || "Não foi possível criar a coleção.");
+        }
+    } catch (e) { console.error(e); toastErro("Erro de conexão."); }
+}
+
+async function excluirColecao(id, nome) {
+    if (!confirm(`Excluir a coleção "${nome}"? Os arquivos não são apagados, só a coleção.`)) return;
+    try {
+        await fetch(`${API_BASE_URL}/api/collections/${id}`, { method: 'DELETE' });
+        toastInfo(`Coleção "${nome}" excluída.`);
+        carregarColecoes();
+    } catch (e) { console.error(e); toastErro("Não foi possível excluir."); }
+}
+
+async function verColecao(id, nome) {
+    document.getElementById('colecoesTitulo').innerText = nome;
+    document.getElementById('colecoesLista').style.display = 'none';
+    document.getElementById('colecoesCriar').style.display = 'none';
+    document.getElementById('colecaoConteudo').style.display = 'block';
+    const grid = document.getElementById('colecaoItens');
+    grid.innerHTML = '<p style="color:var(--text-secondary);">Carregando...</p>';
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/collections/${id}`);
+        const d = await res.json();
+        const itens = d.resultados || [];
+        if (itens.length === 0) {
+            grid.innerHTML = '<p style="color:var(--text-secondary);">Coleção vazia.</p>';
+            return;
+        }
+        // Reaproveita os itens como resultadosAtuais pra reusar o painel lateral
+        window.resultadosAtuais = itens;
+        grid.innerHTML = '';
+        itens.forEach((r, idx) => {
+            const card = document.createElement('div');
+            card.className = 'recent-card';
+            card.onclick = () => { fecharColecoes(); abrirPainelLateral(idx); };
+            const ext = (r.tipo || '').toLowerCase();
+            if (extensoesImagem.includes(ext)) {
+                const img = document.createElement('img');
+                img.src = formatImagePath(r.caminho);
+                img.style.cssText = 'width:100%; height:110px; object-fit:cover; border-radius:8px;';
+                card.appendChild(img);
+            }
+            const nm = document.createElement('div');
+            nm.style.cssText = 'font-size:0.8rem; margin-top:6px; color:var(--text-primary); word-break:break-all;';
+            nm.textContent = r.nome;
+            card.appendChild(nm);
+            grid.appendChild(card);
+        });
+    } catch (e) {
+        console.error(e);
+        grid.innerHTML = '<p style="color:#f87171;">Erro ao carregar.</p>';
+    }
+}
+
+// Adicionar o arquivo aberto no painel lateral a uma coleção
+async function abrirSeletorColecao() {
+    if (!_fileIdAtual) { toastAviso("Abra um arquivo primeiro."); return; }
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/collections`);
+        const d = await res.json();
+        const cols = d.colecoes || [];
+        if (cols.length === 0) {
+            const nome = prompt("Você ainda não tem coleções. Nome da nova coleção:");
+            if (!nome || !nome.trim()) return;
+            const cr = await fetch(`${API_BASE_URL}/api/collections`, {
+                method: 'POST', headers: fetchOptions.headers,
+                body: JSON.stringify({ nome: nome.trim() })
+            });
+            const cd = await cr.json();
+            if (cr.ok) await adicionarAColecao(cd.id, nome.trim());
+            else toastErro(cd.error || "Erro ao criar coleção.");
+            return;
+        }
+        const nomes = cols.map((c, i) => `${i + 1}. ${c.nome} (${c.total})`).join('\n');
+        const escolha = prompt(`Adicionar a qual coleção?\n\n${nomes}\n\nDigite o número:`);
+        const idx = parseInt(escolha, 10) - 1;
+        if (isNaN(idx) || idx < 0 || idx >= cols.length) return;
+        await adicionarAColecao(cols[idx].id, cols[idx].nome);
+    } catch (e) { console.error(e); toastErro("Erro de conexão."); }
+}
+
+async function adicionarAColecao(colId, nome) {
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/collections/${colId}/files`, {
+            method: 'POST', headers: fetchOptions.headers,
+            body: JSON.stringify({ file_id: _fileIdAtual })
+        });
+        if (res.ok) toastOk(`Adicionado à coleção "${nome}".`);
+        else toastErro("Não foi possível adicionar.");
+    } catch (e) { console.error(e); toastErro("Erro de conexão."); }
+}

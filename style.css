@@ -666,3 +666,42 @@ body {
     .filtros-avancados { grid-template-columns: 1fr 1fr; }
     .filtro-campo-wide { grid-column: span 2; }
 }
+
+/* ============================================
+   COLEÇÕES
+   ============================================ */
+.colecao-card {
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.colecao-card-nome {
+    font-weight: 700;
+    font-size: 1.05rem;
+    color: var(--text-primary);
+    word-break: break-word;
+}
+.colecao-card-meta {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+.colecao-card-acoes {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+.colecao-card-acoes .action-btn {
+    padding: 6px 14px;
+    font-size: 0.85rem;
+}
+.colecao-del {
+    border-color: rgba(239,68,68,0.4) !important;
+    color: #f87171 !important;
+}
+.colecao-del:hover {
+    background: rgba(239,68,68,0.15) !important;
+}

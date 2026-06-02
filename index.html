@@ -223,6 +223,7 @@
     <div class="top-bar">
         <div class="nav-right">
             <button class="action-btn btn-ajuda" onclick="abrirAjuda()" title="Ajuda (como usar)" aria-label="Ajuda">?</button>
+            <button class="action-btn" onclick="abrirColecoes()" style="border-color: rgba(168, 85, 247, 0.5); color: #E879F9;">Coleções</button>
             <button class="action-btn" onclick="abrirFavoritos()" style="border-color: rgba(168, 85, 247, 0.5); color: #E879F9;">Favoritos</button>
             <button class="action-btn gradient-btn" onclick="abrirModalPastas()">Gerenciar Pastas</button>
             
@@ -343,6 +344,7 @@
                     <div id="sideText" class="side-text-content"></div>
                     <a id="sideDownloadBtn" href="#" target="_blank" class="action-btn gradient-btn" style="display: block; text-align: center; margin: 20px 0 0 0; padding: 15px; text-decoration: none;">Abrir Arquivo Original</a>
                     <button id="sideOpenLocationBtn" onclick="abrirLocalDoArquivo()" class="action-btn" style="width:100%; margin: 8px 0 0 0; padding: 13px; background: transparent;">Abrir Local no Explorer</button>
+                    <button id="sideAddColecaoBtn" onclick="abrirSeletorColecao()" class="action-btn" style="width:100%; margin: 8px 0 0 0; padding: 13px; background: transparent;">＋ Adicionar à coleção</button>
                 </div>
             </div>
         </div>
@@ -699,6 +701,29 @@
 
     <!-- Container de notificações (toasts) -->
     <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Modal: Coleções -->
+    <div id="colecoesModal" class="modal" style="z-index: 10001;">
+        <div class="modal-content" style="max-width: 720px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+                <h3 class="gradient-text" id="colecoesTitulo" style="margin:0; font-size:1.8rem; font-family:'Inter',sans-serif;">Minhas Coleções</h3>
+                <span class="close-btn" onclick="fecharColecoes()" style="position:static;">&times;</span>
+            </div>
+
+            <!-- Criar nova coleção -->
+            <div id="colecoesCriar" style="display:flex; gap:10px; margin-bottom:18px;">
+                <input type="text" id="novaColecaoNome" placeholder="Nome da nova coleção..." style="flex:1; padding:10px 14px; background:rgba(0,0,0,0.3); border:1px solid var(--border-light); border-radius:8px; color:var(--text-primary);" onkeypress="if(event.key==='Enter') criarColecao()">
+                <button class="action-btn gradient-btn" onclick="criarColecao()" style="padding:10px 18px;">Criar</button>
+            </div>
+
+            <!-- Lista de coleções OU conteúdo de uma coleção -->
+            <div id="colecoesLista" class="recent-grid"></div>
+            <div id="colecaoConteudo" style="display:none;">
+                <button class="action-btn" onclick="abrirColecoes()" style="margin-bottom:14px; padding:8px 14px;">← Voltar às coleções</button>
+                <div id="colecaoItens" class="recent-grid"></div>
+            </div>
+        </div>
+    </div>
 
     <!-- Modal de Ajuda -->
     <div id="ajudaModal" class="modal" style="z-index: 10001;">

@@ -1643,6 +1643,151 @@ def api_favorites_toggle():
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Coleções (playlists de arquivos)
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.route("/api/collections", methods=["GET", "POST"])
+def api_collections():
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    if request.method == "GET":
+        # Lista coleções do usuário com contagem de arquivos
+        conn = get_db()
+        rows = conn.execute(
+            """
+            SELECT c.id, c.nome, c.criado_em,
+                   COUNT(cf.file_id) AS total
+            FROM collections c
+            LEFT JOIN collection_files cf ON cf.collection_id = c.id
+            WHERE c.user_id = %s
+            GROUP BY c.id, c.nome, c.criado_em
+            ORDER BY c.criado_em DESC
+            """,
+            (uid,)
+        ).fetchall()
+        conn.close()
+        return jsonify({"colecoes": [
+            {"id": r["id"], "nome": r["nome"], "total": r["total"],
+             "criado_em": r["criado_em"].isoformat() if r["criado_em"] else ""}
+            for r in rows
+        ]})
+
+    # POST — criar coleção
+    data = request.get_json(force=True) or {}
+    nome = (data.get("nome") or "").strip()
+    if not nome:
+        return jsonify({"error": "Nome da coleção é obrigatório."}), 400
+
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "INSERT INTO collections (user_id, nome) VALUES (%s, %s) RETURNING id",
+            (uid, nome)
+        ).fetchone()
+        conn.commit()
+        return jsonify({"status": "ok", "id": row["id"], "nome": nome})
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        return jsonify({"error": "Você já tem uma coleção com esse nome."}), 409
+    finally:
+        conn.close()
+
+
+@app.route("/api/collections/<int:col_id>", methods=["GET", "DELETE"])
+def api_collection_detail(col_id):
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    conn = get_db()
+    # Confirma que a coleção é do usuário
+    dono = conn.execute(
+        "SELECT id FROM collections WHERE id = %s AND user_id = %s", (col_id, uid)
+    ).fetchone()
+    if not dono:
+        conn.close()
+        return jsonify({"error": "Coleção não encontrada."}), 404
+
+    if request.method == "DELETE":
+        conn.execute("DELETE FROM collections WHERE id = %s AND user_id = %s", (col_id, uid))
+        conn.commit()
+        conn.close()
+        return jsonify({"status": "ok"})
+
+    # GET — arquivos da coleção (formato igual ao de busca/favoritos)
+    rows = conn.execute(
+        """
+        SELECT f.id, f.nome, f.caminho, f.tipo, f.descricao_ia,
+               f.data_adicionado, f.favorito
+        FROM collection_files cf
+        JOIN files f ON f.id = cf.file_id
+        WHERE cf.collection_id = %s
+        ORDER BY cf.adicionado_em DESC
+        """,
+        (col_id,)
+    ).fetchall()
+    conn.close()
+
+    resultados = [
+        {"id": r["id"], "nome": r["nome"], "caminho": r["caminho"],
+         "tipo": r["tipo"], "descricao_ia": r["descricao_ia"] or "",
+         "conteudo": r["descricao_ia"] or "",
+         "trecho": (r["descricao_ia"] or "")[:200],
+         "data": r["data_adicionado"].isoformat() if r["data_adicionado"] else "",
+         "favorito": bool(r["favorito"]), "score": 1.0}
+        for r in rows
+    ]
+    return jsonify({"resultados": resultados})
+
+
+@app.route("/api/collections/<int:col_id>/files", methods=["POST", "DELETE"])
+def api_collection_files(col_id):
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    data = request.get_json(force=True) or {}
+    file_id = data.get("file_id")
+    if not file_id:
+        return jsonify({"error": "file_id é obrigatório."}), 400
+
+    conn = get_db()
+    # Confirma posse da coleção E do arquivo
+    dono = conn.execute(
+        "SELECT id FROM collections WHERE id = %s AND user_id = %s", (col_id, uid)
+    ).fetchone()
+    arq = conn.execute(
+        "SELECT id FROM files WHERE id = %s AND user_id = %s", (file_id, uid)
+    ).fetchone()
+    if not dono or not arq:
+        conn.close()
+        return jsonify({"error": "Coleção ou arquivo não encontrado."}), 404
+
+    if request.method == "DELETE":
+        conn.execute(
+            "DELETE FROM collection_files WHERE collection_id = %s AND file_id = %s",
+            (col_id, file_id)
+        )
+        conn.commit()
+        conn.close()
+        return jsonify({"status": "ok", "acao": "removido"})
+
+    # POST — adicionar (ignora se já existe)
+    try:
+        conn.execute(
+            "INSERT INTO collection_files (collection_id, file_id) VALUES (%s, %s) "
+            "ON CONFLICT DO NOTHING",
+            (col_id, file_id)
+        )
+        conn.commit()
+        return jsonify({"status": "ok", "acao": "adicionado"})
+    finally:
+        conn.close()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Status do motor
 # ──────────────────────────────────────────────────────────────────────────────
 
