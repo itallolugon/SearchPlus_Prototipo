@@ -740,3 +740,45 @@ body {
     color: var(--text-secondary);
     line-height: 1.45;
 }
+
+/* ============================================
+   BUSCA POR IMAGEM
+   ============================================ */
+.search-btn-img {
+    background: transparent;
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    font-size: 1.2rem;
+    cursor: pointer;
+    padding: 0 14px;
+    transition: background 0.15s, border-color 0.15s;
+}
+.search-btn-img:hover {
+    background: rgba(168,85,247,0.12);
+    border-color: var(--accent-primary);
+}
+.drop-zone {
+    border: 2px dashed var(--border-light);
+    border-radius: 14px;
+    min-height: 200px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 20px;
+    transition: border-color 0.2s, background 0.2s;
+    text-align: center;
+}
+.drop-zone:hover { border-color: var(--accent-primary); }
+.drop-zone-ativo {
+    border-color: var(--accent-primary);
+    background: rgba(168,85,247,0.10);
+}
+.drop-zone-placeholder {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    color: var(--text-primary);
+    font-weight: 600;
+    pointer-events: none;
+}

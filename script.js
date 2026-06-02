@@ -2244,3 +2244,115 @@ async function adicionarAColecao(colId, nome) {
         else toastErro("Não foi possível adicionar.");
     } catch (e) { console.error(e); toastErro("Erro de conexão."); }
 }
+
+// ==========================================
+// BUSCA POR IMAGEM (similaridade visual via CLIP)
+// ==========================================
+let _imagemBuscaDataUrl = null;
+
+function abrirBuscaImagem() {
+    document.getElementById('buscaImagemModal').style.display = 'flex';
+    _imagemBuscaDataUrl = null;
+    document.getElementById('dropZonePreview').style.display = 'none';
+    document.getElementById('dropZonePlaceholder').style.display = 'flex';
+    document.getElementById('btnBuscarParecidas').style.display = 'none';
+}
+function fecharBuscaImagem() {
+    document.getElementById('buscaImagemModal').style.display = 'none';
+}
+
+// Lê um File em data URL e prepara o preview
+function _carregarArquivoImagem(file) {
+    if (!file || !file.type.startsWith('image/')) {
+        toastAviso("Escolha um arquivo de imagem.");
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        _imagemBuscaDataUrl = e.target.result;
+        const prev = document.getElementById('dropZonePreview');
+        prev.src = _imagemBuscaDataUrl;
+        prev.style.display = 'block';
+        document.getElementById('dropZonePlaceholder').style.display = 'none';
+        document.getElementById('btnBuscarParecidas').style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+}
+
+async function executarBuscaPorImagem() {
+    if (!_imagemBuscaDataUrl) { toastAviso("Escolha uma imagem primeiro."); return; }
+    fecharBuscaImagem();
+    await _renderBuscaVisual({ data_url: _imagemBuscaDataUrl });
+}
+
+// Busca "achar parecidas" a partir do arquivo aberto no painel lateral
+async function acharParecidas() {
+    if (!_fileIdAtual) { toastAviso("Abra um arquivo primeiro."); return; }
+    fecharPainelLateral();
+    await _renderBuscaVisual({ file_id: _fileIdAtual });
+}
+
+// Faz o POST e renderiza os resultados reusando o fluxo de busca textual
+async function _renderBuscaVisual(corpo) {
+    const loadingScreen = document.getElementById('iaLoadingScreen');
+    if (loadingScreen) loadingScreen.style.display = 'flex';
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/search_by_image`, {
+            method: 'POST', headers: fetchOptions.headers,
+            body: JSON.stringify(corpo)
+        });
+        const d = await res.json();
+        if (d.erro) { toastErro(d.erro); return; }
+
+        window.resultadosAtuais = d.resultados || [];
+
+        // Garante que a view de resultados está visível (caso venha do dashboard)
+        searchHistoryExists = true;
+        const wrapper = document.getElementById('mainAppWrapper');
+        wrapper.classList.remove('layout-centered');
+        wrapper.classList.add('layout-top');
+        document.getElementById('dashboardView').style.display = 'none';
+        document.getElementById('filterBarContainer').style.display = 'flex';
+        document.getElementById('filterBarContainer').style.opacity = '1';
+        document.getElementById('searchResultsView').style.display = 'block';
+        document.getElementById('searchResultsView').classList.remove('fade-out');
+        document.getElementById('searchResultsView').style.opacity = '1';
+
+        renderizarResultados();
+
+        if (window.resultadosAtuais.length === 0) {
+            toastInfo("Nenhuma imagem parecida encontrada no acervo.");
+        } else {
+            toastOk(`${window.resultadosAtuais.length} imagem(ns) parecida(s).`);
+        }
+    } catch (e) {
+        console.error(e);
+        toastErro("Erro ao buscar por imagem.");
+    } finally {
+        if (loadingScreen) loadingScreen.style.display = 'none';
+    }
+}
+
+// Liga os handlers da drop zone uma vez que o DOM existe
+document.addEventListener('DOMContentLoaded', () => {
+    const zona = document.getElementById('dropZone');
+    const input = document.getElementById('dropZoneInput');
+    if (!zona || !input) return;
+
+    zona.addEventListener('click', () => input.click());
+    input.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files[0]) _carregarArquivoImagem(e.target.files[0]);
+    });
+    zona.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        zona.classList.add('drop-zone-ativo');
+    });
+    zona.addEventListener('dragleave', () => zona.classList.remove('drop-zone-ativo'));
+    zona.addEventListener('drop', (e) => {
+        e.preventDefault();
+        zona.classList.remove('drop-zone-ativo');
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+            _carregarArquivoImagem(e.dataTransfer.files[0]);
+        }
+    });
+});

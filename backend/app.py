@@ -1522,6 +1522,114 @@ def api_search():
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Busca por imagem (similaridade visual via CLIP)
+# ──────────────────────────────────────────────────────────────────────────────
+
+@app.route("/api/search_by_image", methods=["POST"])
+def api_search_by_image():
+    """
+    Busca imagens visualmente parecidas usando o embedding CLIP.
+    Aceita no corpo JSON (um ou outro):
+      - data_url: imagem em base64 (upload do navegador)
+      - file_id:  id de um arquivo já indexado (usa o embedding_clip salvo)
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    if not CLIP_OK:
+        return jsonify({"erro": "Busca por imagem indisponível (modelo visual desligado). "
+                                "Reinicie o servidor com conexão à internet na primeira vez."})
+
+    data = request.get_json(force=True) or {}
+    file_id = data.get("file_id")
+    data_url = data.get("data_url")
+
+    import numpy as np
+    query_vec = None
+
+    if file_id:
+        # Reusa o embedding_clip já calculado do arquivo indexado
+        conn = get_db()
+        row = conn.execute(
+            "SELECT embedding_clip FROM files WHERE id = %s AND user_id = %s",
+            (file_id, uid)
+        ).fetchone()
+        conn.close()
+        if not row or row["embedding_clip"] is None:
+            return jsonify({"erro": "Essa imagem ainda não tem dados visuais. "
+                                    "Rode 'Re-analisar' para gerá-los."})
+        # pgvector devolve numpy array; converte pra float puro (psycopg2 não
+        # adapta numpy.float32 na query de volta)
+        query_vec = [float(x) for x in row["embedding_clip"]]
+
+    elif data_url:
+        # Decodifica base64 → arquivo temporário → embedding CLIP → apaga
+        import base64, tempfile
+        try:
+            cabecalho, _, b64 = data_url.partition(",")
+            raw = base64.b64decode(b64 or cabecalho)
+        except Exception:
+            return jsonify({"erro": "Imagem inválida."})
+        if len(raw) > 20 * 1024 * 1024:
+            return jsonify({"erro": "Imagem muito grande (máx. 20 MB)."})
+
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=".img", delete=False) as tmp:
+                tmp.write(raw)
+                tmp_path = tmp.name
+            query_vec = _gerar_embedding_clip_imagem(tmp_path)
+        finally:
+            if tmp_path and os.path.isfile(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+        if query_vec is None:
+            return jsonify({"erro": "Não foi possível processar essa imagem."})
+    else:
+        return jsonify({"error": "Envie data_url ou file_id."}), 400
+
+    t0 = time.time()
+
+    conn = get_db()
+    rows = conn.execute(
+        """
+        SELECT id, nome, caminho, tipo, descricao_ia, data_adicionado, favorito,
+               1 - (embedding_clip <=> %s::vector) AS score
+        FROM files
+        WHERE user_id = %s AND processado = 1 AND embedding_clip IS NOT NULL
+          AND tipo = ANY(%s)
+          AND (%s::int IS NULL OR id != %s)
+        ORDER BY embedding_clip <=> %s::vector
+        LIMIT 40
+        """,
+        (query_vec, uid, list(_EXT_IMG), file_id, file_id, query_vec)
+    ).fetchall()
+    conn.close()
+
+    # Corte de score: CLIP cosine de imagens parecidas costuma ficar alto.
+    # 0.55 filtra ruído sem cortar resultados legítimos (calibrável).
+    CORTE_VISUAL = 0.55
+    resultados = []
+    for r in rows:
+        score = float(r["score"])
+        if score < CORTE_VISUAL:
+            continue
+        desc = r["descricao_ia"] or ""
+        resultados.append({
+            "id": r["id"], "nome": r["nome"], "caminho": r["caminho"],
+            "tipo": r["tipo"], "descricao_ia": desc, "conteudo": desc,
+            "trecho": desc[:240], "data": r["data_adicionado"].isoformat() if r["data_adicionado"] else "",
+            "favorito": bool(r["favorito"]), "score": round(score, 4),
+        })
+
+    return jsonify({"resultados": resultados, "tempo": round(time.time() - t0, 3),
+                    "modo": "imagem"})
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Estatísticas do acervo (para o perfil)
 # ──────────────────────────────────────────────────────────────────────────────
 

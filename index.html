@@ -262,6 +262,7 @@
                 
                 <div class="search-box">
                     <input type="text" id="searchInput" placeholder="Pesquise o que você lembra..." onkeypress="verificarEnter(event)" onfocus="mostrarHistorico()" onblur="setTimeout(esconderHistorico,150)">
+                    <button class="search-btn-img" onclick="abrirBuscaImagem()" title="Buscar por imagem">📷</button>
                     <button class="gradient-btn search-btn" onclick="realizarBusca()">Buscar</button>
                 </div>
                 <div id="searchHistoryDropdown" style="display:none; position:relative; width:100%; max-width:700px; margin:0 auto;">
@@ -345,6 +346,7 @@
                     <a id="sideDownloadBtn" href="#" target="_blank" class="action-btn gradient-btn" style="display: block; text-align: center; margin: 20px 0 0 0; padding: 15px; text-decoration: none;">Abrir Arquivo Original</a>
                     <button id="sideOpenLocationBtn" onclick="abrirLocalDoArquivo()" class="action-btn" style="width:100%; margin: 8px 0 0 0; padding: 13px; background: transparent;">Abrir Local no Explorer</button>
                     <button id="sideAddColecaoBtn" onclick="abrirSeletorColecao()" class="action-btn" style="width:100%; margin: 8px 0 0 0; padding: 13px; background: transparent;">＋ Adicionar à coleção</button>
+                    <button id="sideParecidasBtn" onclick="acharParecidas()" class="action-btn" style="width:100%; margin: 8px 0 0 0; padding: 13px; background: transparent;">🔍 Achar imagens parecidas</button>
                 </div>
             </div>
         </div>
@@ -702,6 +704,29 @@
     <!-- Container de notificações (toasts) -->
     <div id="toastContainer" class="toast-container"></div>
 
+    <!-- Modal: Busca por imagem -->
+    <div id="buscaImagemModal" class="modal" style="z-index: 10001;">
+        <div class="modal-content" style="max-width: 520px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
+                <h3 class="gradient-text" style="margin:0; font-size:1.6rem; font-family:'Inter',sans-serif;">Buscar por imagem</h3>
+                <span class="close-btn" onclick="fecharBuscaImagem()" style="position:static;">&times;</span>
+            </div>
+            <p style="color:var(--text-secondary); font-size:0.9rem; margin:0 0 16px 0;">Arraste uma imagem ou clique para escolher. A IA vai encontrar imagens visualmente parecidas no seu acervo.</p>
+
+            <div id="dropZone" class="drop-zone">
+                <input type="file" id="dropZoneInput" accept="image/*" style="display:none;">
+                <img id="dropZonePreview" style="display:none; max-width:100%; max-height:240px; border-radius:8px;">
+                <div id="dropZonePlaceholder" class="drop-zone-placeholder">
+                    <div style="font-size:2.5rem;">🖼️</div>
+                    <div>Arraste uma imagem aqui</div>
+                    <div style="font-size:0.8rem; color:var(--text-secondary);">ou clique para escolher</div>
+                </div>
+            </div>
+
+            <button id="btnBuscarParecidas" class="action-btn gradient-btn" onclick="executarBuscaPorImagem()" style="width:100%; margin-top:16px; padding:14px; display:none;">Buscar parecidas</button>
+        </div>
+    </div>
+
     <!-- Preview flutuante (inspeção rápida no hover) -->
     <div id="hoverPreview" class="hover-preview">
         <img id="hoverPreviewImg" src="" alt="">
@@ -771,6 +796,6 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
-    <script src="script.js?v=2026_ux"></script>
+    <script src="script.js?v=2026_busca_img"></script>
 </body>
 </html>
