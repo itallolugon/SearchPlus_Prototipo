@@ -899,12 +899,70 @@ function fecharSidebarConfig() {
     aplicarTemaNoDOM(currentConfig);
 }
 
-function abrirViewPerfil() {
-    document.getElementById('statPastas').innerText = currentConfig.pastas ? currentConfig.pastas.length : 0;
-    document.getElementById('statArquivos').innerText = window.resultadosAtuais.length > 0 ? "100+" : "0";
-
+async function abrirViewPerfil() {
     document.getElementById('viewPerfilModal').style.display = 'flex';
     document.getElementById('profileDropdown').style.display = 'none';
+
+    // Valores provisórios enquanto carrega
+    document.getElementById('statPastas').innerText = currentConfig.pastas ? currentConfig.pastas.length : 0;
+    document.getElementById('statArquivos').innerText = '...';
+
+    await carregarEstatisticas();
+}
+
+// Rótulos e ícones amigáveis por categoria
+const _CATEGORIA_LABEL = {
+    pessoas:  { icone: '👥', nome: 'Pessoas' },
+    animais:  { icone: '🐾', nome: 'Animais' },
+    comida:   { icone: '🍽️', nome: 'Comida' },
+    natureza: { icone: '🌳', nome: 'Natureza' },
+    urbano:   { icone: '🏙️', nome: 'Urbano' },
+};
+
+async function carregarEstatisticas() {
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/stats`);
+        if (!res.ok) return;
+        const s = await res.json();
+
+        document.getElementById('statPastas').innerText = s.total_pastas ?? 0;
+        document.getElementById('statArquivos').innerText = s.total_arquivos ?? 0;
+
+        const box = document.getElementById('statsAcervo');
+        const lista = document.getElementById('statsCategorias');
+        const cats = s.por_categoria || [];
+
+        if (cats.length === 0 || s.total_arquivos === 0) {
+            box.style.display = 'none';
+            return;
+        }
+
+        const maxVal = Math.max(...cats.map(c => c.total));
+        lista.innerHTML = '';
+        cats.forEach(c => {
+            const meta = _CATEGORIA_LABEL[c.categoria] || { icone: '📦', nome: c.categoria };
+            const pct = maxVal > 0 ? Math.round((c.total / maxVal) * 100) : 0;
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex; align-items:center; gap:10px; font-size:0.85rem;';
+            // Estrutura: ícone+nome | barra | contagem (tudo via DOM, sem innerHTML de dado externo)
+            const label = document.createElement('span');
+            label.style.cssText = 'width:90px; color:var(--text-primary);';
+            label.textContent = `${meta.icone} ${meta.nome}`;
+            const barWrap = document.createElement('div');
+            barWrap.style.cssText = 'flex:1; height:8px; background:rgba(255,255,255,0.08); border-radius:4px; overflow:hidden;';
+            const bar = document.createElement('div');
+            bar.style.cssText = `height:100%; width:${pct}%; background:var(--accent-primary); border-radius:4px;`;
+            barWrap.appendChild(bar);
+            const count = document.createElement('b');
+            count.style.cssText = 'width:32px; text-align:right; color:var(--text-secondary);';
+            count.textContent = c.total;
+            row.append(label, barWrap, count);
+            lista.appendChild(row);
+        });
+        box.style.display = 'block';
+    } catch (e) {
+        console.error(e);
+    }
 }
 function fecharViewPerfil() { document.getElementById('viewPerfilModal').style.display = 'none'; }
 function abrirEditPerfil() { fecharViewPerfil(); document.getElementById('editPerfilModal').style.display = 'flex'; }

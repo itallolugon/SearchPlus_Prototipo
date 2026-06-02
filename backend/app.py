@@ -1460,6 +1460,86 @@ def api_search():
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Estatísticas do acervo (para o perfil)
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Categorias temáticas: palavra-chave (normalizada) -> categoria.
+# Usadas para classificar cada arquivo a partir da descrição da IA.
+_CATEGORIAS_STATS = {
+    "pessoas": ["pessoa", "pessoas", "homem", "homens", "mulher", "mulheres",
+                "menino", "menina", "crianca", "bebe", "rosto", "gente", "humano"],
+    "animais": ["cachorro", "cao", "gato", "animal", "animais", "passaro",
+                "cavalo", "pet", "bicho", "ave", "peixe"],
+    "comida":  ["comida", "prato", "refeicao", "alimento", "bebida", "fruta",
+                "lanche", "almoco", "janta", "restaurante", "kebab", "pizza"],
+    "natureza":["paisagem", "natureza", "praia", "montanha", "floresta", "mar",
+                "ceu", "arvore", "jardim", "parque", "campo", "flor", "po do sol", "por do sol"],
+    "urbano":  ["cidade", "rua", "predio", "carro", "veiculo", "moto", "edificio",
+                "loja", "trafego", "urbano"],
+}
+
+
+@app.route("/api/stats")
+def api_stats():
+    """Estatísticas do acervo do usuário para exibir no perfil."""
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT tipo, descricao_ia FROM files WHERE user_id = %s AND processado = 1",
+        (uid,)
+    ).fetchall()
+    total_pastas = conn.execute(
+        "SELECT COUNT(*) AS n FROM folders WHERE user_id = %s", (uid,)
+    ).fetchone()["n"]
+    conn.close()
+
+    total = len(rows)
+    # Contagem por tipo de arquivo (imagem / documento / mídia)
+    por_formato = {"imagem": 0, "documento": 0, "midia": 0}
+    # Contagem por categoria temática (uma imagem pode contar em várias)
+    por_categoria = {k: 0 for k in _CATEGORIAS_STATS}
+
+    for r in rows:
+        ext = (r["tipo"] or "").lower()
+        if ext in _EXT_IMG:
+            por_formato["imagem"] += 1
+        elif ext in _EXT_VID or ext in _EXT_AUD:
+            por_formato["midia"] += 1
+        else:
+            por_formato["documento"] += 1
+
+        desc_norm = _normalizar(r["descricao_ia"] or "")
+        # Remove linhas de negação ("pessoas: nenhuma", "animais: nenhum")
+        # pra não contar a palavra-chave do rótulo quando o campo está vazio.
+        linhas_validas = []
+        for linha in desc_norm.splitlines():
+            if any(neg in linha for neg in ("nenhum", "nenhuma", "nao ha", "ausente")):
+                continue
+            linhas_validas.append(linha)
+        desc_filtrada = " ".join(linhas_validas)
+
+        for cat, palavras in _CATEGORIAS_STATS.items():
+            if any(p in desc_filtrada for p in palavras):
+                por_categoria[cat] += 1
+
+    # Só categorias com pelo menos 1, ordenadas da maior pra menor
+    categorias = sorted(
+        [{"categoria": k, "total": v} for k, v in por_categoria.items() if v > 0],
+        key=lambda x: x["total"], reverse=True
+    )
+
+    return jsonify({
+        "total_arquivos": total,
+        "total_pastas": total_pastas,
+        "por_formato": por_formato,
+        "por_categoria": categorias,
+    })
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Favoritos
 # ──────────────────────────────────────────────────────────────────────────────
 

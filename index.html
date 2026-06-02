@@ -34,7 +34,13 @@
                 <div style="text-align:center;"><b id="statTempo" style="display:block; font-size:1.2rem;">Hoje</b><small style="color:var(--text-secondary); font-size:0.7rem; text-transform:uppercase;">Atividade</small></div>
             </div>
 
-            <button class="gradient-btn" onclick="abrirEditPerfil()" style="width:100%; margin-top:32px; padding:16px; font-weight:800; text-transform:uppercase; letter-spacing:1px; cursor:pointer;">Editar Perfil Completo</button>
+            <!-- Estatísticas do acervo (categorias da IA) -->
+            <div id="statsAcervo" style="width:100%; margin-top:20px; display:none;">
+                <p style="color:var(--text-secondary); font-size:0.7rem; text-transform:uppercase; margin:0 0 10px 0; letter-spacing:1px;">Seu acervo</p>
+                <div id="statsCategorias" style="display:flex; flex-direction:column; gap:8px;"></div>
+            </div>
+
+            <button class="gradient-btn" onclick="abrirEditPerfil()" style="width:100%; margin-top:24px; padding:16px; font-weight:800; text-transform:uppercase; letter-spacing:1px; cursor:pointer;">Editar Perfil Completo</button>
         </div>
     </div>
 </div>
