@@ -1326,9 +1326,11 @@ def api_search():
         data = request.get_json(force=True) or {}
         query  = (data.get("query") or "").strip()
         filtro = data.get("filtro", "all")
+        avancado = data.get("avancado") or {}
     else:
         query  = (request.args.get("q") or "").strip()
         filtro = request.args.get("filtro", "all")
+        avancado = {}
 
     if not query:
         return jsonify({"resultados": [], "tempo": 0})
@@ -1342,18 +1344,39 @@ def api_search():
     q = _analisar_query(query)
     query_emb = _SBERT.encode(q["expandida"], convert_to_numpy=True).tolist()
 
-    # Filtro por tipo no SQL (mais rápido que filtrar em Python depois)
-    sql_filtro_tipo = ""
-    params_filtro = ()
+    # Filtros SQL (tipo + filtros avançados de data e pasta)
+    sql_filtros = []
+    params_filtro = []
+
     if filtro == "imagem":
-        sql_filtro_tipo = " AND tipo = ANY(%s)"
-        params_filtro = (list(_EXT_IMG),)
+        sql_filtros.append("tipo = ANY(%s)")
+        params_filtro.append(list(_EXT_IMG))
     elif filtro == "midia":
-        sql_filtro_tipo = " AND tipo = ANY(%s)"
-        params_filtro = (list(_EXT_VID | _EXT_AUD),)
+        sql_filtros.append("tipo = ANY(%s)")
+        params_filtro.append(list(_EXT_VID | _EXT_AUD))
     elif filtro == "documento":
-        sql_filtro_tipo = " AND tipo != ALL(%s)"
-        params_filtro = (list(_EXT_IMG | _EXT_VID | _EXT_AUD),)
+        sql_filtros.append("tipo != ALL(%s)")
+        params_filtro.append(list(_EXT_IMG | _EXT_VID | _EXT_AUD))
+
+    # Filtro avançado: data (data_de / data_ate em formato YYYY-MM-DD)
+    if avancado.get("data_de"):
+        sql_filtros.append("data_adicionado >= %s")
+        params_filtro.append(avancado["data_de"])
+    if avancado.get("data_ate"):
+        # +1 dia pra incluir o dia inteiro
+        sql_filtros.append("data_adicionado < (%s::date + interval '1 day')")
+        params_filtro.append(avancado["data_ate"])
+
+    # Filtro avançado: pasta específica (caminho começa com o path da pasta).
+    # Usa left()=prefixo em vez de LIKE porque o '\' do Windows é caractere
+    # de escape no LIKE do Postgres e quebraria o match.
+    if avancado.get("pasta"):
+        prefixo_pasta = avancado["pasta"].rstrip("\\/")
+        sql_filtros.append("left(caminho, %s) = %s")
+        params_filtro.append(len(prefixo_pasta))
+        params_filtro.append(prefixo_pasta)
+
+    sql_where_extra = (" AND " + " AND ".join(sql_filtros)) if sql_filtros else ""
 
     # Top 100 por SBERT via pgvector (HNSW index — O(log n))
     conn = get_db()
@@ -1364,7 +1387,7 @@ def api_search():
                1 - (embedding <=> %s::vector) AS sbert_score
         FROM files
         WHERE user_id = %s AND processado = 1 AND embedding IS NOT NULL
-        {sql_filtro_tipo}
+        {sql_where_extra}
         ORDER BY embedding <=> %s::vector
         LIMIT 100
         """,
@@ -1454,6 +1477,23 @@ def api_search():
     if results:
         results = _rerank_com_llm(query, results, topk=20)
         results = [r for r in results if r["score"] >= 0.20]
+
+    # Filtro avançado de tamanho (lido do disco — não está no banco).
+    # tam_min / tam_max em MB. Aplicado no fim pra não pesar a query.
+    tam_min = avancado.get("tam_min")
+    tam_max = avancado.get("tam_max")
+    if tam_min is not None or tam_max is not None:
+        def _dentro_do_tamanho(r):
+            try:
+                mb = os.path.getsize(r["caminho"]) / (1024 * 1024)
+            except OSError:
+                return False  # arquivo sumiu do disco
+            if tam_min is not None and mb < float(tam_min):
+                return False
+            if tam_max is not None and mb > float(tam_max):
+                return False
+            return True
+        results = [r for r in results if _dentro_do_tamanho(r)]
 
     tempo = round(time.time() - t0, 3)
     return jsonify({"resultados": results[:60], "tempo": tempo})

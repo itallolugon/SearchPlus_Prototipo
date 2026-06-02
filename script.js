@@ -1221,6 +1221,70 @@ function voltarParaHomeSmooth() {
     }, 400);
 }
 
+// ==========================================
+// FILTROS AVANÇADOS
+// ==========================================
+function toggleFiltrosAvancados() {
+    const painel = document.getElementById('filtrosAvancados');
+    const aberto = painel.style.display !== 'none';
+    if (!aberto) preencherPastasFiltro();
+    painel.style.display = aberto ? 'none' : 'grid';
+    document.getElementById('btnFiltrosAvancados').classList.toggle('active', !aberto);
+}
+
+function preencherPastasFiltro() {
+    const sel = document.getElementById('filtroPasta');
+    const atual = sel.value;
+    sel.innerHTML = '<option value="">Todas as pastas</option>';
+    (currentConfig.pastas || []).forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p;
+        // Mostra só o nome final da pasta pra não ficar gigante
+        opt.textContent = p.split(/[\\/]/).filter(Boolean).pop() || p;
+        sel.appendChild(opt);
+    });
+    sel.value = atual;
+}
+
+// Coleta os filtros preenchidos num objeto (só inclui o que tem valor)
+function coletarFiltrosAvancados() {
+    const av = {};
+    const dataDe  = document.getElementById('filtroDataDe')?.value;
+    const dataAte = document.getElementById('filtroDataAte')?.value;
+    const tamMin  = document.getElementById('filtroTamMin')?.value;
+    const tamMax  = document.getElementById('filtroTamMax')?.value;
+    const pasta   = document.getElementById('filtroPasta')?.value;
+    if (dataDe)  av.data_de = dataDe;
+    if (dataAte) av.data_ate = dataAte;
+    if (tamMin)  av.tam_min = parseFloat(tamMin);
+    if (tamMax)  av.tam_max = parseFloat(tamMax);
+    if (pasta)   av.pasta = pasta;
+    return av;
+}
+
+function temFiltrosAtivos() {
+    return Object.keys(coletarFiltrosAvancados()).length > 0;
+}
+
+function aplicarFiltrosAvancados() {
+    const n = Object.keys(coletarFiltrosAvancados()).length;
+    document.getElementById('btnFiltrosAvancados').classList.toggle('tem-filtro', n > 0);
+    if (document.getElementById('searchInput').value.trim()) {
+        realizarBusca();
+    } else {
+        toastInfo("Digite algo para buscar com os filtros.");
+    }
+}
+
+function limparFiltrosAvancados() {
+    ['filtroDataDe','filtroDataAte','filtroTamMin','filtroTamMax'].forEach(id => {
+        const el = document.getElementById(id); if (el) el.value = '';
+    });
+    const sel = document.getElementById('filtroPasta'); if (sel) sel.value = '';
+    document.getElementById('btnFiltrosAvancados').classList.remove('tem-filtro');
+    toastInfo("Filtros limpos.");
+}
+
 async function realizarBusca() {
     const query = document.getElementById('searchInput').value;
     if (!query.trim()) return;
@@ -1254,7 +1318,8 @@ async function realizarBusca() {
     const startTime = Date.now();
 
     try {
-        const res = await fetch(`${API_BASE_URL}/api/search`, { method: 'POST', headers: fetchOptions.headers, body: JSON.stringify({ query: query, filtro: filtroAtual }) });
+        const corpo = { query: query, filtro: filtroAtual, avancado: coletarFiltrosAvancados() };
+        const res = await fetch(`${API_BASE_URL}/api/search`, { method: 'POST', headers: fetchOptions.headers, body: JSON.stringify(corpo) });
         const dados = await res.json();
         window.resultadosAtuais = Array.isArray(dados) ? dados : (dados.resultados || []);
         salvarBuscaNoHistorico(query.trim());
