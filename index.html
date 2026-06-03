@@ -50,6 +50,25 @@
         <img id="realBgImage" src="" style="width: 100%; height: 100%; object-fit: cover; display: none;">
     </div>
 
+    <!-- Navegação lateral (aberta pelo menu hamburguer) -->
+    <div id="menuOverlay" class="menu-overlay" onclick="fecharMenuLateral()"></div>
+    <nav id="menuLateral" class="menu-lateral">
+        <div class="menu-lateral-header">
+            <span class="gradient-text" style="font-family:'Bebas Neue',sans-serif; font-size:1.8rem;">SEARCH+</span>
+            <span class="close-btn" onclick="fecharMenuLateral()" style="position:static; font-size:26px; cursor:pointer;">&times;</span>
+        </div>
+        <div class="menu-lateral-itens">
+            <button class="menu-item" onclick="fecharMenuLateral(); abrirColecoes()"><span class="menu-item-ic">📁</span> Coleções</button>
+            <button class="menu-item" onclick="fecharMenuLateral(); abrirFavoritos()"><span class="menu-item-ic">⭐</span> Favoritos</button>
+            <button class="menu-item" onclick="fecharMenuLateral(); abrirModalPastas()"><span class="menu-item-ic">🗂️</span> Gerenciar Pastas</button>
+            <div class="menu-lateral-divider"></div>
+            <button class="menu-item" onclick="fecharMenuLateral(); abrirViewPerfil()"><span class="menu-item-ic">👤</span> Meu Perfil</button>
+            <button class="menu-item" onclick="fecharMenuLateral(); abrirSidebarConfig()"><span class="menu-item-ic">🎨</span> Personalização</button>
+            <button class="menu-item" onclick="fecharMenuLateral(); abrirModalConfigGerais()"><span class="menu-item-ic">⚙️</span> Configurações</button>
+            <button class="menu-item" onclick="fecharMenuLateral(); abrirAjuda()"><span class="menu-item-ic">❓</span> Ajuda</button>
+        </div>
+    </nav>
+
     <div id="authOverlay" class="auth-overlay">
         <div class="auth-box figma-login-box">
             <h1 class="gradient-text login-logo">SEARCH<span style="color: var(--accent-primary);">+</span></h1>
@@ -221,12 +240,12 @@
     </div>
 
     <div class="top-bar">
+        <!-- Menu hamburguer (abre a navegação lateral) -->
+        <button id="btnMenu" class="hamburger-btn" onclick="abrirMenuLateral()" aria-label="Menu" title="Menu">
+            <span></span><span></span><span></span>
+        </button>
+
         <div class="nav-right">
-            <button class="action-btn btn-ajuda" onclick="abrirAjuda()" title="Ajuda (como usar)" aria-label="Ajuda">?</button>
-            <button class="action-btn" onclick="abrirColecoes()" style="border-color: rgba(168, 85, 247, 0.5); color: #E879F9;">Coleções</button>
-            <button class="action-btn" onclick="abrirFavoritos()" style="border-color: rgba(168, 85, 247, 0.5); color: #E879F9;">Favoritos</button>
-            <button class="action-btn gradient-btn" onclick="abrirModalPastas()">Gerenciar Pastas</button>
-            
             <div class="profile-container">
                 <div class="mini-profile" onclick="toggleProfileMenu(event)">
                     <img id="navAvatar" src="" alt="Avatar">
@@ -804,6 +823,6 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
-    <script src="script.js?v=2026_historico"></script>
+    <script src="script.js?v=2026_menu_colecoes"></script>
 </body>
 </html>

@@ -861,3 +861,111 @@ body {
     from { opacity: 0; transform: translateY(-6px); }
     to   { opacity: 1; transform: translateY(0); }
 }
+
+/* ============================================
+   MENU HAMBURGUER + NAVEGAÇÃO LATERAL
+   ============================================ */
+.hamburger-btn {
+    display: flex; flex-direction: column; justify-content: center; gap: 5px;
+    width: 46px; height: 46px;
+    background: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    cursor: pointer;
+    padding: 0 12px;
+    transition: border-color 0.2s, background 0.2s;
+}
+.hamburger-btn:hover { border-color: var(--accent-primary); background: rgba(168,85,247,0.1); }
+.hamburger-btn span {
+    display: block; height: 2.5px; width: 100%;
+    background: var(--text-primary); border-radius: 2px;
+    transition: 0.2s;
+}
+.menu-overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.5);
+    backdrop-filter: blur(2px);
+    z-index: 8000;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.25s ease;
+}
+.menu-overlay.aberto { opacity: 1; pointer-events: auto; }
+.menu-lateral {
+    position: fixed; top: 0; left: 0; height: 100%;
+    width: 290px; max-width: 80vw;
+    background: var(--surface);
+    border-right: 1px solid var(--border-light);
+    box-shadow: 8px 0 40px rgba(0,0,0,0.5);
+    z-index: 8001;
+    transform: translateX(-100%);
+    transition: transform 0.28s cubic-bezier(0.25,1,0.5,1);
+    display: flex; flex-direction: column;
+}
+.menu-lateral.aberto { transform: translateX(0); }
+.menu-lateral-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 22px 22px 18px;
+    border-bottom: 1px solid var(--border-light);
+}
+.menu-lateral-itens { display: flex; flex-direction: column; padding: 14px 12px; gap: 4px; }
+.menu-lateral-divider { height: 1px; background: var(--border-light); margin: 10px 8px; }
+.menu-item {
+    display: flex; align-items: center; gap: 14px;
+    width: 100%;
+    padding: 14px 16px;
+    background: transparent;
+    border: none;
+    border-radius: 12px;
+    color: var(--text-primary);
+    font-size: 1rem; font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.menu-item:hover { background: rgba(168,85,247,0.14); }
+.menu-item-ic { font-size: 1.25rem; width: 24px; text-align: center; }
+
+/* ============================================
+   COLEÇÕES - CARDS COM CAPA DE MOSAICO
+   ============================================ */
+.colecao-card {
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--border-light);
+    border-radius: 16px;
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform 0.2s, border-color 0.2s;
+}
+.colecao-card:hover { transform: translateY(-4px); border-color: var(--accent-primary); }
+.colecao-capa {
+    width: 100%; height: 150px;
+    display: grid; gap: 2px;
+    background: var(--bg-deep);
+}
+.colecao-capa img { width: 100%; height: 100%; object-fit: cover; }
+.colecao-capa.mosaico-1 { grid-template-columns: 1fr; }
+.colecao-capa.mosaico-2 { grid-template-columns: 1fr 1fr; }
+.colecao-capa.mosaico-3 { grid-template-columns: 1fr 1fr; }
+.colecao-capa.mosaico-3 img:first-child { grid-row: span 2; }
+.colecao-capa.mosaico-4 { grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr; }
+.colecao-capa-vazia {
+    display: flex; align-items: center; justify-content: center;
+    font-size: 3rem; color: var(--text-secondary);
+}
+.colecao-info { padding: 14px 16px; }
+.colecao-info .colecao-card-nome {
+    font-weight: 700; font-size: 1.05rem; color: var(--text-primary);
+    word-break: break-word; margin-bottom: 4px;
+}
+.colecao-info .colecao-card-meta { font-size: 0.82rem; color: var(--text-secondary); }
+.colecao-del-flutuante {
+    position: absolute; top: 10px; right: 10px;
+    width: 34px; height: 34px;
+    background: rgba(0,0,0,0.55);
+    border: none; border-radius: 50%;
+    cursor: pointer; font-size: 0.95rem;
+    opacity: 0; transition: opacity 0.2s, background 0.2s;
+}
+.colecao-card:hover .colecao-del-flutuante { opacity: 1; }
+.colecao-del-flutuante:hover { background: rgba(239,68,68,0.8); }

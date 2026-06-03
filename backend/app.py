@@ -1916,7 +1916,7 @@ def api_collections():
         return jsonify({"error": "Não autenticado."}), 401
 
     if request.method == "GET":
-        # Lista coleções do usuário com contagem de arquivos
+        # Lista coleções com contagem e até 4 imagens de capa (mosaico)
         conn = get_db()
         rows = conn.execute(
             """
@@ -1930,12 +1930,28 @@ def api_collections():
             """,
             (uid,)
         ).fetchall()
+
+        colecoes = []
+        for r in rows:
+            # Pega até 4 imagens da coleção pra montar a capa em mosaico
+            capas = conn.execute(
+                """
+                SELECT f.caminho
+                FROM collection_files cf
+                JOIN files f ON f.id = cf.file_id
+                WHERE cf.collection_id = %s AND f.tipo = ANY(%s)
+                ORDER BY cf.adicionado_em DESC
+                LIMIT 4
+                """,
+                (r["id"], list(_EXT_IMG))
+            ).fetchall()
+            colecoes.append({
+                "id": r["id"], "nome": r["nome"], "total": r["total"],
+                "criado_em": r["criado_em"].isoformat() if r["criado_em"] else "",
+                "capas": [c["caminho"] for c in capas],
+            })
         conn.close()
-        return jsonify({"colecoes": [
-            {"id": r["id"], "nome": r["nome"], "total": r["total"],
-             "criado_em": r["criado_em"].isoformat() if r["criado_em"] else ""}
-            for r in rows
-        ]})
+        return jsonify({"colecoes": colecoes})
 
     # POST — criar coleção
     data = request.get_json(force=True) or {}

@@ -2140,6 +2140,19 @@ async function cancelarAnalise() {
     }
 }
 setInterval(buscarStatus, 2000);
+
+// ==========================================
+// MENU LATERAL (navegação hamburguer)
+// ==========================================
+function abrirMenuLateral() {
+    document.getElementById('menuLateral').classList.add('aberto');
+    document.getElementById('menuOverlay').classList.add('aberto');
+}
+function fecharMenuLateral() {
+    document.getElementById('menuLateral').classList.remove('aberto');
+    document.getElementById('menuOverlay').classList.remove('aberto');
+}
+
 // ==========================================
 // MODAL DE AJUDA
 // ==========================================
@@ -2157,6 +2170,9 @@ function fecharAjuda() {
 document.addEventListener('keydown', (e) => {
     // Esc: fecha o modal/painel aberto mais relevante
     if (e.key === 'Escape') {
+        // Menu lateral aberto? fecha ele primeiro
+        const ml = document.getElementById('menuLateral');
+        if (ml && ml.classList.contains('aberto')) { fecharMenuLateral(); return; }
         const fechaveis = [
             ['ajudaModal', fecharAjuda],
             ['cropperModal', () => { if (typeof fecharCropper === 'function') fecharCropper(); }],
@@ -2220,25 +2236,43 @@ async function carregarColecoes() {
         cols.forEach(c => {
             const card = document.createElement('div');
             card.className = 'colecao-card';
+            card.onclick = () => verColecao(c.id, c.nome);
+
+            // Capa: mosaico das primeiras imagens (ou placeholder se vazia)
+            const capa = document.createElement('div');
+            capa.className = 'colecao-capa';
+            const caps = c.capas || [];
+            if (caps.length === 0) {
+                capa.classList.add('colecao-capa-vazia');
+                capa.textContent = '📁';
+            } else {
+                capa.classList.add(`mosaico-${Math.min(caps.length, 4)}`);
+                caps.slice(0, 4).forEach(caminho => {
+                    const img = document.createElement('img');
+                    img.src = formatImagePath(caminho);
+                    img.loading = 'lazy';
+                    capa.appendChild(img);
+                });
+            }
+
+            const info = document.createElement('div');
+            info.className = 'colecao-info';
             const titulo = document.createElement('div');
             titulo.className = 'colecao-card-nome';
             titulo.textContent = c.nome;
             const meta = document.createElement('div');
             meta.className = 'colecao-card-meta';
-            meta.textContent = c.total + (c.total === 1 ? ' arquivo' : ' arquivos');
-            const acoes = document.createElement('div');
-            acoes.className = 'colecao-card-acoes';
-            const verBtn = document.createElement('button');
-            verBtn.className = 'action-btn';
-            verBtn.textContent = 'Ver';
-            verBtn.onclick = () => verColecao(c.id, c.nome);
+            meta.textContent = c.total + (c.total === 1 ? ' item' : ' itens');
+
+            // Botão excluir flutuante no canto
             const delBtn = document.createElement('button');
-            delBtn.className = 'action-btn colecao-del';
+            delBtn.className = 'colecao-del-flutuante';
             delBtn.textContent = '🗑';
             delBtn.title = 'Excluir coleção';
-            delBtn.onclick = () => excluirColecao(c.id, c.nome);
-            acoes.append(verBtn, delBtn);
-            card.append(titulo, meta, acoes);
+            delBtn.onclick = (e) => { e.stopPropagation(); excluirColecao(c.id, c.nome); };
+
+            info.append(titulo, meta);
+            card.append(capa, info, delBtn);
             lista.appendChild(card);
         });
     } catch (e) {
