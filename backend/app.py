@@ -304,12 +304,35 @@ def _rerank_com_llm(query: str, candidatos: list[dict], topk: int = 20) -> list[
         llm_score = max(0.0, min(1.0, float(nota) / 10.0))
         base = c["score"]
 
+        # Há match literal da query na descrição? (sinal forte de relevância)
+        desc_norm = _normalizar(c.get("descricao_ia") or "")
+        tem_match_literal = any(w in desc_norm for w in q_palavras_literais)
+
+        # Salvaguarda 1: hit forte do motor + LLM rejeita → ignora o LLM
+        # (protege bons resultados de um LLM injustamente severo)
         if base >= 0.60 and llm_score <= 0.20:
             print(f"[Rerank] LLM rejeitou '{c['nome']}' (base={base:.2f}) — ignorando nota LLM")
             continue
 
-        desc_norm = _normalizar(c.get("descricao_ia") or "")
-        if any(w in desc_norm for w in q_palavras_literais):
+        # SBERT puro do item (similaridade semântica direta, antes do blend)
+        sbert_puro = c.get("_sbert", base)
+
+        # Hit semântico forte: o SBERT por si só já considera relevante
+        # (≥ 0.38). Mesmo sem match literal, é um resultado legítimo
+        # (ex: 'mulher' numa festa cuja descrição da IA falhou em citar pessoas).
+        hit_semantico_forte = sbert_puro >= 0.38
+
+        # Salvaguarda 2: o motor achou FRACO (base < 0.25), sem match literal
+        # E sem hit semântico forte → o LLM NÃO pode promover sozinho. Evita
+        # alucinação tipo 'kevin' recebendo nota 10 numa foto de festa qualquer.
+        if base < 0.25 and not tem_match_literal and not hit_semantico_forte:
+            print(f"[Rerank] Base fraco ({base:.2f}) sem sinal — LLM nao promove '{c['nome']}'")
+            c["score"] = round(base, 4)   # mantém baixo; corte final descarta
+            continue
+
+        # Match literal OU hit semântico forte garantem um piso de relevância,
+        # pra o LLM não derrubar um resultado legítimo abaixo do corte.
+        if tem_match_literal or hit_semantico_forte:
             llm_score = max(llm_score, 0.5)
 
         c["score_original"] = base
@@ -1477,7 +1500,7 @@ def api_search():
             score = _ajustar_score(float(blended), q, desc_norm, nome_norm)
             if score is None:
                 continue
-            out.append((f, desc, score))
+            out.append((f, desc, score, float(s_sbert)))
         return out
 
     candidatos = _filtrar_e_pontuar(0.35)
@@ -1485,7 +1508,7 @@ def api_search():
         candidatos = _filtrar_e_pontuar(0.30)
 
     results = []
-    for f, desc, score in candidatos:
+    for f, desc, score, s_sbert in candidatos:
         results.append({
             "id": f["id"], "nome": f["nome"], "caminho": f["caminho"],
             "tipo": f["tipo"], "descricao_ia": desc, "conteudo": desc,
@@ -1493,13 +1516,19 @@ def api_search():
             "data": f["data_adicionado"].isoformat() if f["data_adicionado"] else "",
             "favorito": bool(f["favorito"]),
             "score": round(score, 4),
+            "_sbert": round(s_sbert, 4),   # usado pelo rerank pra proteger hits semânticos fortes
         })
 
     results.sort(key=lambda x: x["score"], reverse=True)
 
     if results:
         results = _rerank_com_llm(query, results, topk=20)
-        results = [r for r in results if r["score"] >= 0.20]
+        # Corte final: > 0.25 descarta o "ruído de fundo" (itens fracos que o
+        # LLM não pôde promover). Busca sem match real volta vazia.
+        results = [r for r in results if r["score"] > 0.25]
+        # Remove o campo interno _sbert (não precisa ir pro frontend)
+        for r in results:
+            r.pop("_sbert", None)
 
     # Filtro avançado de tamanho (lido do disco — não está no banco).
     # tam_min / tam_max em MB. Aplicado no fim pra não pesar a query.
