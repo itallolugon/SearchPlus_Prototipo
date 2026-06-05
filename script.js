@@ -1211,15 +1211,23 @@ async function salvarBuscaNoHistorico(query) {
 // RE-ANÁLISE SELETIVA (do amigo)
 // ==========================================
 async function reAnalizarArquivos() {
+    // O botão só existe na tela de pastas; quando chamado pelo menu lateral,
+    // usamos toast pra dar feedback.
     const btn = document.getElementById('btnReanalizar');
-    btn.innerText = '⏳ Enfileirando...'; btn.disabled = true;
+    if (btn) { btn.innerText = '⏳ Enfileirando...'; btn.disabled = true; }
+    else { toastInfo('Reanalisando arquivos com descrição ruim...'); }
     try {
         const res = await fetch(`${API_BASE_URL}/api/reanalyze`, { method: 'POST' });
         const data = await res.json();
-        btn.innerText = `✅ ${data.reenfileirados} arquivo(s) na fila!`;
-        setTimeout(() => { btn.innerText = 'Re-analisar Arquivos com Descrição Ruim'; btn.disabled = false; }, 3000);
+        if (btn) {
+            btn.innerText = `✅ ${data.reenfileirados} arquivo(s) na fila!`;
+            setTimeout(() => { btn.innerText = 'Re-analisar Arquivos com Descrição Ruim'; btn.disabled = false; }, 3000);
+        } else {
+            toastOk(`${data.reenfileirados} arquivo(s) na fila de reanálise.`);
+        }
     } catch(e) {
-        btn.innerText = 'Re-analisar Arquivos com Descrição Ruim'; btn.disabled = false;
+        if (btn) { btn.innerText = 'Re-analisar Arquivos com Descrição Ruim'; btn.disabled = false; }
+        else { toastErro('Não foi possível reanalisar.'); }
     }
 }
 
@@ -2310,7 +2318,10 @@ async function excluirColecao(id, nome) {
     } catch (e) { console.error(e); toastErro("Não foi possível excluir."); }
 }
 
+let _colecaoAtual = { id: null, nome: '' };
+
 async function verColecao(id, nome) {
+    _colecaoAtual = { id, nome };
     document.getElementById('colecoesTitulo').innerText = nome;
     document.getElementById('colecoesLista').style.display = 'none';
     document.getElementById('colecoesCriar').style.display = 'none';
@@ -2331,6 +2342,7 @@ async function verColecao(id, nome) {
         itens.forEach((r, idx) => {
             const card = document.createElement('div');
             card.className = 'recent-card';
+            card.style.position = 'relative';
             card.onclick = () => { fecharColecoes(); abrirPainelLateral(idx); };
             const ext = (r.tipo || '').toLowerCase();
             if (extensoesImagem.includes(ext)) {
@@ -2343,12 +2355,38 @@ async function verColecao(id, nome) {
             nm.style.cssText = 'font-size:0.8rem; margin-top:6px; color:var(--text-primary); word-break:break-all;';
             nm.textContent = r.nome;
             card.appendChild(nm);
+
+            // Botão de remover este item da coleção (flutuante no canto)
+            const rem = document.createElement('button');
+            rem.className = 'colecao-item-remover';
+            rem.textContent = '×';
+            rem.title = 'Remover desta coleção';
+            rem.onclick = (e) => { e.stopPropagation(); removerDaColecao(r.id, r.nome); };
+            card.appendChild(rem);
+
             grid.appendChild(card);
         });
     } catch (e) {
         console.error(e);
         grid.innerHTML = '<p style="color:#f87171;">Erro ao carregar.</p>';
     }
+}
+
+// Remove um arquivo da coleção aberta (usa o endpoint DELETE que já existe)
+async function removerDaColecao(fileId, nomeArquivo) {
+    if (!_colecaoAtual.id) return;
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/collections/${_colecaoAtual.id}/files`, {
+            method: 'DELETE', headers: fetchOptions.headers,
+            body: JSON.stringify({ file_id: fileId })
+        });
+        if (res.ok) {
+            toastInfo(`"${nomeArquivo}" removido da coleção.`);
+            verColecao(_colecaoAtual.id, _colecaoAtual.nome);  // recarrega a coleção
+        } else {
+            toastErro("Não foi possível remover.");
+        }
+    } catch (e) { console.error(e); toastErro("Erro de conexão."); }
 }
 
 // Adicionar o arquivo aberto no painel lateral a uma coleção

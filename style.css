@@ -308,7 +308,7 @@ body {
 .status-bar { position: fixed; bottom: 0; left: 0; width: 100%; background-color: var(--surface); border-top: 1px solid var(--border-light); color: var(--telemetry); padding: 10px 20px; font-size: 0.85rem; font-weight: 600; z-index: 900; display: flex; justify-content: center; }
 
 /* TOP BAR & SEARCH */
-.top-bar { display: flex; justify-content: space-between; align-items: center; padding: 15px 40px; background: transparent; position: absolute; top: 0; right: 0; width: 100%; z-index: 1000; pointer-events: none;}
+.top-bar { display: flex; justify-content: flex-end; align-items: center; padding: 15px 40px; background: transparent; position: absolute; top: 0; right: 0; width: 100%; z-index: 1000; pointer-events: none;}
 .top-bar .nav-right { pointer-events: auto; }
 .top-bar .hamburger-btn { pointer-events: auto; }
 
@@ -970,3 +970,29 @@ body {
 }
 .colecao-card:hover .colecao-del-flutuante { opacity: 1; }
 .colecao-del-flutuante:hover { background: rgba(239,68,68,0.8); }
+
+/* Seção/título dentro do menu lateral */
+.menu-lateral-secao {
+    display: block;
+    padding: 6px 16px 4px;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    color: var(--text-secondary);
+    opacity: 0.7;
+}
+
+/* Botão de remover item de uma coleção (no card) */
+.colecao-item-remover {
+    position: absolute;
+    top: 6px; right: 6px;
+    width: 28px; height: 28px;
+    background: rgba(0,0,0,0.6);
+    border: none; border-radius: 50%;
+    color: #fff; font-size: 1.1rem; line-height: 1;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s, background 0.2s;
+}
+.recent-card:hover .colecao-item-remover { opacity: 1; }
+.colecao-item-remover:hover { background: rgba(239,68,68,0.85); }

@@ -6,7 +6,7 @@
     <title>Search+</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=Inter:wght@400;600;700&family=Poppins:wght@400;600;700&family=Montserrat:wght@400;600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=2026_menu_fix">
+    <link rel="stylesheet" href="style.css?v=2026_menu_v2">
 </head>
 <body>
     <div id="viewPerfilModal" class="modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(7, 10, 19, 0.95); backdrop-filter:blur(12px); align-items:center; justify-content:center;">
@@ -58,13 +58,15 @@
             <span class="close-btn" onclick="fecharMenuLateral()" style="position:static; font-size:26px; cursor:pointer;">&times;</span>
         </div>
         <div class="menu-lateral-itens">
+            <span class="menu-lateral-secao">Navegação</span>
+            <button class="menu-item" onclick="fecharMenuLateral(); voltarParaHomeSmooth()"><span class="menu-item-ic">🏠</span> Início</button>
             <button class="menu-item" onclick="fecharMenuLateral(); abrirColecoes()"><span class="menu-item-ic">📁</span> Coleções</button>
             <button class="menu-item" onclick="fecharMenuLateral(); abrirFavoritos()"><span class="menu-item-ic">⭐</span> Favoritos</button>
-            <button class="menu-item" onclick="fecharMenuLateral(); abrirModalPastas()"><span class="menu-item-ic">🗂️</span> Gerenciar Pastas</button>
             <div class="menu-lateral-divider"></div>
-            <button class="menu-item" onclick="fecharMenuLateral(); abrirViewPerfil()"><span class="menu-item-ic">👤</span> Meu Perfil</button>
-            <button class="menu-item" onclick="fecharMenuLateral(); abrirSidebarConfig()"><span class="menu-item-ic">🎨</span> Personalização</button>
-            <button class="menu-item" onclick="fecharMenuLateral(); abrirModalConfigGerais()"><span class="menu-item-ic">⚙️</span> Configurações</button>
+            <span class="menu-lateral-secao">Biblioteca</span>
+            <button class="menu-item" onclick="fecharMenuLateral(); abrirModalPastas()"><span class="menu-item-ic">🗂️</span> Gerenciar Pastas</button>
+            <button class="menu-item" onclick="fecharMenuLateral(); reAnalizarArquivos()"><span class="menu-item-ic">🔄</span> Re-analisar arquivos</button>
+            <div class="menu-lateral-divider"></div>
             <button class="menu-item" onclick="fecharMenuLateral(); abrirAjuda()"><span class="menu-item-ic">❓</span> Ajuda</button>
         </div>
     </nav>
@@ -240,12 +242,12 @@
     </div>
 
     <div class="top-bar">
-        <!-- Menu hamburguer (abre a navegação lateral) -->
-        <button id="btnMenu" class="hamburger-btn" onclick="abrirMenuLateral()" aria-label="Menu" title="Menu">
-            <span></span><span></span><span></span>
-        </button>
-
         <div class="nav-right">
+            <!-- Menu hamburguer (abre a navegação lateral), ao lado do perfil -->
+            <button id="btnMenu" class="hamburger-btn" onclick="abrirMenuLateral()" aria-label="Menu" title="Menu">
+                <span></span><span></span><span></span>
+            </button>
+
             <div class="profile-container">
                 <div class="mini-profile" onclick="toggleProfileMenu(event)">
                     <img id="navAvatar" src="" alt="Avatar">
@@ -823,6 +825,6 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
-    <script src="script.js?v=2026_menu_colecoes"></script>
+    <script src="script.js?v=2026_menu_v2"></script>
 </body>
 </html>
