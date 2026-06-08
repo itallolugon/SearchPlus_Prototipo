@@ -2019,6 +2019,14 @@ function toggleChipFoco(el, ctx) {
     } else if (ctx === 'ob' && _obLastFolder) {
         atualizarEstimativa(ctx, _obLastFolder);
     }
+
+    // Feedback: foco ativado/desativado
+    const nomeFoco = el.textContent.trim();
+    if (foco === 'tudo') {
+        toastInfo(`Foco: ${nomeFoco}`);
+    } else {
+        toastInfo(`Foco "${nomeFoco}" ${el.classList.contains('active') ? 'ativado' : 'desativado'}`);
+    }
 }
 
 function togglePerfil(ctx) {
@@ -2046,6 +2054,10 @@ function togglePerfil(ctx) {
     } else if (ctx === 'ob' && _obLastFolder) {
         atualizarEstimativa(ctx, _obLastFolder);
     }
+
+    // Feedback: perfil de análise selecionado
+    const perfilAtivo = document.getElementById(ctx + 'TogglePerfil').classList.contains('active');
+    toastInfo(`Modo de análise: ${perfilAtivo ? 'Profundo' : 'Relâmpago'}`);
 }
 
 function onJanelaChange(ctx) {
@@ -2230,6 +2242,11 @@ async function cancelarAnalise() {
     }
 }
 setInterval(buscarStatus, 2000);
+
+// Helper de feedback pra toggles (checkboxes/switches): "X ativado/desativado"
+function avisarToggle(nome, ativado) {
+    toastInfo(`${nome} ${ativado ? 'ativado' : 'desativado'}`);
+}
 
 // ==========================================
 // MENU LATERAL (navegação hamburguer)

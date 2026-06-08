@@ -440,7 +440,7 @@
             <div id="cgTabGeral" style="display: block;">
                 <div class="settings-group" style="margin-bottom: 15px;">
                     <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                        <input type="checkbox" id="cgNotificacoes">
+                        <input type="checkbox" id="cgNotificacoes" onchange="avisarToggle('Notificações', this.checked)">
                         <span>Ativar Notificações</span>
                     </label>
                     <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 5px 0 0 25px;">Receber alertas quando a IA terminar de analisar arquivos.</p>
@@ -455,7 +455,7 @@
             <div id="cgTabPrivacidade" style="display: none;">
                 <div class="settings-group" style="margin-bottom: 15px;">
                     <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                        <input type="checkbox" id="cgModoPrivado">
+                        <input type="checkbox" id="cgModoPrivado" onchange="avisarToggle('Modo Privado', this.checked)">
                         <span>Modo Privado</span>
                     </label>
                     <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 5px 0 0 25px;">Não salva o histórico de termos buscados.</p>
@@ -831,6 +831,6 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
-    <script src="script.js?v=2026_configs"></script>
+    <script src="script.js?v=2026_toggles"></script>
 </body>
 </html>
