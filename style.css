@@ -996,3 +996,12 @@ body {
 }
 .recent-card:hover .colecao-item-remover { opacity: 1; }
 .colecao-item-remover:hover { background: rgba(239,68,68,0.85); }
+
+/* Caixa de presets de tema (exportar/importar) na sidebar de config */
+.preset-tema-box {
+    margin-top: 20px;
+    padding: 16px;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+}

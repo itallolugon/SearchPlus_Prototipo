@@ -6,7 +6,7 @@
     <title>Search+</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=Inter:wght@400;600;700&family=Poppins:wght@400;600;700&family=Montserrat:wght@400;600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=2026_menu_v2">
+    <link rel="stylesheet" href="style.css?v=2026_tema">
 </head>
 <body>
     <div id="viewPerfilModal" class="modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(7, 10, 19, 0.95); backdrop-filter:blur(12px); align-items:center; justify-content:center;">
@@ -672,6 +672,19 @@
                 <button onclick="salvarConfiguracoesUX()" class="action-btn gradient-btn" style="margin: 0; padding: 15px;">Salvar Aparência</button>
                 <button onclick="restaurarPadroesUX()" class="action-btn" style="margin: 0; padding: 12px; background: transparent;">Restaurar Padrões</button>
             </div>
+
+            <!-- Presets de tema: exportar / importar -->
+            <div class="preset-tema-box">
+                <h4 style="margin:0 0 4px 0; color:var(--text-primary);">🎨 Temas (presets)</h4>
+                <p style="margin:0 0 12px 0; color:var(--text-secondary); font-size:0.8rem;">
+                    Salve seu visual num arquivo e compartilhe, ou importe o tema de outra pessoa.
+                </p>
+                <div style="display:flex; gap:10px;">
+                    <button onclick="exportarTema()" class="action-btn" style="flex:1; margin:0; padding:11px; background:transparent;">⬇ Exportar tema</button>
+                    <button onclick="document.getElementById('importarTemaInput').click()" class="action-btn" style="flex:1; margin:0; padding:11px; background:transparent;">⬆ Importar tema</button>
+                </div>
+                <input type="file" id="importarTemaInput" accept=".json,application/json" style="display:none;" onchange="importarTema(event)">
+            </div>
         </div>
     </div>
     <div id="sidebarOverlay" class="sidebar-overlay" onclick="fecharSidebarConfig()"></div>
@@ -825,6 +838,6 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
-    <script src="script.js?v=2026_menu_v2"></script>
+    <script src="script.js?v=2026_tema"></script>
 </body>
 </html>

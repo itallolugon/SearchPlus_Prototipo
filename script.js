@@ -749,6 +749,73 @@ async function salvarConfiguracoesUX() {
 }
 
 // ==========================================
+// PRESETS DE TEMA (exportar / importar)
+// ==========================================
+// Campos puramente VISUAIS — não inclui dados de conta (nome, avatar,
+// banner, handle, histórico). Assim o tema é compartilhável sem vazar perfil.
+const _CAMPOS_TEMA = [
+    'tema', 'cor_primaria', 'cor_secundaria', 'cor_texto_botao',
+    'bg_url', 'bg_blur', 'botao_fonte', 'botao_estilo',
+    'btn_search_estilo', 'btn_search_cor', 'btn_search_texto',
+    'btn_topbar_estilo', 'btn_topbar_cor', 'btn_topbar_texto',
+    'btn_actions_estilo', 'btn_actions_cor', 'btn_actions_texto',
+    'btn_filters_estilo', 'btn_filters_cor', 'btn_filters_texto',
+];
+
+function exportarTema() {
+    const tema = { _searchplus_tema: 1, exportado_em: new Date().toISOString() };
+    _CAMPOS_TEMA.forEach(k => {
+        if (currentConfig[k] !== undefined) tema[k] = currentConfig[k];
+    });
+
+    const blob = new Blob([JSON.stringify(tema, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const nome = (currentConfig.perfil_handle || 'searchplus').replace(/[^a-z0-9_-]/gi, '');
+    a.href = url;
+    a.download = `tema-${nome}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toastOk('Tema exportado! Compartilhe o arquivo .json.');
+}
+
+async function importarTema(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    try {
+        const texto = await file.text();
+        const tema = JSON.parse(texto);
+        if (!tema._searchplus_tema) {
+            toastErro('Esse arquivo não é um tema válido do Search+.');
+            return;
+        }
+        // Aplica só os campos de tema reconhecidos sobre a config atual
+        _CAMPOS_TEMA.forEach(k => {
+            if (tema[k] !== undefined) {
+                currentConfig[k] = tema[k];
+                tempConfig[k] = tema[k];
+            }
+        });
+
+        // Aplica visualmente e persiste
+        aplicarTemaNoDOM(currentConfig);
+        if (typeof aplicarEstilosBotaoIndividualNoDOM === 'function') {
+            aplicarEstilosBotaoIndividualNoDOM(currentConfig);
+        }
+        await fetch(`${API_BASE_URL}/api/config`, {
+            method: 'POST', headers: fetchOptions.headers,
+            body: JSON.stringify(currentConfig)
+        });
+        toastOk('Tema importado e aplicado!');
+    } catch (e) {
+        console.error(e);
+        toastErro('Não foi possível ler o arquivo de tema.');
+    } finally {
+        event.target.value = '';  // permite reimportar o mesmo arquivo
+    }
+}
+
+// ==========================================
 // PER-BUTTON CUSTOMIZATION FUNCTIONS
 // ==========================================
 function selecionarTabBotao(tab, el) {
