@@ -2486,15 +2486,35 @@ def _scan_folder(folder_path: str, uid: int) -> None:
         "SELECT id FROM folders WHERE user_id = %s AND path = %s", (uid, folder_path)
     ).fetchone()
     folder_id = row["id"] if row else None
+    # Blacklist de pastas (config do usuário): caminhos a ignorar no scan
+    cfg_row = conn.execute(
+        "SELECT config_json FROM users WHERE id = %s", (uid,)
+    ).fetchone()
     conn.close()
 
+    cfg = _safe_json_loads(cfg_row["config_json"] if cfg_row else None, {}) or {}
+    blacklist = [
+        os.path.normpath(p.strip()).lower()
+        for p in (cfg.get("pastas_ignoradas") or "").split(",")
+        if p.strip()
+    ]
+
+    def _esta_na_blacklist(caminho: str) -> bool:
+        cam = os.path.normpath(caminho).lower()
+        return any(cam.startswith(b) for b in blacklist)
+
     for root, _, filenames in os.walk(folder_path):
+        # Pula diretórios inteiros que estão na blacklist
+        if _esta_na_blacklist(root):
+            continue
         for fname in filenames:
             ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
             if ext not in _EXT_ALL:
                 continue
 
             fpath = os.path.join(root, fname)
+            if _esta_na_blacklist(fpath):
+                continue
 
             conn = get_db()
             existing = conn.execute(

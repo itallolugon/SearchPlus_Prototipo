@@ -6,7 +6,7 @@
     <title>Search+</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=Inter:wght@400;600;700&family=Poppins:wght@400;600;700&family=Montserrat:wght@400;600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=2026_menu_dir">
+    <link rel="stylesheet" href="style.css?v=2026_configs">
 </head>
 <body>
     <div id="viewPerfilModal" class="modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(7, 10, 19, 0.95); backdrop-filter:blur(12px); align-items:center; justify-content:center;">
@@ -446,16 +446,9 @@
                     <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 5px 0 0 25px;">Receber alertas quando a IA terminar de analisar arquivos.</p>
                 </div>
                 <div class="settings-group" style="margin-bottom: 15px;">
-                    <label>Atalho de Busca Global:</label>
+                    <label>Atalho para focar a busca:</label>
                     <input type="text" id="cgAtalho" class="settings-input" placeholder="Ex: Ctrl+Shift+F" onkeydown="capturarAtalho(event)">
-                    <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 5px;">Pressione as teclas no campo acima para definir o atalho.</p>
-                </div>
-                <div class="settings-group" style="margin-bottom: 15px;">
-                    <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
-                        <input type="checkbox" id="cgIniciarSistema">
-                        <span>Iniciar com o Sistema (Windows)</span>
-                    </label>
-                    <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 5px 0 0 25px;">Permite que o Search+ ligue automaticamente no boot.</p>
+                    <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 5px;">Pressione as teclas no campo acima. Funciona enquanto o app está aberto no navegador.</p>
                 </div>
             </div>
 
@@ -838,6 +831,6 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
-    <script src="script.js?v=2026_tema"></script>
+    <script src="script.js?v=2026_configs"></script>
 </body>
 </html>

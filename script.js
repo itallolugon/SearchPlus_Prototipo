@@ -541,7 +541,6 @@ async function carregarConfiguracoesUX() {
         const safeSetCheck = (id, val) => { const el = document.getElementById(id); if (el) el.checked = !!val; };
         safeSetCheck('cgNotificacoes', currentConfig.notificacoes !== false);
         safeSetVal('cgAtalho', currentConfig.atalho_busca || "Ctrl+Shift+F");
-        safeSetCheck('cgIniciarSistema', currentConfig.iniciar_sistema);
         safeSetCheck('cgModoPrivado', currentConfig.modo_privado);
         safeSetVal('cgPastasIgnoradas', currentConfig.pastas_ignoradas || "");
         safeSetVal('cgModoDesempenho', currentConfig.modo_desempenho || "economico");
@@ -1091,35 +1090,50 @@ function capturarAtalho(e) {
 }
 
 async function salvarConfigGerais() {
-    currentConfig.notificacoes = document.getElementById('cgNotificacoes').checked;
-    currentConfig.atalho_busca = document.getElementById('cgAtalho').value.trim();
-    currentConfig.iniciar_sistema = document.getElementById('cgIniciarSistema').checked;
-    currentConfig.modo_privado = document.getElementById('cgModoPrivado').checked;
-    currentConfig.pastas_ignoradas = document.getElementById('cgPastasIgnoradas').value.trim();
-    currentConfig.modo_desempenho = document.getElementById('cgModoDesempenho').value;
+    // Lê cada campo com guard (alguns podem não existir dependendo da aba)
+    const getCheck = (id) => { const el = document.getElementById(id); return el ? el.checked : undefined; };
+    const getVal   = (id) => { const el = document.getElementById(id); return el ? el.value : undefined; };
 
-    await fetch(`${API_BASE_URL}/api/config`, { 
-        method: 'POST', 
-        headers: fetchOptions.headers, 
-        body: JSON.stringify(currentConfig) 
-    });
+    const notif = getCheck('cgNotificacoes');   if (notif !== undefined) currentConfig.notificacoes = notif;
+    const atalho = getVal('cgAtalho');           if (atalho !== undefined) currentConfig.atalho_busca = atalho.trim();
+    const priv = getCheck('cgModoPrivado');      if (priv !== undefined) currentConfig.modo_privado = priv;
+    const ign = getVal('cgPastasIgnoradas');     if (ign !== undefined) currentConfig.pastas_ignoradas = ign.trim();
+    const desemp = getVal('cgModoDesempenho');   if (desemp !== undefined) currentConfig.modo_desempenho = desemp;
+
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/config`, {
+            method: 'POST', headers: fetchOptions.headers,
+            body: JSON.stringify(currentConfig)
+        });
+        if (res.ok) toastOk("Configurações salvas.");
+        else toastErro("Não foi possível salvar as configurações.");
+    } catch (e) {
+        console.error(e); toastErro("Erro de conexão ao salvar.");
+    }
     fecharModalConfigGerais();
 }
 
 async function limparHistoricoBusca() {
-    if (confirm("Tem certeza que deseja limpar todo o histórico de busca?")) {
-        await fetch(`${API_BASE_URL}/api/clear_history`, { method: 'POST' });
-        window.searchHistoryExists = false;
-        document.getElementById('searchHistoryList').innerHTML = "";
+    if (!confirm("Tem certeza que deseja limpar todo o histórico de busca?")) return;
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/clear_history`, { method: 'POST' });
+        if (!res.ok) { toastErro("Não foi possível limpar o histórico."); return; }
+        _historicoCache = [];
+        const list = document.getElementById('searchHistoryList');
+        if (list) list.innerHTML = "";
+        const dd = document.getElementById('searchHistoryDropdown');
+        if (dd) dd.classList.remove('aberto');
         toastOk("Histórico de busca limpo.");
-    }
+    } catch (e) { console.error(e); toastErro("Erro de conexão."); }
 }
 
 async function limparCacheIA() {
-    if (confirm("ATENÇÃO: Isto irá apagar todas as descrições e vetores da IA gerados até agora. O motor precisará reanalisar todos os arquivos nas pastas configuradas do zero. Deseja continuar?")) {
-        await fetch(`${API_BASE_URL}/api/clear_cache`, { method: 'POST' });
-        toastOk("Cache da IA limpo. A análise vai recomeçar.");
-    }
+    if (!confirm("ATENÇÃO: Isto vai apagar todas as descrições e vetores da IA gerados até agora. O motor precisará reanalisar todos os arquivos do zero. Deseja continuar?")) return;
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/clear_cache`, { method: 'POST' });
+        if (!res.ok) { toastErro("Não foi possível limpar o cache da IA."); return; }
+        toastOk("Cache da IA limpo. Use 'Re-analisar arquivos' para gerar tudo de novo.");
+    } catch (e) { console.error(e); toastErro("Erro de conexão."); }
 }
 
 // Global hotkey listener
@@ -2165,8 +2179,9 @@ async function buscarStatus() {
         const s = await res.json();
         const pend = s.arquivos_pendentes || 0;
 
-        // Detecta transição fila>0 -> fila=0: análise terminou
-        if (_ultimaFila > 0 && pend === 0) {
+        // Detecta transição fila>0 -> fila=0: análise terminou.
+        // Só notifica se as notificações estiverem ativadas nas configs.
+        if (_ultimaFila > 0 && pend === 0 && currentConfig.notificacoes !== false) {
             toastOk("Análise concluída! Os arquivos já podem ser buscados.");
         }
         _ultimaFila = pend;
