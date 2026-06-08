@@ -892,14 +892,14 @@ body {
 }
 .menu-overlay.aberto { opacity: 1; pointer-events: auto; }
 .menu-lateral {
-    position: fixed; top: 0; left: 0; height: 100%;
+    position: fixed; top: 0; right: 0; height: 100%;
     width: 290px; max-width: 80vw;
     background: var(--surface);
-    border-right: 1px solid var(--border-light);
-    box-shadow: 8px 0 40px rgba(0,0,0,0.5);
+    border-left: 1px solid var(--border-light);
+    box-shadow: -8px 0 40px rgba(0,0,0,0.5);
     z-index: 8001;
-    transform: translateX(-100%);
-    transition: transform 0.28s cubic-bezier(0.25,1,0.5,1);
+    transform: translateX(100%);
+    transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
     display: flex; flex-direction: column;
 }
 .menu-lateral.aberto { transform: translateX(0); }
@@ -911,18 +911,19 @@ body {
 .menu-lateral-itens { display: flex; flex-direction: column; padding: 14px 12px; gap: 4px; }
 .menu-lateral-divider { height: 1px; background: var(--border-light); margin: 10px 8px; }
 .menu-item {
-    display: flex; align-items: center; gap: 14px;
+    display: block;
     width: 100%;
-    padding: 14px 16px;
+    padding: 13px 16px;
     background: transparent;
     border: none;
-    border-radius: 12px;
+    border-radius: 10px;
     color: var(--text-primary);
-    font-size: 1rem; font-weight: 600;
+    font-size: 0.98rem; font-weight: 500;
     text-align: left;
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background 0.15s, padding-left 0.15s;
 }
+.menu-item:hover { padding-left: 22px; }
 .menu-item:hover { background: rgba(168,85,247,0.14); }
 .menu-item-ic { font-size: 1.25rem; width: 24px; text-align: center; }
 
