@@ -1,0 +1,54 @@
+@startuml Sequencia_Login_SearchPlus
+' Diagrama de Sequência — Login (Search+)
+' Renderize em: https://www.plantuml.com/plantuml
+autonumber
+skinparam sequenceMessageAlign center
+
+actor "Usuário" as U
+participant "Frontend\n(script.js)" as FE
+participant "Backend Flask\n(app.py)" as BE
+database "Supabase\n(PostgreSQL)" as DB
+
+== Login ==
+U -> FE : Preenche usuário e senha\ne clica "Acessar"
+activate FE
+FE -> BE : POST /api/login\n{username, password}
+activate BE
+BE -> BE : _hash(senha) (SHA-256)
+BE -> DB : SELECT id, password_hash\nFROM users WHERE username=%s
+activate DB
+DB --> BE : linha do usuário (ou vazio)
+deactivate DB
+
+alt Credenciais corretas
+    BE -> BE : cria sessão (session['user_id'])
+    BE --> FE : 200 {status:"ok", username}
+    FE -> FE : loginBemSucedido()\ncarrega config + galeria
+    FE --> U : Mostra a home do app
+else Usuário/senha inválidos
+    BE --> FE : 401 {mensagem:"incorretos"}
+    FE --> U : toastErro("Usuário ou senha incorretos")
+end
+deactivate BE
+deactivate FE
+
+== Verificação de sessão (ao recarregar) ==
+U -> FE : Abre o app
+activate FE
+FE -> BE : GET /api/check_session
+activate BE
+BE -> DB : SELECT username FROM users WHERE id=%s
+activate DB
+DB --> BE : usuário existe?
+deactivate DB
+alt Sessão válida
+    BE --> FE : 200 {username}
+    FE --> U : Entra direto (sem login)
+else Sem sessão
+    BE --> FE : 401
+    FE --> U : Mostra tela de login
+end
+deactivate BE
+deactivate FE
+
+@enduml

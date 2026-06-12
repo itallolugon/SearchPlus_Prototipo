@@ -1,0 +1,71 @@
+@startuml Sequencia_CRUD_Colecoes_SearchPlus
+' Diagrama de Sequência — CRUD de Coleções (Search+)
+' Cobre Create, Read, Update (add item) e Delete.
+' Renderize em: https://www.plantuml.com/plantuml
+autonumber
+skinparam sequenceMessageAlign center
+
+actor "Usuário" as U
+participant "Frontend\n(script.js)" as FE
+participant "Backend Flask\n(app.py)" as BE
+database "Supabase\n(PostgreSQL)" as DB
+
+== CREATE — criar coleção ==
+U -> FE : Digita nome e clica "Criar"
+FE -> BE : POST /api/collections {nome}
+activate BE
+BE -> DB : INSERT INTO collections\n(user_id, nome) RETURNING id
+DB --> BE : id da coleção
+alt Nome duplicado
+    DB --> BE : UniqueViolation
+    BE --> FE : 409 {error:"já existe"}
+    FE --> U : toastErro
+else OK
+    BE --> FE : 200 {id, nome}
+    FE --> U : toastOk + recarrega lista
+end
+deactivate BE
+
+== READ — listar coleções (com capas) ==
+U -> FE : Abre "Coleções"
+FE -> BE : GET /api/collections
+activate BE
+BE -> DB : SELECT c.*, COUNT(cf.file_id)\nLEFT JOIN collection_files ...
+DB --> BE : coleções + totais
+BE -> DB : SELECT caminho ... LIMIT 4\n(capas do mosaico)
+DB --> BE : caminhos das capas
+BE --> FE : 200 {colecoes:[...]}
+FE --> U : Renderiza cards com mosaico
+deactivate BE
+
+== UPDATE — adicionar arquivo à coleção ==
+U -> FE : Clica "+ Adicionar à coleção"
+FE -> BE : POST /api/collections/<id>/files {file_id}
+activate BE
+BE -> DB : valida posse (coleção e arquivo do user)
+BE -> DB : INSERT INTO collection_files\nON CONFLICT DO NOTHING
+DB --> BE : ok
+BE --> FE : 200 {acao:"adicionado"}
+FE --> U : toastOk
+deactivate BE
+
+== DELETE — remover arquivo / excluir coleção ==
+U -> FE : Clica "x" num item
+FE -> BE : DELETE /api/collections/<id>/files {file_id}
+activate BE
+BE -> DB : DELETE FROM collection_files\nWHERE collection_id=%s AND file_id=%s
+DB --> BE : ok
+BE --> FE : 200 {acao:"removido"}
+FE --> U : toastInfo + recarrega
+deactivate BE
+
+U -> FE : Clica lixeira (excluir coleção)
+FE -> BE : DELETE /api/collections/<id>
+activate BE
+BE -> DB : DELETE FROM collections WHERE id=%s\n(cascade apaga collection_files)
+DB --> BE : ok
+BE --> FE : 200 {status:"ok"}
+FE --> U : toastInfo + recarrega
+deactivate BE
+
+@enduml

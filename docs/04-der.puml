@@ -1,0 +1,85 @@
+@startuml DER_SearchPlus
+' Diagrama Entidade-Relacionamento — Search+
+' Banco: PostgreSQL hospedado no Supabase (com extensão pgvector)
+' Renderize em: https://www.plantuml.com/plantuml
+hide circle
+skinparam linetype ortho
+
+entity "users" as users {
+  * id : SERIAL <<PK>>
+  --
+  * username : TEXT <<UNIQUE>>
+  * password_hash : TEXT
+  config_json : JSONB
+}
+
+entity "folders" as folders {
+  * id : SERIAL <<PK>>
+  --
+  * user_id : INTEGER <<FK>>
+  * path : TEXT
+  * name : TEXT
+  added_at : TIMESTAMPTZ
+  prioridades : JSONB
+  perfil_analise : TEXT
+  janela_processamento : TEXT
+  --
+  UNIQUE (user_id, path)
+}
+
+entity "files" as files {
+  * id : SERIAL <<PK>>
+  --
+  folder_id : INTEGER <<FK>>
+  * user_id : INTEGER <<FK>>
+  * nome : TEXT
+  * caminho : TEXT
+  * tipo : TEXT
+  descricao_ia : TEXT
+  embedding : vector(384)
+  embedding_clip : vector(512)
+  data_adicionado : TIMESTAMPTZ
+  favorito : INTEGER
+  processado : INTEGER
+  --
+  UNIQUE (user_id, caminho)
+}
+
+entity "collections" as collections {
+  * id : SERIAL <<PK>>
+  --
+  * user_id : INTEGER <<FK>>
+  * nome : TEXT
+  criado_em : TIMESTAMPTZ
+  --
+  UNIQUE (user_id, nome)
+}
+
+entity "collection_files" as cf {
+  * collection_id : INTEGER <<PK,FK>>
+  * file_id : INTEGER <<PK,FK>>
+  --
+  adicionado_em : TIMESTAMPTZ
+}
+
+' Relacionamentos (cardinalidade)
+users ||--o{ folders       : "1:N  (ON DELETE CASCADE)"
+users ||--o{ files         : "1:N  (ON DELETE CASCADE)"
+users ||--o{ collections   : "1:N  (ON DELETE CASCADE)"
+folders ||--o{ files       : "1:N  (ON DELETE SET NULL)"
+collections ||--o{ cf      : "1:N  (ON DELETE CASCADE)"
+files ||--o{ cf            : "1:N  (ON DELETE CASCADE)"
+
+note bottom of cf
+  Tabela associativa (N:N) entre
+  collections e files: um arquivo pode
+  estar em várias coleções e vice-versa.
+end note
+
+note right of files
+  embedding / embedding_clip usam a
+  extensão pgvector (busca por
+  similaridade com índice HNSW).
+end note
+
+@enduml

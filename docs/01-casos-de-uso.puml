@@ -1,0 +1,76 @@
+@startuml CasosDeUso_SearchPlus
+' Diagrama de Casos de Uso — Search+
+' Renderize em: https://www.plantuml.com/plantuml  (ou extensão PlantUML no VS Code)
+left to right direction
+skinparam packageStyle rectangle
+skinparam actorStyle awesome
+
+actor "Usuário" as U
+
+' Atores secundários (sistemas externos)
+actor "Ollama\n(IA local)" as IA
+actor "Supabase\n(PostgreSQL)" as DB
+
+rectangle "Search+" {
+
+  ' --- Conta ---
+  usecase "Criar conta" as UC1
+  usecase "Fazer login" as UC2
+  usecase "Sair (logout)" as UC3
+  usecase "Editar perfil" as UC4
+  usecase "Personalizar tema\n(cores, fundo)" as UC5
+  usecase "Exportar/Importar tema" as UC6
+
+  ' --- Pastas e indexação ---
+  usecase "Gerenciar pastas\nmonitoradas" as UC7
+  usecase "Analisar pastas\n(indexar com IA)" as UC8
+  usecase "Re-analisar arquivos" as UC9
+  usecase "Cancelar análise" as UC10
+  usecase "Definir blacklist\n(pastas ignoradas)" as UC11
+
+  ' --- Busca ---
+  usecase "Buscar por texto\n(semântica)" as UC12
+  usecase "Buscar por imagem\n(visual)" as UC13
+  usecase "Aplicar filtros\n(data, tamanho, pasta)" as UC14
+  usecase "Ver histórico\nde buscas" as UC15
+
+  ' --- Organização ---
+  usecase "Favoritar arquivo" as UC16
+  usecase "Gerenciar coleções" as UC17
+  usecase "Ver galeria\npor categoria" as UC18
+  usecase "Ver estatísticas\ndo acervo" as UC19
+}
+
+' Relações do usuário
+U --> UC1
+U --> UC2
+U --> UC3
+U --> UC4
+U --> UC5
+U --> UC6
+U --> UC7
+U --> UC8
+U --> UC9
+U --> UC10
+U --> UC11
+U --> UC12
+U --> UC13
+U --> UC14
+U --> UC15
+U --> UC16
+U --> UC17
+U --> UC18
+U --> UC19
+
+' A análise depende da IA (Ollama) e persiste no banco
+UC8 ..> IA : <<include>>\ndescreve imagem
+UC8 ..> DB : <<include>>\nsalva embedding
+UC12 ..> DB : <<include>>\nbusca vetorial
+UC13 ..> IA : <<include>>\nembedding visual
+UC13 ..> DB : <<include>>\nbusca vetorial
+
+' Login é pré-requisito das funcionalidades internas
+UC2 <.. UC7 : <<extend>>
+UC2 <.. UC12 : <<extend>>
+
+@enduml
