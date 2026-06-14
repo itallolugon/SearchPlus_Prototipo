@@ -80,6 +80,60 @@ const toastErro = (m) => mostrarToast(m, 'erro', 6000);
 const toastInfo = (m) => mostrarToast(m, 'info');
 const toastAviso = (m) => mostrarToast(m, 'aviso', 5500);
 
+// ==========================================
+// MODAL DE CONFIRMAÇÃO (substitui o confirm() nativo)
+// Uso: if (await confirmarAcao("Excluir?", "Essa ação...")) { ... }
+// ==========================================
+function confirmarAcao(titulo, texto, textoBotao = 'Confirmar') {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('confirmModal');
+        document.getElementById('confirmTitulo').textContent = titulo;
+        document.getElementById('confirmTexto').textContent = texto || '';
+        const btnOk = document.getElementById('confirmOk');
+        const btnCancel = document.getElementById('confirmCancelar');
+        btnOk.textContent = textoBotao;
+
+        const fechar = (resultado) => {
+            modal.style.display = 'none';
+            btnOk.onclick = null;
+            btnCancel.onclick = null;
+            resolve(resultado);
+        };
+        btnOk.onclick = () => fechar(true);
+        btnCancel.onclick = () => fechar(false);
+        modal.style.display = 'flex';
+    });
+}
+
+// Modal de entrada de texto (substitui o prompt() nativo)
+function pedirTexto(titulo, label, valorInicial = '') {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('inputModal');
+        document.getElementById('inputTitulo').textContent = titulo;
+        document.getElementById('inputLabel').textContent = label;
+        const campo = document.getElementById('inputCampo');
+        campo.value = valorInicial;
+        const btnOk = document.getElementById('inputOk');
+        const btnCancel = document.getElementById('inputCancelar');
+
+        const fechar = (resultado) => {
+            modal.style.display = 'none';
+            btnOk.onclick = null;
+            btnCancel.onclick = null;
+            campo.onkeydown = null;
+            resolve(resultado);
+        };
+        btnOk.onclick = () => fechar(campo.value);
+        btnCancel.onclick = () => fechar(null);
+        campo.onkeydown = (e) => {
+            if (e.key === 'Enter') fechar(campo.value);
+            if (e.key === 'Escape') fechar(null);
+        };
+        modal.style.display = 'flex';
+        setTimeout(() => campo.focus(), 50);
+    });
+}
+
 const dicasUX = [
     "A IA faz buscas semânticas. Descreva o arquivo com linguagem natural.",
     "O motor lê textos dentro de Imagens e PDFs automaticamente.",
@@ -1114,7 +1168,7 @@ async function salvarConfigGerais() {
 }
 
 async function limparHistoricoBusca() {
-    if (!confirm("Tem certeza que deseja limpar todo o histórico de busca?")) return;
+    if (!await confirmarAcao("Limpar histórico", "Tem certeza que deseja limpar todo o histórico de busca?", "Limpar")) return;
     try {
         const res = await fetch(`${API_BASE_URL}/api/clear_history`, { method: 'POST' });
         if (!res.ok) { toastErro("Não foi possível limpar o histórico."); return; }
@@ -1128,7 +1182,7 @@ async function limparHistoricoBusca() {
 }
 
 async function limparCacheIA() {
-    if (!confirm("ATENÇÃO: Isto vai apagar todas as descrições e vetores da IA gerados até agora. O motor precisará reanalisar todos os arquivos do zero. Deseja continuar?")) return;
+    if (!await confirmarAcao("Limpar banco da IA", "Isto vai apagar todas as descrições e vetores da IA gerados até agora. O motor precisará reanalisar todos os arquivos do zero. Deseja continuar?", "Limpar tudo")) return;
     try {
         const res = await fetch(`${API_BASE_URL}/api/clear_cache`, { method: 'POST' });
         if (!res.ok) { toastErro("Não foi possível limpar o cache da IA."); return; }
@@ -1559,7 +1613,7 @@ async function adicionarPasta() {
 }
 
 async function removerPasta(p) {
-    if (!confirm("Remover pasta monitorada? A IA não buscará mais nela.")) return;
+    if (!await confirmarAcao("Remover pasta", "Remover pasta monitorada? A IA não buscará mais nela.", "Remover")) return;
     const res = await fetch(`${API_BASE_URL}/api/folders`, { method: 'DELETE', headers: fetchOptions.headers, body: JSON.stringify({ pasta: p }) });
     const config = await res.json();
     atualizarListaModalPastas(config.pastas);
@@ -2281,6 +2335,7 @@ document.addEventListener('keydown', (e) => {
         const ml = document.getElementById('menuLateral');
         if (ml && ml.classList.contains('aberto')) { fecharMenuLateral(); return; }
         const fechaveis = [
+            ['escolherColecaoModal', () => { if (typeof fecharEscolherColecao === 'function') fecharEscolherColecao(); }],
             ['ajudaModal', fecharAjuda],
             ['cropperModal', () => { if (typeof fecharCropper === 'function') fecharCropper(); }],
             ['modalFavoritos', () => { if (typeof fecharFavoritos === 'function') fecharFavoritos(); }],
@@ -2409,7 +2464,7 @@ async function criarColecao() {
 }
 
 async function excluirColecao(id, nome) {
-    if (!confirm(`Excluir a coleção "${nome}"? Os arquivos não são apagados, só a coleção.`)) return;
+    if (!await confirmarAcao("Excluir coleção", `Excluir a coleção "${nome}"? Os arquivos não são apagados, só a coleção.`, "Excluir")) return;
     try {
         await fetch(`${API_BASE_URL}/api/collections/${id}`, { method: 'DELETE' });
         toastInfo(`Coleção "${nome}" excluída.`);
@@ -2488,30 +2543,65 @@ async function removerDaColecao(fileId, nomeArquivo) {
     } catch (e) { console.error(e); toastErro("Erro de conexão."); }
 }
 
-// Adicionar o arquivo aberto no painel lateral a uma coleção
+// Adicionar o arquivo aberto no painel lateral a uma coleção.
+// Abre um modal com a lista de coleções clicáveis (sem prompt nativo).
 async function abrirSeletorColecao() {
     if (!_fileIdAtual) { toastAviso("Abra um arquivo primeiro."); return; }
+    const lista = document.getElementById('escolherColecaoLista');
+    lista.innerHTML = '<p style="color:var(--text-secondary);">Carregando...</p>';
+    document.getElementById('escolherColecaoModal').style.display = 'flex';
     try {
         const res = await fetch(`${API_BASE_URL}/api/collections`);
         const d = await res.json();
         const cols = d.colecoes || [];
+
         if (cols.length === 0) {
-            const nome = prompt("Você ainda não tem coleções. Nome da nova coleção:");
-            if (!nome || !nome.trim()) return;
-            const cr = await fetch(`${API_BASE_URL}/api/collections`, {
-                method: 'POST', headers: fetchOptions.headers,
-                body: JSON.stringify({ nome: nome.trim() })
-            });
-            const cd = await cr.json();
-            if (cr.ok) await adicionarAColecao(cd.id, nome.trim());
-            else toastErro(cd.error || "Erro ao criar coleção.");
+            lista.innerHTML = '<p style="color:var(--text-secondary);">Você ainda não tem coleções. Crie uma abaixo.</p>';
             return;
         }
-        const nomes = cols.map((c, i) => `${i + 1}. ${c.nome} (${c.total})`).join('\n');
-        const escolha = prompt(`Adicionar a qual coleção?\n\n${nomes}\n\nDigite o número:`);
-        const idx = parseInt(escolha, 10) - 1;
-        if (isNaN(idx) || idx < 0 || idx >= cols.length) return;
-        await adicionarAColecao(cols[idx].id, cols[idx].nome);
+        lista.innerHTML = '';
+        cols.forEach(c => {
+            const btn = document.createElement('button');
+            btn.className = 'escolher-colecao-item';
+            const nm = document.createElement('span');
+            nm.textContent = c.nome;
+            const cnt = document.createElement('span');
+            cnt.className = 'escolher-colecao-count';
+            cnt.textContent = `${c.total} ${c.total === 1 ? 'item' : 'itens'}`;
+            btn.append(nm, cnt);
+            btn.onclick = async () => {
+                fecharEscolherColecao();
+                await adicionarAColecao(c.id, c.nome);
+            };
+            lista.appendChild(btn);
+        });
+    } catch (e) {
+        console.error(e);
+        lista.innerHTML = '<p style="color:#f87171;">Erro ao carregar coleções.</p>';
+    }
+}
+
+function fecharEscolherColecao() {
+    document.getElementById('escolherColecaoModal').style.display = 'none';
+}
+
+// "+ Criar nova coleção" dentro do modal de escolha: pede o nome via
+// modal de input (pedirTexto) e já adiciona o arquivo atual nela.
+async function criarColecaoEAdicionar() {
+    const nome = await pedirTexto("Nova coleção", "Nome da coleção:");
+    if (!nome || !nome.trim()) return;
+    try {
+        const cr = await fetch(`${API_BASE_URL}/api/collections`, {
+            method: 'POST', headers: fetchOptions.headers,
+            body: JSON.stringify({ nome: nome.trim() })
+        });
+        const cd = await cr.json();
+        if (cr.ok) {
+            fecharEscolherColecao();
+            await adicionarAColecao(cd.id, nome.trim());
+        } else {
+            toastErro(cd.error || "Erro ao criar coleção.");
+        }
     } catch (e) { console.error(e); toastErro("Erro de conexão."); }
 }
 

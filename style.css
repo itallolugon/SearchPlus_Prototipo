@@ -1006,3 +1006,30 @@ body {
     border: 1px solid var(--border-light);
     border-radius: 12px;
 }
+
+/* Itens do modal de escolha de coleção (substitui o prompt nativo) */
+.escolher-colecao-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 14px 16px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border-light);
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+.escolher-colecao-item:hover {
+    background: rgba(168,85,247,0.14);
+    border-color: var(--accent-primary);
+}
+.escolher-colecao-count {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    font-weight: 400;
+}
