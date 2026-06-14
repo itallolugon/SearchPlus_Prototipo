@@ -7,6 +7,7 @@ import os
 import re
 import json
 import hashlib
+import bcrypt
 import mimetypes
 import queue
 import subprocess
@@ -461,7 +462,30 @@ def _handle_missing_schema(exc):
 
 
 def _hash(pw: str) -> str:
-    return hashlib.sha256(pw.encode()).hexdigest()
+    """Gera hash bcrypt da senha (seguro contra brute-force)."""
+    return bcrypt.hashpw(pw.encode("utf-8"), bcrypt.gensalt()).decode("ascii")
+
+
+def _verificar_senha(pw: str, hash_armazenado: str) -> bool:
+    """
+    Verifica a senha contra o hash do banco. Aceita:
+    - bcrypt (novo padrão): hashes que começam com $2
+    - SHA-256 (legado): migração transparente de contas antigas
+    """
+    if not hash_armazenado:
+        return False
+    if hash_armazenado.startswith("$2"):
+        try:
+            return bcrypt.checkpw(pw.encode("utf-8"), hash_armazenado.encode("utf-8"))
+        except ValueError:
+            return False
+    # Legado SHA-256: compara e (no login) será re-hasheado para bcrypt
+    return hashlib.sha256(pw.encode()).hexdigest() == hash_armazenado
+
+
+def _eh_hash_legado(hash_armazenado: str) -> bool:
+    """True se o hash ainda é SHA-256 (precisa migrar para bcrypt)."""
+    return bool(hash_armazenado) and not hash_armazenado.startswith("$2")
 
 
 def _uid():
@@ -526,13 +550,25 @@ def api_login():
     row = conn.execute(
         "SELECT id, password_hash FROM users WHERE username = %s", (username,)
     ).fetchone()
-    conn.close()
 
-    if row and row["password_hash"] == _hash(password):
+    if row and _verificar_senha(password, row["password_hash"]):
+        # Migração transparente: se a conta ainda usa SHA-256, re-hash com bcrypt
+        if _eh_hash_legado(row["password_hash"]):
+            try:
+                conn.execute(
+                    "UPDATE users SET password_hash = %s WHERE id = %s",
+                    (_hash(password), row["id"])
+                )
+                conn.commit()
+                print(f"[Auth] Senha de '{username}' migrada para bcrypt.")
+            except Exception as exc:
+                print(f"[Auth] Falha ao migrar senha: {exc}")
+        conn.close()
         session["user_id"] = row["id"]
         session["username"] = username
         return jsonify({"status": "ok", "username": username})
 
+    conn.close()
     return jsonify({"mensagem": "Usuário ou senha incorretos."}), 401
 
 

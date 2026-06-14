@@ -1033,3 +1033,56 @@ body {
     color: var(--text-secondary);
     font-weight: 400;
 }
+
+/* ============================================
+   RESPONSIVIDADE (mobile / tablet)
+   ============================================ */
+@media (max-width: 768px) {
+    /* Logo e busca menores */
+    .main-logo { font-size: 4rem; margin-top: 15px; }
+    .search-box { flex-direction: row; flex-wrap: wrap; gap: 8px; padding: 0 12px; }
+    .search-box input { font-size: 1rem; padding: 16px 18px; }
+    .search-btn { padding: 0 24px !important; font-size: 1.1rem !important; }
+
+    /* Top bar e menu */
+    .top-bar { padding: 12px 16px; }
+    .menu-lateral { width: 85vw; }
+
+    /* Grids de resultados e cards menores */
+    .results-grid, .recent-grid {
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 14px;
+    }
+    .recent-img { height: 130px; }
+
+    /* Modais ocupam quase a tela toda */
+    .modal-content {
+        max-width: 94vw !important;
+        width: 94vw;
+        max-height: 88vh;
+        overflow-y: auto;
+    }
+
+    /* Filtros avançados empilham */
+    .filtros-avancados { grid-template-columns: 1fr 1fr; }
+
+    /* Painel lateral de detalhe ocupa a tela */
+    .side-panel { width: 100% !important; max-width: 100%; }
+
+    /* Sidebar de personalização cabe na tela */
+    .sidebar-modal { width: 90vw !important; max-width: 90vw; }
+}
+
+@media (max-width: 480px) {
+    .main-logo { font-size: 3rem; }
+    .search-box { flex-direction: column; }
+    .search-box input, .search-btn, .search-btn-img { width: 100%; }
+    .filter-bar { flex-wrap: wrap; gap: 6px; }
+    .filtros-avancados { grid-template-columns: 1fr; }
+    .results-grid, .recent-grid {
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+        gap: 10px;
+    }
+    /* Estatísticas do perfil empilham */
+    .toast { min-width: auto; max-width: 90vw; }
+}
