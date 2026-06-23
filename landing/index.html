@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Search+ — Encontre qualquer arquivo pelo que ele significa</title>
+    <meta name="description" content="Busca semântica de imagens e documentos com IA local. Procure pelo conteúdo, não pelo nome do arquivo.">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- ====== NAV ====== -->
+    <nav class="nav">
+        <div class="nav-logo">SEARCH<span>+</span></div>
+        <div class="nav-links">
+            <a href="#problema">Problema</a>
+            <a href="#solucao">Solução</a>
+            <a href="#recursos">Recursos</a>
+            <a href="#tecnologia">Tecnologia</a>
+        </div>
+        <a href="https://github.com/itallolugon/SearchPlus_Prototipo" target="_blank" class="btn btn-outline">GitHub</a>
+    </nav>
+
+    <!-- ====== HERO ====== -->
+    <header class="hero">
+        <div class="hero-glow"></div>
+        <div class="hero-content">
+            <div class="badge">🔍 Busca semântica com IA local</div>
+            <h1>Encontre qualquer arquivo<br>pelo que ele <span class="grad">significa</span>.</h1>
+            <p class="hero-sub">
+                O Search+ entende o conteúdo das suas imagens e documentos.
+                Procure em linguagem natural — "cachorro na grama", "nota fiscal de março" —
+                e a IA encontra. Tudo rodando localmente, sem enviar nada para a nuvem.
+            </p>
+            <div class="hero-cta">
+                <a href="#solucao" class="btn btn-primary">Ver como funciona</a>
+                <a href="https://github.com/itallolugon/SearchPlus_Prototipo" target="_blank" class="btn btn-ghost">Código no GitHub →</a>
+            </div>
+            <div class="hero-demo">
+                <div class="demo-bar">
+                    <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+                </div>
+                <div class="demo-search">
+                    <span class="demo-icon">🔍</span>
+                    <span class="demo-typed">cachorro feliz brincando na grama</span>
+                    <span class="demo-cursor"></span>
+                </div>
+                <div class="demo-results">
+                    <div class="demo-card"><div class="ph ph1"></div><small>a.jpg · 94%</small></div>
+                    <div class="demo-card"><div class="ph ph2"></div><small>pet.png · 88%</small></div>
+                    <div class="demo-card"><div class="ph ph3"></div><small>dog.jpg · 81%</small></div>
+                    <div class="demo-card"><div class="ph ph4"></div><small>parque.jpg · 76%</small></div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- ====== NICHO ====== -->
+    <section class="section nicho">
+        <div class="container">
+            <span class="kicker">Para quem é</span>
+            <h2>Qualquer pessoa com <span class="grad">muitos arquivos</span> e pouca memória pra nomes.</h2>
+            <div class="nicho-grid">
+                <div class="nicho-item"><div class="nicho-ic">📸</div><h3>Fotógrafos e criadores</h3><p>Milhares de fotos com nomes tipo "IMG_8472". Ache pela cena, não pelo número.</p></div>
+                <div class="nicho-item"><div class="nicho-ic">🎓</div><h3>Estudantes e pesquisadores</h3><p>PDFs e prints de aula perdidos em pastas. Busque pelo assunto.</p></div>
+                <div class="nicho-item"><div class="nicho-ic">💼</div><h3>Profissionais e escritórios</h3><p>Documentos, recibos e capturas de tela acumulados. Encontre em segundos.</p></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ====== PROBLEMA ====== -->
+    <section class="section problema" id="problema">
+        <div class="container">
+            <span class="kicker">O problema</span>
+            <h2>Você tem o arquivo.<br>Só não <span class="grad-2">lembra onde</span> nem <span class="grad-2">como se chama</span>.</h2>
+            <p class="lead">
+                A busca tradicional do computador procura por <strong>nome de arquivo</strong>.
+                Mas ninguém nomeia "DSC_0042.jpg" de "cachorro no parque ao pôr do sol".
+                O resultado: horas rolando pastas, abrindo imagem por imagem.
+            </p>
+            <div class="problema-grid">
+                <div class="prob-card"><span class="prob-x">✕</span><p>Busca por nome não acha o que está <em>dentro</em> da imagem</p></div>
+                <div class="prob-card"><span class="prob-x">✕</span><p>Texto dentro de prints e PDFs fica invisível pra busca comum</p></div>
+                <div class="prob-card"><span class="prob-x">✕</span><p>Apps de nuvem mandam suas fotos pra servidores de terceiros</p></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ====== SOLUÇÃO ====== -->
+    <section class="section solucao" id="solucao">
+        <div class="container">
+            <span class="kicker">A solução</span>
+            <h2>O Search+ <span class="grad">enxerga e entende</span> seus arquivos.</h2>
+            <p class="lead">
+                Uma IA analisa cada imagem e documento, gera uma "impressão digital" do significado
+                e guarda no banco. Quando você busca, ele compara <strong>significados</strong> —
+                não palavras exatas. E roda <strong>100% local</strong>.
+            </p>
+            <div class="passos">
+                <div class="passo"><div class="passo-num">1</div><h3>Aponte uma pasta</h3><p>Você escolhe as pastas do seu computador que o Search+ deve monitorar.</p></div>
+                <div class="passo-seta">→</div>
+                <div class="passo"><div class="passo-num">2</div><h3>A IA analisa</h3><p>Cada imagem é descrita pela IA e vira um vetor semântico — offline, no seu PC.</p></div>
+                <div class="passo-seta">→</div>
+                <div class="passo"><div class="passo-num">3</div><h3>Você busca por significado</h3><p>Digite naturalmente ou solte uma foto. O resultado aparece em segundos.</p></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ====== RECURSOS ====== -->
+    <section class="section recursos" id="recursos">
+        <div class="container">
+            <span class="kicker">Recursos</span>
+            <h2>Mais do que uma busca.<br>Uma <span class="grad">central do seu acervo</span>.</h2>
+            <div class="feat-grid">
+                <div class="feat"><div class="feat-ic">🔤</div><h3>Busca por texto</h3><p>Linguagem natural com IA. "Cão" encontra "cachorro" — entende sinônimos e significado.</p></div>
+                <div class="feat"><div class="feat-ic">🖼️</div><h3>Busca por imagem</h3><p>Solte uma foto e encontre as visualmente parecidas no seu acervo.</p></div>
+                <div class="feat"><div class="feat-ic">🗂️</div><h3>Galeria por categoria</h3><p>Pessoas, animais, comida, natureza — organizado automaticamente pela IA.</p></div>
+                <div class="feat"><div class="feat-ic">📁</div><h3>Coleções</h3><p>Agrupe arquivos em álbuns personalizados, independente de onde estão salvos.</p></div>
+                <div class="feat"><div class="feat-ic">⭐</div><h3>Favoritos e filtros</h3><p>Marque o que importa e filtre por data, tamanho ou pasta.</p></div>
+                <div class="feat"><div class="feat-ic">🎨</div><h3>Temas personalizáveis</h3><p>Mude cores e fundo, exporte seu tema e compartilhe com outras pessoas.</p></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ====== DIFERENCIAL / PRIVACIDADE ====== -->
+    <section class="section privacidade">
+        <div class="container priv-box">
+            <div class="priv-text">
+                <span class="kicker">Privacidade em primeiro lugar</span>
+                <h2>Suas fotos <span class="grad">nunca saem</span> do seu computador.</h2>
+                <p>Diferente de serviços de nuvem, a inteligência artificial do Search+ roda
+                localmente na sua máquina. As imagens não são enviadas para servidores de terceiros —
+                só os dados de organização ficam no seu banco pessoal.</p>
+            </div>
+            <div class="priv-icon">🔒</div>
+        </div>
+    </section>
+
+    <!-- ====== TECNOLOGIA ====== -->
+    <section class="section tecnologia" id="tecnologia">
+        <div class="container">
+            <span class="kicker">Sob o capô</span>
+            <h2>4 inteligências artificiais <span class="grad">trabalhando juntas</span>.</h2>
+            <div class="tech-grid">
+                <div class="tech"><h3>LLaVA</h3><span class="tech-tag">Visão</span><p>Descreve o conteúdo de cada imagem.</p></div>
+                <div class="tech"><h3>SBERT</h3><span class="tech-tag">Significado</span><p>Transforma texto em vetores para busca semântica.</p></div>
+                <div class="tech"><h3>CLIP</h3><span class="tech-tag">Busca visual</span><p>Compara imagens entre si pela semelhança.</p></div>
+                <div class="tech"><h3>Llama 3.2</h3><span class="tech-tag">Refinamento</span><p>Reordena os resultados pela relevância real.</p></div>
+            </div>
+            <div class="stack">
+                <span>Python</span><span>Flask</span><span>JavaScript</span>
+                <span>PostgreSQL</span><span>pgvector</span><span>Supabase</span><span>Ollama</span>
+            </div>
+        </div>
+    </section>
+
+    <!-- ====== CTA FINAL ====== -->
+    <section class="cta-final">
+        <div class="cta-glow"></div>
+        <div class="container">
+            <h2>Pare de procurar.<br>Comece a <span class="grad">encontrar</span>.</h2>
+            <p>Search+ — busca semântica de imagens e documentos com IA local.</p>
+            <a href="https://github.com/itallolugon/SearchPlus_Prototipo" target="_blank" class="btn btn-primary btn-lg">Ver o projeto no GitHub</a>
+        </div>
+    </section>
+
+    <!-- ====== FOOTER ====== -->
+    <footer class="footer">
+        <div class="footer-logo">SEARCH<span>+</span></div>
+        <p>Projeto acadêmico · Busca semântica com IA local</p>
+        <p class="footer-team">Itallo Lugon · Lorenzo Osorio · João Miguel · Kevin Kuznier</p>
+    </footer>
+
+</body>
+</html>
