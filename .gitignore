@@ -2,6 +2,10 @@
 .env
 backend/.env
 
+# Ferramentas de assistente (não versionar)
+.claude/
+CLAUDE.md
+
 .venv/
 __pycache__/
 *.pyc
