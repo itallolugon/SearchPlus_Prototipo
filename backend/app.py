@@ -1429,17 +1429,26 @@ def api_search():
 
     sql_where_extra = (" AND " + " AND ".join(sql_filtros)) if sql_filtros else ""
 
-    # Top 100 por SBERT via pgvector (HNSW index — O(log n))
+    # Candidatos: trazemos DOIS tipos de arquivo —
+    #  (a) documentos/arquivos com embedding SBERT (texto), e
+    #  (b) imagens com embedding_clip (busca lazy: indexadas só com CLIP, sem
+    #      descrição ainda). O sbert_score é NULL pra imagens sem SBERT; o CLIP
+    #      cuida da relevância delas mais abaixo.
     conn = get_db()
     rows = conn.execute(
         f"""
         SELECT id, folder_id, nome, caminho, tipo, descricao_ia,
                embedding_clip, data_adicionado, favorito,
-               1 - (embedding <=> %s::vector) AS sbert_score
+               CASE WHEN embedding IS NOT NULL
+                    THEN 1 - (embedding <=> %s::vector)
+                    ELSE NULL END AS sbert_score
         FROM files
-        WHERE user_id = %s AND processado = 1 AND embedding IS NOT NULL
+        WHERE user_id = %s AND processado = 1
+              AND (embedding IS NOT NULL OR embedding_clip IS NOT NULL)
         {sql_where_extra}
-        ORDER BY embedding <=> %s::vector
+        ORDER BY
+            CASE WHEN embedding IS NOT NULL
+                 THEN (embedding <=> %s::vector) ELSE 2 END ASC
         LIMIT 100
         """,
         (query_emb, uid, *params_filtro, query_emb)
@@ -1449,7 +1458,7 @@ def api_search():
     if not rows:
         return jsonify({"resultados": [], "tempo": round(time.time() - t0, 3)})
 
-    sbert_sims = [max(0.0, float(r["sbert_score"])) for r in rows]
+    sbert_sims = [max(0.0, float(r["sbert_score"])) if r["sbert_score"] is not None else 0.0 for r in rows]
 
     # BM25 (palavra-chave) sobre os candidatos
     corpus_tokens = [
@@ -1472,6 +1481,38 @@ def api_search():
                         clip_sims[i] = float(cosine_similarity(clip_q_np, img_vec)[0][0])
                     except Exception:
                         pass
+
+    # ── DESCRIÇÃO SOB DEMANDA (lazy) ────────────────────────────────────────
+    # As imagens são indexadas só com embedding CLIP (sem descrição). Aqui,
+    # na busca, pegamos as TOP-5 imagens visualmente mais parecidas com a query
+    # que ainda não foram descritas, e o Claude descreve só essas. A descrição
+    # é salva (cache), então buscas futuras dessas imagens já são instantâneas.
+    if CLAUDE_OK:
+        candidatas_sem_desc = [
+            i for i, f in enumerate(rows)
+            if f["tipo"] in _EXT_IMG and not (f["descricao_ia"] or "").strip()
+            and clip_sims[i] > 0.15  # só as minimamente parecidas visualmente
+        ]
+        # Ordena por similaridade visual e pega as 5 melhores
+        candidatas_sem_desc.sort(key=lambda idx: clip_sims[idx], reverse=True)
+        for i in candidatas_sem_desc[:5]:
+            f = rows[i]
+            desc_nova = _descrever_imagem_on_demand(f["caminho"], f["nome"])
+            if desc_nova:
+                # Atualiza em memória (pra esta busca) e salva no banco (cache).
+                rows[i]["descricao_ia"] = desc_nova
+                _salvar_descricao_e_embedding(uid, f["caminho"], desc_nova)
+                # Recalcula SBERT e BM25 desta imagem agora que ela tem descrição.
+                if SBERT_OK:
+                    emb_nova = _gerar_embedding(_texto_para_embedding(desc_nova))
+                    if emb_nova is not None and query_emb is not None:
+                        import numpy as np
+                        a = np.array([emb_nova]); b = np.array([query_emb])
+                        sbert_sims[i] = max(0.0, float(cosine_similarity(a, b)[0][0]))
+                corpus_tokens[i] = _tokenizar((desc_nova or "") + " " + (f["nome"] or ""))
+        # BM25 depende do corpus inteiro — recalcula se alguma imagem foi descrita
+        if candidatas_sem_desc:
+            bm25_sims = _bm25_scores(corpus_tokens, q["palavras"])
 
     # Pesos do blend
     W_SBERT_IMG, W_BM25_IMG, W_CLIP_IMG = 0.45, 0.25, 0.30
@@ -2661,70 +2702,47 @@ def _process_worker() -> None:
         fora_da_janela_consecutivos = 0
 
         with _lock:
-            _status = f"Analisando ({_queue.qsize()} na fila): {fname}"
+            _status = f"Indexando ({_queue.qsize()} na fila): {fname}"
 
-        # ── CLIP pre-filter: economiza créditos da API ──
-        # Usa o CLIP (local) pra pular a chamada do Claude quando a imagem
-        # claramente não bate com as categorias que o usuário pediu.
-        skip_analise = False
-        if ext in _EXT_IMG and CLIP_OK and prioridades and "tudo" not in prioridades:
-            clip_emb_img = _gerar_embedding_clip_imagem(fpath)
-            if clip_emb_img:
-                import numpy as np
-                clip_q = np.array([clip_emb_img])
+        # ── INDEXAÇÃO LAZY ──────────────────────────────────────────────────
+        # No upload NÃO chamamos o Claude. Geramos só o embedding CLIP (local,
+        # rápido, grátis) para imagens, e extraímos texto de documentos. A
+        # descrição rica (Claude) é gerada SOB DEMANDA na busca, só para as
+        # imagens que aparecem como candidatas — economiza tempo e créditos.
+        desc = ""
+        emb_clip_vec = None
 
-                # Para CADA categoria desejada, verifica se a imagem atinge o threshold.
-                # Se falhar em TODAS as categorias selecionadas, pula a análise.
-                passou_no_filtro = False
-
-                for cat in prioridades:
-                    if cat not in _CLIP_TERMS:
-                        passou_no_filtro = True # Categoria desconhecida, melhor analisar
-                        break
-
-                    cat_embs = _get_precomputed_clip_embs(cat)
-                    if not cat_embs:
-                        passou_no_filtro = True
-                        break
-
-                    max_sim = 0.0
-                    for t_emb in cat_embs:
-                        sim = float(cosine_similarity(clip_q, np.array([t_emb]))[0][0])
-                        max_sim = max(max_sim, sim)
-
-                    if max_sim >= _CLIP_THRESHOLDS.get(cat, 0.20):
-                        passou_no_filtro = True
-                        break
-
-                if not passou_no_filtro:
-                    skip_analise = True
-                    print(f"[CLIP Pre-filter] Rejeitado visualmente pelas categorias {prioridades}: {fname}")
-
-        try:
-            if skip_analise:
-                desc = f"Imagem: {fname}"
-            else:
+        if ext in _EXT_IMG:
+            # Imagem: só o embedding visual CLIP. Descrição vem depois, na busca.
+            if CLIP_OK:
+                emb_clip = _gerar_embedding_clip_imagem(fpath)
+                if emb_clip:
+                    emb_clip_vec = emb_clip
+            desc = ""  # vazia de propósito — a busca preenche quando precisar
+        else:
+            # Documentos (pdf/docx/txt/csv): extrai o texto na hora (é local e
+            # barato, e a busca textual precisa dele de cara).
+            try:
                 desc = _analyze_file(fpath, ext, prioridades=prioridades, perfil=perfil)
-        except Exception as exc:
-            print(f"[ERRO] {fpath}: {exc}")
-            desc = f"{ext.upper()}: {fname}"
+            except Exception as exc:
+                print(f"[ERRO] {fpath}: {exc}")
+                desc = f"{ext.upper()}: {fname}"
 
-        emb_vec = None  # pgvector adapter converte lista direto pra vector
+        # Embedding SBERT só para documentos (imagens não têm descrição ainda)
+        emb_vec = None
         if SBERT_OK and desc:
             texto_emb = _texto_para_embedding(desc)
             emb = _gerar_embedding(texto_emb)
             if emb:
                 emb_vec = emb
 
-        emb_clip_vec = None
-        if CLIP_OK and ext in _EXT_IMG:
-            emb_clip = _gerar_embedding_clip_imagem(fpath)
-            if emb_clip:
-                emb_clip_vec = emb_clip
-
-        # Se caiu no fallback conhecido (LLaVA/extrator falhou), deixa processado=0
-        caiu_no_fallback = any(desc.startswith(prefix) for prefix in _DESCRICOES_RUINS)
-        processado_flag = 0 if caiu_no_fallback else 1
+        # Imagem indexada (tem embedding CLIP) ou documento com texto = processado.
+        # Imagem sem CLIP = não indexada (tenta de novo depois).
+        if ext in _EXT_IMG:
+            processado_flag = 1 if emb_clip_vec is not None else 0
+        else:
+            caiu_no_fallback = any(desc.startswith(prefix) for prefix in _DESCRICOES_RUINS)
+            processado_flag = 0 if caiu_no_fallback else 1
 
         conn = get_db()
         conn.execute(
@@ -2889,6 +2907,41 @@ def _analyze_image(filepath: str, *, prioridades=None, perfil="fast") -> str:
     prompt = _build_llava_prompt(prioridades)
     desc = _analyze_image_claude(filepath, prompt, perfil=perfil)
     return desc or f"Imagem: {os.path.basename(filepath)}"
+
+
+def _descrever_imagem_on_demand(caminho: str, nome: str) -> str | None:
+    """Descreve UMA imagem com o Claude na hora da busca (modo lazy).
+    Usada quando a imagem foi indexada só com embedding CLIP, sem descrição.
+    Se o arquivo sumiu do disco ou a API falhar, retorna None."""
+    if not CLAUDE_OK:
+        return None
+    if not os.path.isfile(caminho):
+        return None
+    prompt = _build_llava_prompt(["tudo"])
+    desc = _analyze_image_claude(caminho, prompt, perfil="fast")
+    if desc:
+        print(f"[Lazy] Descrita sob demanda: {nome}")
+    return desc
+
+
+def _salvar_descricao_e_embedding(uid: int, caminho: str, desc: str) -> None:
+    """Salva a descrição gerada sob demanda + o embedding SBERT no banco,
+    pra que buscas futuras dessa imagem já tenham tudo pronto (cache)."""
+    emb_vec = None
+    if SBERT_OK and desc:
+        emb = _gerar_embedding(_texto_para_embedding(desc))
+        if emb:
+            emb_vec = emb
+    try:
+        conn = get_db()
+        conn.execute(
+            "UPDATE files SET descricao_ia = %s, embedding = %s WHERE user_id = %s AND caminho = %s",
+            (desc, emb_vec, uid, caminho),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as exc:
+        print(f"[Lazy] Falha ao salvar descrição de {caminho}: {exc}")
 
 
 def _extract_pdf(filepath: str) -> str:
