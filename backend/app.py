@@ -55,6 +55,29 @@ try:
 except ImportError:
     OLLAMA_OK = False
 
+# ── Claude (Anthropic) para descrição de imagens via API ────────────────────
+# Liga/desliga com a variável CLAUDE_VISION=1 no .env. Quando ligado, descreve
+# as imagens com o Claude (rápido e preciso) em vez da LLaVA local. Os embeddings
+# (SBERT/CLIP) continuam sendo gerados localmente — só a descrição muda.
+# A chave fica no .env (ANTHROPIC_API_KEY), nunca no código.
+CLAUDE_VISION = os.environ.get("CLAUDE_VISION", "0") == "1"
+_CLAUDE = None
+CLAUDE_OK = False
+if CLAUDE_VISION:
+    try:
+        import anthropic as _anthropic
+        _chave = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+        if not _chave:
+            print("[AI] CLAUDE_VISION=1 mas ANTHROPIC_API_KEY não está no .env — usando IA local.")
+        else:
+            _CLAUDE = _anthropic.Anthropic(api_key=_chave)
+            CLAUDE_OK = True
+            print("[AI] Claude (vision) ativo — descrição de imagens via API.")
+    except ImportError:
+        print("[AI] Lib 'anthropic' não instalada (pip install anthropic) — usando IA local.")
+    except Exception as _e:
+        print(f"[AI] Falha ao iniciar Claude: {_e} — usando IA local.")
+
 try:
     import fitz  # PyMuPDF
     PYMUPDF_OK = True
@@ -339,6 +362,69 @@ def _rerank_com_llm(query: str, candidatos: list[dict], topk: int = 20) -> list[
         c["score_original"] = base
         c["score_llm"]      = round(llm_score, 3)
         c["score"]          = round(0.5 * base + 0.5 * llm_score, 4)
+
+    topo.sort(key=lambda x: x["score"], reverse=True)
+    return topo + resto
+
+
+def _rerank_com_claude(query: str, candidatos: list[dict], topk: int = 15) -> list[dict]:
+    """
+    Re-rank usando o Claude como juiz semântico. Diferente do Ollama (que dá notas),
+    aqui o Claude diz QUAIS resultados realmente correspondem à busca e quais não.
+    Resolve casos como 'gato aparecendo em busca de cachorro' — o Claude entende
+    que são animais diferentes, mesmo que os embeddings os achem parecidos.
+
+    Penaliza forte (corta) os que o Claude marca como NÃO correspondentes; mantém
+    a ordem do motor para os correspondentes. Degrada gracioso se a API falhar.
+    """
+    if not CLAUDE_OK or _CLAUDE is None or not candidatos:
+        return candidatos
+
+    topo = candidatos[:topk]
+    resto = candidatos[topk:]
+
+    # Monta a lista numerada com nome + descrição curta de cada candidato
+    itens = []
+    for i, c in enumerate(topo, 1):
+        desc = (c.get("descricao_ia") or c.get("nome") or "")[:200].replace("\n", " ")
+        itens.append(f"{i}. {desc}")
+
+    prompt = (
+        f"O usuário buscou por: \"{query}\"\n\n"
+        f"Abaixo estão arquivos encontrados (com a descrição de cada um). "
+        f"Para CADA número, responda se o arquivo REALMENTE corresponde ao que o "
+        f"usuário buscou. Seja rigoroso com a diferença entre coisas parecidas mas "
+        f"distintas: por exemplo, se a busca é por 'cachorro', um GATO NÃO corresponde "
+        f"(são animais diferentes), mesmo que ambos sejam animais.\n\n"
+        f"Responda APENAS em JSON, sem markdown, sem explicação. Para cada número, "
+        f"use true (corresponde) ou false (não corresponde).\n"
+        f"Formato: {{\"1\": true, \"2\": false, \"3\": true}}\n\n"
+        + "\n".join(itens)
+    )
+
+    try:
+        resp = _CLAUDE.messages.create(
+            model="claude-opus-4-8",
+            max_tokens=500,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = "".join(b.text for b in resp.content if b.type == "text").strip()
+        if raw.startswith("```"):
+            raw = raw.strip("`").lstrip("json").strip()
+        veredictos = json.loads(raw)
+    except Exception as exc:
+        print(f"[Rerank Claude] Falhou, mantendo ordem original: {exc}")
+        return candidatos
+
+    for i, c in enumerate(topo, 1):
+        v = veredictos.get(str(i), veredictos.get(i))
+        if v is False:
+            # Claude diz que NÃO corresponde → joga o score pra baixo do corte final.
+            # Não remove direto (deixa o corte > 0.25 do api_search descartar),
+            # assim a lógica de corte fica num lugar só.
+            print(f"[Rerank Claude] '{c['nome']}' nao corresponde a '{query}' — descartado")
+            c["score"] = 0.10
+        # Se v is True ou None (Claude não opinou), mantém o score do motor.
 
     topo.sort(key=lambda x: x["score"], reverse=True)
     return topo + resto
@@ -1558,9 +1644,14 @@ def api_search():
     results.sort(key=lambda x: x["score"], reverse=True)
 
     if results:
-        results = _rerank_com_llm(query, results, topk=20)
-        # Corte final: > 0.25 descarta o "ruído de fundo" (itens fracos que o
-        # LLM não pôde promover). Busca sem match real volta vazia.
+        # Re-rank: Claude (se ligado) é o juiz preferido — entende diferenças
+        # semânticas finas (gato ≠ cachorro). Senão, cai no Llama local (Ollama).
+        if CLAUDE_OK:
+            results = _rerank_com_claude(query, results, topk=15)
+        else:
+            results = _rerank_com_llm(query, results, topk=20)
+        # Corte final: > 0.25 descarta o "ruído de fundo" (itens fracos, ou os que
+        # o Claude marcou como não-correspondentes). Busca sem match real volta vazia.
         results = [r for r in results if r["score"] > 0.25]
         # Remove o campo interno _sbert (não precisa ir pro frontend)
         for r in results:
@@ -2859,10 +2950,68 @@ def _resize_image_for_llava(filepath: str, max_size=768) -> bytes:
             return f.read()
 
 
+def _analyze_image_claude(filepath: str, prompt: str, perfil: str = "fast") -> str | None:
+    """Descreve a imagem usando a API do Claude (vision). Retorna None se falhar,
+    para o _analyze_image cair no fallback local (Ollama).
+    perfil 'deep' = análise mais detalhada e cuidadosa; 'fast' = mais econômica."""
+    if not CLAUDE_OK or _CLAUDE is None:
+        return None
+    try:
+        import base64
+        # Reusa o mesmo redimensionamento da LLaVA (imagem menor = mais barato/rápido)
+        img_bytes = _resize_image_for_llava(filepath)
+        media_type = "image/jpeg"  # _resize_image_for_llava sempre devolve JPEG
+        img_b64 = base64.standard_b64encode(img_bytes).decode("utf-8")
+
+        # Perfil controla o quão detalhada é a descrição (deep gasta mais tokens).
+        if perfil == "deep":
+            prompt_final = prompt + (
+                "\n\nMODO PROFUNDO: seja minucioso. Identifique raças/espécies "
+                "específicas, marcas, texto visível na imagem e detalhes do ambiente. "
+                "Não deixe passar nada relevante para a busca."
+            )
+            max_tok = 1024
+        else:
+            prompt_final = prompt
+            max_tok = 600
+
+        resp = _CLAUDE.messages.create(
+            model="claude-opus-4-8",
+            max_tokens=max_tok,
+            messages=[{
+                "role": "user",
+                "content": [
+                    {"type": "image", "source": {
+                        "type": "base64", "media_type": media_type, "data": img_b64,
+                    }},
+                    {"type": "text", "text": prompt_final},
+                ],
+            }],
+        )
+        # Concatena os blocos de texto da resposta (geralmente é um só)
+        desc = "".join(b.text for b in resp.content if b.type == "text").strip()
+        if desc:
+            print(f"[VLM:claude] OK: {os.path.basename(filepath)}")
+            return desc
+    except Exception as exc:
+        print(f"[VLM:claude] Falhou para {filepath}: {exc} — caindo no Ollama")
+    return None
+
+
 def _analyze_image(filepath: str, *, prioridades=None, perfil="fast") -> str:
     vlm_desc = None
     if prioridades is None:
         prioridades = ["tudo"]
+
+    prompt_claude = _build_llava_prompt(prioridades)
+
+    # ── 1ª opção: Claude via API (se ligado com CLAUDE_VISION=1) ────────────
+    # O perfil deep/fast agora controla o nível de detalhe do Claude.
+    if CLAUDE_OK:
+        desc = _analyze_image_claude(filepath, prompt_claude, perfil=perfil)
+        if desc:
+            return desc
+        # Se falhou, segue para o Ollama local abaixo (fallback automático)
 
     # ── Modelos de visão a tentar ───────────────────────────────────────────
     # LLaVA é o modelo usado: nos testes, o qwen2.5vl ficou inviável neste
