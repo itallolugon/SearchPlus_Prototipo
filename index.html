@@ -6,7 +6,7 @@
     <title>Search+</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=Inter:wght@400;600;700&family=Poppins:wght@400;600;700&family=Montserrat:wght@400;600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=2026_modais">
+    <link rel="stylesheet" href="style.css?v=2026_claude_ui">
 </head>
 <body>
     <div id="viewPerfilModal" class="modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(7, 10, 19, 0.95); backdrop-filter:blur(12px); align-items:center; justify-content:center;">
@@ -350,11 +350,12 @@
             </div>
 
             <div id="searchResultsView" class="fade-transition" style="display: none; opacity: 0;">
-                <h2 class="section-title-white text-center" id="tituloMelhores" style="display: none;">Resultados Exatos</h2>
+                <h2 class="section-title-white text-center" id="tituloMelhores" style="display: none;">Resultados</h2>
                 <div class="results-grid" id="melhoresGrid"></div>
 
-                <h2 class="section-title-white text-center" id="tituloSemantica" style="display: none;">Busca Semântica (IA)</h2>
-                <div class="results-grid" id="outrasGrid"></div>
+                <!-- Grid secundário mantido (oculto) para compatibilidade — não é mais usado -->
+                <h2 class="section-title-white text-center" id="tituloSemantica" style="display: none;"></h2>
+                <div class="results-grid" id="outrasGrid" style="display: none;"></div>
             </div>
         </div>
 
@@ -868,6 +869,6 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
-    <script src="script.js?v=2026_modais"></script>
+    <script src="script.js?v=2026_claude_ui"></script>
 </body>
 </html>

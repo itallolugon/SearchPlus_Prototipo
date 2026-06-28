@@ -538,8 +538,14 @@ async function finalizarOnboarding() {
     if (document.getElementById('obBanner').value) currentConfig.perfil_banner = document.getElementById('obBanner').value;
 
     await fetch(`${API_BASE_URL}/api/config`, { method: 'POST', headers: fetchOptions.headers, body: JSON.stringify(currentConfig) });
+
+    // Só AGORA, na confirmação, dispara a análise das pastas (com o perfil
+    // deep/relâmpago que o usuário escolheu). Antes disso, nada é analisado.
+    await fetch(`${API_BASE_URL}/api/analyze_folders`, { method: 'POST', headers: fetchOptions.headers });
+
     await carregarConfiguracoesUX();
     document.getElementById('onboardingOverlay').style.display = 'none';
+    toastOk("Tudo pronto! A IA começou a analisar suas pastas.");
 
     btn.innerText = "Concluir "; btn.disabled = false;
 }
@@ -1608,6 +1614,7 @@ async function adicionarPasta() {
         });
         const config = await updateRes.json();
         atualizarListaModalPastas(config.pastas);
+        toastInfo("Pasta adicionada. Clique em \"Analisar Pastas\" quando quiser iniciar a IA.");
     }
     btn.innerText = "+ Importar Nova Pasta";
 }
@@ -1656,13 +1663,15 @@ function renderizarResultados() {
     });
 
     if (filtrados.length > 0) {
-        document.getElementById('tituloMelhores').style.display = 'block'; document.getElementById('tituloSemantica').style.display = 'block';
+        document.getElementById('tituloMelhores').style.display = 'block';
     } else {
-        document.getElementById('tituloMelhores').style.display = 'none'; document.getElementById('tituloSemantica').style.display = 'none';
+        document.getElementById('tituloMelhores').style.display = 'none';
         mGrid.innerHTML = '<p style="text-align:center; width:100%; color:var(--text-secondary);">Nada encontrado.</p>'; return;
     }
 
-    const melhores = filtrados.filter(r => r.score >= 0.60); const outras = filtrados.filter(r => r.score < 0.60);
+    // Lista única, ordenada do melhor pro pior. O Claude já garante que todos
+    // os resultados são relevantes, então não há mais divisão Exato/Semântico.
+    const ordenados = [...filtrados].sort((a, b) => b.score - a.score);
 
     const buildCard = (r) => {
         const ext = r.tipo.toLowerCase(); const link = formatImagePath(r.caminho);
@@ -1678,11 +1687,11 @@ function renderizarResultados() {
         const favIcon = r.favorito ? '' : '🤍';
         const favBtn = `<div class="btn-fav-abs ${favClass}" onclick="toggleFavorito(event, ${r.id}, this)">${favIcon}</div>`;
 
-        return `<div class="card" data-idx="${idx}" onclick="abrirPainelLateral(${idx})" onmouseenter="mostrarHoverPreview(event, ${idx})" onmousemove="moverHoverPreview(event)" onmouseleave="esconderHoverPreview()">${favBtn}<div class="media-container">${midia}</div><div class="card-content"><h3>${r.nome}</h3><div class="tags"><span class="badge type">${ext.toUpperCase()}</span><span class="badge score">SCORE: ${Math.round(r.score * 100)}%</span></div>${trecho}</div></div>`;
+        return `<div class="card" data-idx="${idx}" onclick="abrirPainelLateral(${idx})" onmouseenter="mostrarHoverPreview(event, ${idx})" onmousemove="moverHoverPreview(event)" onmouseleave="esconderHoverPreview()">${favBtn}<div class="media-container">${midia}</div><div class="card-content"><h3>${r.nome}</h3><div class="tags"><span class="badge type">${ext.toUpperCase()}</span></div>${trecho}</div></div>`;
     };
 
-    melhores.forEach(r => mGrid.innerHTML += buildCard(r));
-    outras.forEach(r => oGrid.innerHTML += buildCard(r));
+    mGrid.innerHTML = ordenados.map(buildCard).join('');
+    oGrid.innerHTML = '';
 }
 
 // ==========================================
@@ -1749,7 +1758,9 @@ function abrirPainelLateral(id) {
 
     document.getElementById('sideTitle').innerText = res.nome;
     document.getElementById('sideBadgeType').innerText = res.tipo.toUpperCase();
-    document.getElementById('sideBadgeScore').innerText = `SCORE: ${Math.round(res.score * 100)}%`;
+    // Score escondido do usuário — informação técnica, não interessa pra quem busca.
+    const _sbScore = document.getElementById('sideBadgeScore');
+    if (_sbScore) _sbScore.style.display = 'none';
     document.getElementById('sideDownloadBtn').href = formatImagePath(res.caminho);
 
     const ext = res.tipo.toLowerCase(); const link = formatImagePath(res.caminho);

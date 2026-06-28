@@ -755,8 +755,9 @@ def api_folders():
         finally:
             conn.close()
 
-        # Análise em background
-        threading.Thread(target=_scan_folder, args=(pasta, uid), daemon=True).start()
+        # NÃO dispara a análise aqui — só salva a pasta. A análise começa quando
+        # o usuário confirma (botão "Analisar"/"Concluir"), que chama
+        # /api/analyze_folders. Assim o usuário escolhe deep/relâmpago antes.
 
         rows = _list_folders(uid)
         return jsonify({"status": "ok", "pastas": _folders_to_json(rows)})
