@@ -49,34 +49,26 @@ if not DATABASE_URL:
 # Libs opcionais (sem crash se não instaladas)
 # ──────────────────────────────────────────────────────────────────────────────
 
-try:
-    import ollama as _ollama
-    OLLAMA_OK = True
-except ImportError:
-    OLLAMA_OK = False
-
-# ── Claude (Anthropic) para descrição de imagens via API ────────────────────
-# Liga/desliga com a variável CLAUDE_VISION=1 no .env. Quando ligado, descreve
-# as imagens com o Claude (rápido e preciso) em vez da LLaVA local. Os embeddings
-# (SBERT/CLIP) continuam sendo gerados localmente — só a descrição muda.
-# A chave fica no .env (ANTHROPIC_API_KEY), nunca no código.
-CLAUDE_VISION = os.environ.get("CLAUDE_VISION", "0") == "1"
+# ── Claude (Anthropic): toda a IA de visão e re-rank do Search+ ─────────────
+# O Search+ usa o Claude para (1) descrever imagens e (2) julgar a relevância
+# dos resultados da busca. A chave fica no .env (ANTHROPIC_API_KEY), nunca no
+# código. Os embeddings (SBERT/CLIP) continuam locais — só a descrição e o
+# julgamento usam a API.
 _CLAUDE = None
 CLAUDE_OK = False
-if CLAUDE_VISION:
-    try:
-        import anthropic as _anthropic
-        _chave = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-        if not _chave:
-            print("[AI] CLAUDE_VISION=1 mas ANTHROPIC_API_KEY não está no .env — usando IA local.")
-        else:
-            _CLAUDE = _anthropic.Anthropic(api_key=_chave)
-            CLAUDE_OK = True
-            print("[AI] Claude (vision) ativo — descrição de imagens via API.")
-    except ImportError:
-        print("[AI] Lib 'anthropic' não instalada (pip install anthropic) — usando IA local.")
-    except Exception as _e:
-        print(f"[AI] Falha ao iniciar Claude: {_e} — usando IA local.")
+try:
+    import anthropic as _anthropic
+    _chave = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    if not _chave:
+        print("[AI] ANTHROPIC_API_KEY não encontrada no .env — análise de imagens e re-rank ficarão indisponíveis.")
+    else:
+        _CLAUDE = _anthropic.Anthropic(api_key=_chave)
+        CLAUDE_OK = True
+        print("[AI] Claude ativo — descrição de imagens e re-rank da busca via API.")
+except ImportError:
+    print("[AI] Lib 'anthropic' não instalada (pip install anthropic).")
+except Exception as _e:
+    print(f"[AI] Falha ao iniciar Claude: {_e}")
 
 try:
     import fitz  # PyMuPDF
@@ -268,103 +260,6 @@ def _texto_para_embedding(desc: str) -> str:
     tokens = _tokenizar(campos)
     expandido = _expandir_sinonimos(tokens)
     return expandido or _normalizar(campos)
-
-
-def _rerank_com_llm(query: str, candidatos: list[dict], topk: int = 20) -> list[dict]:
-    """
-    Reordena os top-K candidatos usando llama3.2 como juiz de relevância.
-    Blend 50/50 entre score base (SBERT+BM25+CLIP) e nota do LLM.
-    Salvaguardas: hit forte (base ≥ 0.60) + LLM rejeita (≤ 0.20) → ignora LLM.
-    Palavra da query literalmente na descrição → piso 0.5 no score do LLM.
-    Se Ollama falhar, devolve os candidatos inalterados (degrada gracioso).
-    """
-    if not OLLAMA_OK or not candidatos:
-        return candidatos
-
-    topo = candidatos[:topk]
-    resto = candidatos[topk:]
-
-    itens = []
-    for i, c in enumerate(topo, 1):
-        desc = (c.get("descricao_ia") or c.get("nome") or "")[:300].replace("\n", " ")
-        itens.append(f"{i}. {desc}")
-
-    prompt = (
-        f'Consulta do usuário: "{query}"\n\n'
-        "Abaixo há arquivos numerados. Para CADA arquivo, dê uma nota de 0 a 10 "
-        "indicando o quanto ele é relevante à consulta. Seja generoso com SINÔNIMOS "
-        "e termos relacionados (ex: 'cachorro' = 'cão' = 'pet'; 'mulher' inclui 'menina'; "
-        "'comida' inclui 'prato', 'refeição').\n"
-        "Critério: 10 = diretamente sobre o tema; 7-9 = contém claramente o tema; "
-        "4-6 = relação indireta; 0-3 = não tem relação.\n\n"
-        "Responda APENAS em JSON, sem markdown, sem explicação. "
-        "Formato: {\"1\": 8, \"2\": 3, \"3\": 10, ...}\n\n"
-        + "\n".join(itens)
-    )
-
-    try:
-        resp = _ollama.chat(
-            model="llama3.2",
-            messages=[{"role": "user", "content": prompt}],
-            options={"temperature": 0.0},
-        )
-        raw = resp["message"]["content"].strip()
-        if raw.startswith("```"):
-            raw = raw.strip("`").lstrip("json").strip()
-        notas = json.loads(raw)
-    except Exception as exc:
-        print(f"[Rerank] Falhou, mantendo ordem original: {exc}")
-        return candidatos
-
-    q_palavras_literais = set()
-    for w in _tokenizar(query):
-        if len(w) >= 3:
-            q_palavras_literais.update(_variantes_morfologicas(w))
-
-    for i, c in enumerate(topo, 1):
-        nota = notas.get(str(i), notas.get(i))
-        if not isinstance(nota, (int, float)):
-            continue
-        llm_score = max(0.0, min(1.0, float(nota) / 10.0))
-        base = c["score"]
-
-        # Há match literal da query na descrição? (sinal forte de relevância)
-        desc_norm = _normalizar(c.get("descricao_ia") or "")
-        tem_match_literal = any(w in desc_norm for w in q_palavras_literais)
-
-        # Salvaguarda 1: hit forte do motor + LLM rejeita → ignora o LLM
-        # (protege bons resultados de um LLM injustamente severo)
-        if base >= 0.60 and llm_score <= 0.20:
-            print(f"[Rerank] LLM rejeitou '{c['nome']}' (base={base:.2f}) — ignorando nota LLM")
-            continue
-
-        # SBERT puro do item (similaridade semântica direta, antes do blend)
-        sbert_puro = c.get("_sbert", base)
-
-        # Hit semântico forte: o SBERT por si só já considera relevante
-        # (≥ 0.38). Mesmo sem match literal, é um resultado legítimo
-        # (ex: 'mulher' numa festa cuja descrição da IA falhou em citar pessoas).
-        hit_semantico_forte = sbert_puro >= 0.38
-
-        # Salvaguarda 2: o motor achou FRACO (base < 0.25), sem match literal
-        # E sem hit semântico forte → o LLM NÃO pode promover sozinho. Evita
-        # alucinação tipo 'kevin' recebendo nota 10 numa foto de festa qualquer.
-        if base < 0.25 and not tem_match_literal and not hit_semantico_forte:
-            print(f"[Rerank] Base fraco ({base:.2f}) sem sinal — LLM nao promove '{c['nome']}'")
-            c["score"] = round(base, 4)   # mantém baixo; corte final descarta
-            continue
-
-        # Match literal OU hit semântico forte garantem um piso de relevância,
-        # pra o LLM não derrubar um resultado legítimo abaixo do corte.
-        if tem_match_literal or hit_semantico_forte:
-            llm_score = max(llm_score, 0.5)
-
-        c["score_original"] = base
-        c["score_llm"]      = round(llm_score, 3)
-        c["score"]          = round(0.5 * base + 0.5 * llm_score, 4)
-
-    topo.sort(key=lambda x: x["score"], reverse=True)
-    return topo + resto
 
 
 def _rerank_com_claude(query: str, candidatos: list[dict], topk: int = 15) -> list[dict]:
@@ -1001,19 +896,6 @@ def api_estimate_time():
     })
 
 
-@app.route("/api/ollama_models")
-def api_ollama_models():
-    """Retorna lista de modelos Ollama disponíveis."""
-    if not OLLAMA_OK:
-        return jsonify({"disponivel": False, "modelos": []})
-    try:
-        models = _ollama.list()
-        nomes = [m.get("name", m.get("model", "")) for m in models.get("models", [])]
-        return jsonify({"disponivel": True, "modelos": nomes})
-    except Exception as exc:
-        return jsonify({"disponivel": False, "erro": str(exc), "modelos": []})
-
-
 # ──────────────────────────────────────────────────────────────────────────────
 # Servir arquivos locais pelo caminho absoluto
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1644,12 +1526,10 @@ def api_search():
     results.sort(key=lambda x: x["score"], reverse=True)
 
     if results:
-        # Re-rank: Claude (se ligado) é o juiz preferido — entende diferenças
-        # semânticas finas (gato ≠ cachorro). Senão, cai no Llama local (Ollama).
-        if CLAUDE_OK:
-            results = _rerank_com_claude(query, results, topk=15)
-        else:
-            results = _rerank_com_llm(query, results, topk=20)
+        # Re-rank com Claude: juiz semântico que entende diferenças finas
+        # (gato ≠ cachorro) e descarta resultados parecidos-mas-errados.
+        # Se a API falhar, mantém a ordem do motor (degrada gracioso).
+        results = _rerank_com_claude(query, results, topk=15)
         # Corte final: > 0.25 descarta o "ruído de fundo" (itens fracos, ou os que
         # o Claude marcou como não-correspondentes). Busca sem match real volta vazia.
         results = [r for r in results if r["score"] > 0.25]
@@ -2294,7 +2174,7 @@ def api_debug_files():
     return jsonify({
         "total": len(rows),
         "sbert_disponivel": SBERT_OK,
-        "ollama_disponivel": OLLAMA_OK,
+        "claude_disponivel": CLAUDE_OK,
         "arquivos": [dict(r) for r in rows]
     })
 
@@ -2782,44 +2662,45 @@ def _process_worker() -> None:
         with _lock:
             _status = f"Analisando ({_queue.qsize()} na fila): {fname}"
 
-        # ── CLIP pre-filter: Otimização Extrema ──
-        # Tenta pular o LLaVA se a imagem não contiver o que o usuário quer.
-        skip_llava = False
+        # ── CLIP pre-filter: economiza créditos da API ──
+        # Usa o CLIP (local) pra pular a chamada do Claude quando a imagem
+        # claramente não bate com as categorias que o usuário pediu.
+        skip_analise = False
         if ext in _EXT_IMG and CLIP_OK and prioridades and "tudo" not in prioridades:
             clip_emb_img = _gerar_embedding_clip_imagem(fpath)
             if clip_emb_img:
                 import numpy as np
                 clip_q = np.array([clip_emb_img])
-                
-                # Para CADA categoria desejada, verificamos se a imagem atinge o threshold.
-                # Se falhar em TODAS as categorias selecionadas, pulamos o LLaVA.
+
+                # Para CADA categoria desejada, verifica se a imagem atinge o threshold.
+                # Se falhar em TODAS as categorias selecionadas, pula a análise.
                 passou_no_filtro = False
-                
+
                 for cat in prioridades:
                     if cat not in _CLIP_TERMS:
                         passou_no_filtro = True # Categoria desconhecida, melhor analisar
                         break
-                        
+
                     cat_embs = _get_precomputed_clip_embs(cat)
                     if not cat_embs:
                         passou_no_filtro = True
                         break
-                        
+
                     max_sim = 0.0
                     for t_emb in cat_embs:
                         sim = float(cosine_similarity(clip_q, np.array([t_emb]))[0][0])
                         max_sim = max(max_sim, sim)
-                        
+
                     if max_sim >= _CLIP_THRESHOLDS.get(cat, 0.20):
                         passou_no_filtro = True
                         break
-                
+
                 if not passou_no_filtro:
-                    skip_llava = True
+                    skip_analise = True
                     print(f"[CLIP Pre-filter] Rejeitado visualmente pelas categorias {prioridades}: {fname}")
 
         try:
-            if skip_llava:
+            if skip_analise:
                 desc = f"Imagem: {fname}"
             else:
                 desc = _analyze_file(fpath, ext, prioridades=prioridades, perfil=perfil)
@@ -2951,8 +2832,7 @@ def _resize_image_for_llava(filepath: str, max_size=768) -> bytes:
 
 
 def _analyze_image_claude(filepath: str, prompt: str, perfil: str = "fast") -> str | None:
-    """Descreve a imagem usando a API do Claude (vision). Retorna None se falhar,
-    para o _analyze_image cair no fallback local (Ollama).
+    """Descreve a imagem usando a API do Claude (vision). Retorna None se falhar.
     perfil 'deep' = análise mais detalhada e cuidadosa; 'fast' = mais econômica."""
     if not CLAUDE_OK or _CLAUDE is None:
         return None
@@ -2994,61 +2874,20 @@ def _analyze_image_claude(filepath: str, prompt: str, perfil: str = "fast") -> s
             print(f"[VLM:claude] OK: {os.path.basename(filepath)}")
             return desc
     except Exception as exc:
-        print(f"[VLM:claude] Falhou para {filepath}: {exc} — caindo no Ollama")
+        print(f"[VLM:claude] Falhou para {filepath}: {exc}")
     return None
 
 
 def _analyze_image(filepath: str, *, prioridades=None, perfil="fast") -> str:
-    vlm_desc = None
+    """Descreve a imagem usando o Claude (vision). O perfil deep/fast controla
+    o nível de detalhe. Se a API falhar, devolve um fallback com o nome do
+    arquivo (o worker mantém processado=0 e tenta de novo na próxima varredura)."""
     if prioridades is None:
         prioridades = ["tudo"]
 
-    prompt_claude = _build_llava_prompt(prioridades)
-
-    # ── 1ª opção: Claude via API (se ligado com CLAUDE_VISION=1) ────────────
-    # O perfil deep/fast agora controla o nível de detalhe do Claude.
-    if CLAUDE_OK:
-        desc = _analyze_image_claude(filepath, prompt_claude, perfil=perfil)
-        if desc:
-            return desc
-        # Se falhou, segue para o Ollama local abaixo (fallback automático)
-
-    # ── Modelos de visão a tentar ───────────────────────────────────────────
-    # LLaVA é o modelo usado: nos testes, o qwen2.5vl ficou inviável neste
-    # hardware (7-12 min/imagem — vision encoder mal otimizado no llama.cpp).
-    # LLaVA roda em ~1 min/imagem. Ordem de fallback caso um não esteja instalado.
-    if perfil == "deep":
-        models_to_try = ["llava:13b", "llava"]
-    else:
-        models_to_try = ["llava", "llava:13b"]
-
     prompt = _build_llava_prompt(prioridades)
-
-    # ── Modelo de visão via Ollama com fallback automático ──────────────────
-    if OLLAMA_OK:
-        optimized_image_bytes = _resize_image_for_llava(filepath)
-        for model in models_to_try:
-            try:
-                resp = _ollama.chat(
-                    model=model,
-                    options={"temperature": 0.0, "top_p": 0.5},
-                    messages=[{
-                        "role": "user",
-                        "content": prompt,
-                        "images": [optimized_image_bytes],
-                    }],
-                )
-                vlm_desc = resp["message"]["content"]
-                print(f"[VLM:{model}] OK: {os.path.basename(filepath)}")
-                break  # Sucesso — não tenta o próximo modelo
-            except Exception as exc:
-                error_msg = f"[VLM:{model}] Indisponível para {filepath}: {exc}"
-                print(error_msg)
-                with open("searchplus.log", "a") as f:
-                    f.write(error_msg + "\n")
-                continue  # Tenta próximo modelo
-
-    return vlm_desc or f"Imagem: {os.path.basename(filepath)}"
+    desc = _analyze_image_claude(filepath, prompt, perfil=perfil)
+    return desc or f"Imagem: {os.path.basename(filepath)}"
 
 
 def _extract_pdf(filepath: str) -> str:
