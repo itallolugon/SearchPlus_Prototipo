@@ -278,11 +278,21 @@ def _rerank_com_claude(query: str, candidatos: list[dict], topk: int = 15) -> li
     topo = candidatos[:topk]
     resto = candidatos[topk:]
 
-    # Monta a lista numerada com nome + descrição curta de cada candidato
+    # Monta a lista numerada com a descrição curta de cada candidato.
+    # Itens SEM descrição (imagens lazy ainda não descritas) ficam de fora do
+    # julgamento — o Claude só teria o nome do arquivo pra opinar, o que é
+    # chute. O score visual do motor decide por eles.
     itens = []
-    for i, c in enumerate(topo, 1):
-        desc = (c.get("descricao_ia") or c.get("nome") or "")[:200].replace("\n", " ")
-        itens.append(f"{i}. {desc}")
+    julgaveis = []  # índices de `topo` na mesma ordem dos números do prompt
+    for c in topo:
+        desc = (c.get("descricao_ia") or "").strip()
+        if not desc:
+            continue
+        julgaveis.append(c)
+        itens.append(f"{len(julgaveis)}. {desc[:200]}".replace("\n", " "))
+
+    if not itens:
+        return candidatos
 
     prompt = (
         f"O usuário buscou por: \"{query}\"\n\n"
@@ -311,7 +321,7 @@ def _rerank_com_claude(query: str, candidatos: list[dict], topk: int = 15) -> li
         print(f"[Rerank Claude] Falhou, mantendo ordem original: {exc}")
         return candidatos
 
-    for i, c in enumerate(topo, 1):
+    for i, c in enumerate(julgaveis, 1):
         v = veredictos.get(str(i), veredictos.get(i))
         if v is False:
             # Claude diz que NÃO corresponde → joga o score pra baixo do corte final.
@@ -878,12 +888,11 @@ def api_estimate_time():
                     truncado = True
                     break
 
-    rate = 2 if perfil == "fast" else 10  # segundos por arquivo
-    
-    # Se o foco for específico, a grande maioria dos arquivos será pulada rapidamente pelo CLIP (~0.1s).
-    # Assumimos conservadoramente que 10% vão para a IA densa, e 90% são pulados.
-    if foco != "tudo" and foco != "":
-        rate = (rate * 0.1) + (0.1 * 0.9)
+    # Indexação lazy: no upload só geramos o embedding CLIP local (~0.5s por
+    # arquivo). A descrição pela IA acontece depois, sob demanda, na busca —
+    # então ela não entra nesta estimativa. O perfil (fast/deep) afeta o nível
+    # de detalhe da descrição na busca, não o tempo de indexação.
+    rate = 0.5  # segundos por arquivo (embedding CLIP local)
 
     est_min = round((count * rate) / 60, 1)
     # Se o tempo for menor que 0.1 mas maior que 0, mostre 0.1 min
@@ -1429,6 +1438,10 @@ def api_search():
 
     sql_where_extra = (" AND " + " AND ".join(sql_filtros)) if sql_filtros else ""
 
+    # Vetor CLIP da frase buscada — usado na query complementar de imagens lazy
+    # e no cálculo de similaridade visual mais abaixo (calculado uma vez só).
+    clip_query_vec = _gerar_embedding_clip_texto(q["original"]) if CLIP_OK else None
+
     # Candidatos: trazemos DOIS tipos de arquivo —
     #  (a) documentos/arquivos com embedding SBERT (texto), e
     #  (b) imagens com embedding_clip (busca lazy: indexadas só com CLIP, sem
@@ -1453,6 +1466,28 @@ def api_search():
         """,
         (query_emb, uid, *params_filtro, query_emb)
     ).fetchall()
+    rows = list(rows)
+
+    # Complemento lazy: com muitos arquivos, as imagens sem SBERT ficam no fim
+    # da ordenação acima e podem cair fora do LIMIT 100 — sumindo da busca.
+    # Busca-as separadamente por similaridade VISUAL (CLIP no banco) e junta.
+    if clip_query_vec is not None:
+        rows_lazy = conn.execute(
+            f"""
+            SELECT id, folder_id, nome, caminho, tipo, descricao_ia,
+                   embedding_clip, data_adicionado, favorito,
+                   NULL AS sbert_score
+            FROM files
+            WHERE user_id = %s AND processado = 1
+                  AND embedding IS NULL AND embedding_clip IS NOT NULL
+            {sql_where_extra}
+            ORDER BY embedding_clip <=> %s::vector
+            LIMIT 40
+            """,
+            (uid, *params_filtro, clip_query_vec)
+        ).fetchall()
+        ja_vistos = {r["id"] for r in rows}
+        rows.extend(r for r in rows_lazy if r["id"] not in ja_vistos)
     conn.close()
 
     if not rows:
@@ -1467,20 +1502,19 @@ def api_search():
     ]
     bm25_sims = _bm25_scores(corpus_tokens, q["palavras"])
 
-    # CLIP (visual): só pra imagens com embedding_clip
+    # CLIP (visual): só pra imagens com embedding_clip (vetor da query já
+    # foi calculado antes da SQL — reusa)
     clip_sims = [0.0] * len(rows)
-    if CLIP_OK:
-        clip_query_vec = _gerar_embedding_clip_texto(q["original"])
-        if clip_query_vec is not None:
-            import numpy as np
-            clip_q_np = np.array([clip_query_vec])
-            for i, f in enumerate(rows):
-                if f["tipo"] in _EXT_IMG and f["embedding_clip"] is not None:
-                    try:
-                        img_vec = np.array([f["embedding_clip"]])
-                        clip_sims[i] = float(cosine_similarity(clip_q_np, img_vec)[0][0])
-                    except Exception:
-                        pass
+    if CLIP_OK and clip_query_vec is not None:
+        import numpy as np
+        clip_q_np = np.array([clip_query_vec])
+        for i, f in enumerate(rows):
+            if f["tipo"] in _EXT_IMG and f["embedding_clip"] is not None:
+                try:
+                    img_vec = np.array([f["embedding_clip"]])
+                    clip_sims[i] = float(cosine_similarity(clip_q_np, img_vec)[0][0])
+                except Exception:
+                    pass
 
     # ── DESCRIÇÃO SOB DEMANDA (lazy) ────────────────────────────────────────
     # As imagens são indexadas só com embedding CLIP (sem descrição). Aqui,
@@ -2319,12 +2353,16 @@ def api_reanalyze():
         return jsonify({"error": "Não autenticado."}), 401
 
     conn = get_db()
-    # Marca como não processado: arquivos com descrição ruim (fallback) ou vazios
+    # Marca como não processado: arquivos travados (processado=0), sem NENHUM
+    # embedding, ou com descrição de fallback. Imagens lazy-indexadas (só com
+    # embedding_clip, descrição vazia de propósito) são SAUDÁVEIS — não entram,
+    # senão o botão "Re-analisar" as tiraria da busca à toa.
     conditions = " OR ".join(
         "descricao_ia LIKE %s" for _ in _DESCRICOES_RUINS
     )
     rows = conn.execute(
-        f"SELECT id, caminho, nome, tipo FROM files WHERE user_id = %s AND (processado = 0 OR embedding IS NULL OR {conditions})",
+        f"SELECT id, caminho, nome, tipo FROM files WHERE user_id = %s AND "
+        f"(processado = 0 OR (embedding IS NULL AND embedding_clip IS NULL) OR {conditions})",
         (uid, *[f"{p}%" for p in _DESCRICOES_RUINS])
     ).fetchall()
 

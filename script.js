@@ -2259,14 +2259,14 @@ async function buscarStatus() {
         // Detecta transição fila>0 -> fila=0: análise terminou.
         // Só notifica se as notificações estiverem ativadas nas configs.
         if (_ultimaFila > 0 && pend === 0 && currentConfig.notificacoes !== false) {
-            toastOk("Análise concluída! Os arquivos já podem ser buscados.");
+            toastOk("Indexação concluída! Os arquivos já podem ser buscados.");
         }
         _ultimaFila = pend;
 
         // Monta o texto do status
         let texto;
         if (pend > 0) {
-            texto = `🔍 Analisando arquivos — ${pend} na fila`;
+            texto = `🔍 Indexando arquivos — ${pend} na fila`;
         } else if (s.status && s.status.startsWith('Aguardando janela')) {
             texto = `🕐 ${s.status}`;
         } else if (s.status && s.status.startsWith('Escaneando')) {
