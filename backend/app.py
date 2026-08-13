@@ -56,6 +56,9 @@ if not DATABASE_URL:
 # julgamento usam a API.
 _CLAUDE = None
 CLAUDE_OK = False
+# Modelo usado tanto para descrever imagens quanto para julgar a busca.
+# Pode ser trocado no .env (CLAUDE_MODEL) sem mexer no código.
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "").strip() or "claude-opus-5"
 try:
     import anthropic as _anthropic
     _chave = os.environ.get("ANTHROPIC_API_KEY", "").strip()
@@ -209,14 +212,15 @@ def _gerar_embedding_clip_texto(text: str) -> list[float] | None:
         return None
 
 
-def _extrair_campos_llava(desc: str) -> str:
+def _extrair_campos_descricao(desc: str) -> str:
     """
-    Extrai campos semanticamente ricos da saída LLaVA para gerar embedding.
-    Inclui 'O que é', 'Pessoas', 'Animais', 'Objetos', 'Ações' e 'Tags'.
-    Descarta 'Ambiente' (cores/local) para reduzir ruído.
+    Extrai campos semanticamente ricos da descrição para gerar embedding.
+    Inclui 'Estilo', 'O que é', 'Pessoas', 'Animais', 'Objetos', 'Ações',
+    'Texto' e 'Tags'. Descarta 'Ambiente' (cores/local) para reduzir ruído.
     Retorna o texto original se o formato estruturado não for encontrado.
     """
-    campos_alvo = {"o que e", "pessoas", "animais", "objetos", "acoes", "tags"}
+    campos_alvo = {"estilo", "o que e", "pessoas", "animais", "objetos",
+                   "acoes", "texto", "tags"}
     linhas_extraidas = []
 
     for linha in desc.splitlines():
@@ -252,11 +256,11 @@ def _variantes_morfologicas(palavra: str) -> set[str]:
 
 def _texto_para_embedding(desc: str) -> str:
     """
-    Prepara texto da descrição LLaVA para virar embedding de alto recall.
+    Prepara o texto da descrição para virar embedding de alto recall.
     Expande sinônimos no próprio texto do documento (não só na query), então
     uma imagem com 'cão' também casa com buscas por 'cachorro', 'caozinho' etc.
     """
-    campos = _extrair_campos_llava(desc)
+    campos = _extrair_campos_descricao(desc)
     tokens = _tokenizar(campos)
     expandido = _expandir_sinonimos(tokens)
     return expandido or _normalizar(campos)
@@ -264,8 +268,8 @@ def _texto_para_embedding(desc: str) -> str:
 
 def _rerank_com_claude(query: str, candidatos: list[dict], topk: int = 15) -> list[dict]:
     """
-    Re-rank usando o Claude como juiz semântico. Diferente do Ollama (que dá notas),
-    aqui o Claude diz QUAIS resultados realmente correspondem à busca e quais não.
+    Re-rank usando o Claude como juiz semântico: em vez de dar notas, ele diz
+    QUAIS resultados realmente correspondem à busca e quais não.
     Resolve casos como 'gato aparecendo em busca de cachorro' — o Claude entende
     que são animais diferentes, mesmo que os embeddings os achem parecidos.
 
@@ -289,7 +293,9 @@ def _rerank_com_claude(query: str, candidatos: list[dict], topk: int = 15) -> li
         if not desc:
             continue
         julgaveis.append(c)
-        itens.append(f"{len(julgaveis)}. {desc[:200]}".replace("\n", " "))
+        # 500 caracteres: a descrição é multi-campo (Estilo/Pessoas/Animais/...),
+        # e cortar cedo demais escondia justamente o campo que decide o veredito.
+        itens.append(f"{len(julgaveis)}. {desc[:500]}".replace("\n", " | "))
 
     if not itens:
         return candidatos
@@ -298,38 +304,79 @@ def _rerank_com_claude(query: str, candidatos: list[dict], topk: int = 15) -> li
         f"O usuário buscou por: \"{query}\"\n\n"
         f"Abaixo estão arquivos encontrados (com a descrição de cada um). "
         f"Para CADA número, responda se o arquivo REALMENTE corresponde ao que o "
-        f"usuário buscou. Seja rigoroso com a diferença entre coisas parecidas mas "
-        f"distintas: por exemplo, se a busca é por 'cachorro', um GATO NÃO corresponde "
-        f"(são animais diferentes), mesmo que ambos sejam animais.\n\n"
-        f"Responda APENAS em JSON, sem markdown, sem explicação. Para cada número, "
-        f"use true (corresponde) ou false (não corresponde).\n"
-        f"Formato: {{\"1\": true, \"2\": false, \"3\": true}}\n\n"
+        f"usuário buscou.\n\n"
+        f"Seja rigoroso com a diferença entre coisas parecidas mas distintas: se a "
+        f"busca é por 'cachorro', um GATO NÃO corresponde (são animais diferentes), "
+        f"mesmo que ambos sejam animais.\n\n"
+        f"Mas o MEIO da imagem nunca desqualifica: desenho, ilustração, pintura, "
+        f"anime, cartoon, quadrinho, pixel art e render 3D contam pelo que "
+        f"representam. Um desenho de cachorro CORRESPONDE a uma busca por "
+        f"'cachorro'. Só marque false quando o assunto for outro, não quando o "
+        f"estilo for diferente do esperado — a menos que o usuário tenha pedido um "
+        f"estilo específico (ex.: 'foto de cachorro' exclui desenhos; "
+        f"'desenho de cachorro' exclui fotos).\n\n"
         + "\n".join(itens)
     )
 
     try:
         resp = _CLAUDE.messages.create(
-            model="claude-opus-4-8",
-            max_tokens=500,
+            model=CLAUDE_MODEL,
+            max_tokens=2000,
+            output_config={
+                "effort": "low",
+                "format": {
+                    "type": "json_schema",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "veredictos": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "n": {"type": "integer"},
+                                        "corresponde": {"type": "boolean"},
+                                    },
+                                    "required": ["n", "corresponde"],
+                                    "additionalProperties": False,
+                                },
+                            },
+                        },
+                        "required": ["veredictos"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
             messages=[{"role": "user", "content": prompt}],
         )
+        if resp.stop_reason == "refusal":
+            print("[Rerank Claude] Recusado — mantendo ordem original")
+            return candidatos
         raw = "".join(b.text for b in resp.content if b.type == "text").strip()
-        if raw.startswith("```"):
-            raw = raw.strip("`").lstrip("json").strip()
-        veredictos = json.loads(raw)
+        dados = json.loads(raw)
+        veredictos = {
+            int(v["n"]): bool(v["corresponde"])
+            for v in dados.get("veredictos", [])
+            if isinstance(v, dict) and "n" in v and "corresponde" in v
+        }
     except Exception as exc:
         print(f"[Rerank Claude] Falhou, mantendo ordem original: {exc}")
         return candidatos
 
     for i, c in enumerate(julgaveis, 1):
-        v = veredictos.get(str(i), veredictos.get(i))
-        if v is False:
-            # Claude diz que NÃO corresponde → joga o score pra baixo do corte final.
-            # Não remove direto (deixa o corte > 0.25 do api_search descartar),
-            # assim a lógica de corte fica num lugar só.
-            print(f"[Rerank Claude] '{c['nome']}' nao corresponde a '{query}' — descartado")
-            c["score"] = 0.10
-        # Se v is True ou None (Claude não opinou), mantém o score do motor.
+        if veredictos.get(i) is not False:
+            continue  # corresponde, ou o Claude não opinou → mantém o score do motor
+        # Hit semântico muito forte: o juiz pode estar errado (descrição pobre,
+        # sinônimo que ele não reconheceu). Penaliza sem eliminar.
+        if c.get("_sbert", 0.0) >= 0.75:
+            c["score"] = min(c["score"], 0.45)
+            print(f"[Rerank Claude] '{c['nome']}' duvidoso para '{query}' — rebaixado")
+            continue
+        # Caso normal: joga o score pra baixo do corte final. Não remove direto
+        # (deixa o corte > 0.25 do api_search descartar), assim a lógica de corte
+        # fica num lugar só.
+        print(f"[Rerank Claude] '{c['nome']}' nao corresponde a '{query}' — descartado")
+        c["score"] = 0.10
 
     topo.sort(key=lambda x: x["score"], reverse=True)
     return topo + resto
@@ -1070,7 +1117,32 @@ _TERMOS_ANIMAL = {
     "cavalo", "coelho", "hamster", "peixe", "tartaruga", "papagaio",
 }
 
-# Frases na descrição LLaVA que confirmam AUSÊNCIA de pessoas (normalizadas)
+# Termos que indicam busca por imagem NÃO fotográfica (desenho, arte, etc.).
+# Casados contra a query normalizada inteira, não contra os tokens, porque
+# 'imagem'/'foto' são stopwords e sumiriam da tokenização.
+_TERMOS_DESENHO = (
+    "desenho", "desenhos", "desenhado", "desenhada", "desenhar",
+    "ilustracao", "ilustracoes", "ilustrado", "arte", "artistico",
+    "anime", "animes", "manga", "mangas", "animacao", "animado", "animada",
+    "cartoon", "cartoons", "caricatura", "quadrinho", "quadrinhos", "hq",
+    "pintura", "pintado", "aquarela", "oleo sobre tela",
+    "pixel art", "pixelart", "arte digital", "digital art",
+    "esboco", "rascunho", "sketch", "rabisco", "traco",
+    "render", "3d", "cgi", "vetor", "vetorial",
+    "logotipo", "logotipos", "icone", "icones", "emoji", "meme", "memes",
+    "wallpaper", "papel de parede", "personagem", "personagens", "chibi",
+    "captura de tela", "screenshot", "print", "grafico", "diagrama", "mapa",
+)
+# 'logo' fica de fora de propósito: é advérbio comum em pt-BR ("me mostre logo
+# as fotos") e apareceria em buscas que nada têm a ver com logotipo.
+
+# Termos que indicam busca por FOTOGRAFIA real (o oposto do conjunto acima)
+_TERMOS_FOTO = (
+    "foto", "fotos", "fotografia", "fotografias", "fotografico",
+    "foto real", "imagem real", "vida real", "retrato fotografico",
+)
+
+# Frases na descrição que confirmam AUSÊNCIA de pessoas (normalizadas)
 _FRASES_SEM_PESSOA = (
     "nenhuma pessoa", "sem pessoas", "nenhum humano", "sem humanos",
     "nenhuma figura humana", "nao ha pessoas", "pessoas: nenhuma",
@@ -1194,6 +1266,33 @@ _SINONIMOS_QUERY: dict[str, list[str]] = {
     "vestido":  ["traje"],
     "sapato":   ["tenis", "calcado"],
     "tenis":    ["sapato", "calcado"],
+
+    # ── Estilo da imagem (desenho, arte, etc.) ───────────────────────────
+    "desenho":    ["ilustracao", "arte", "desenhado", "cartoon", "esboco", "arte digital"],
+    "desenhos":   ["ilustracoes", "desenho", "arte", "cartoon"],
+    "ilustracao": ["desenho", "arte", "arte digital", "ilustrado"],
+    "arte":       ["desenho", "ilustracao", "pintura", "arte digital"],
+    "anime":      ["manga", "desenho", "animacao japonesa", "ilustracao", "personagem"],
+    "manga":      ["anime", "quadrinho", "desenho", "ilustracao"],
+    "cartoon":    ["desenho", "animacao", "caricatura", "ilustracao"],
+    "animacao":   ["desenho", "cartoon", "animado"],
+    "quadrinho":  ["hq", "manga", "cartoon", "desenho"],
+    "quadrinhos": ["hq", "manga", "cartoon", "desenhos"],
+    "hq":         ["quadrinho", "manga", "cartoon"],
+    "pintura":    ["quadro", "arte", "pintado", "aquarela", "tela"],
+    "esboco":     ["rascunho", "sketch", "desenho", "traco"],
+    "sketch":     ["esboco", "rascunho", "desenho"],
+    "personagem": ["desenho", "ilustracao", "anime", "cartoon", "figura"],
+    "personagens": ["desenhos", "ilustracoes", "anime", "cartoon", "figuras"],
+    # 'logo' sozinho não entra: é advérbio comum e poluiria o embedding da query.
+    "logotipo":   ["marca", "icone", "simbolo", "identidade visual"],
+    "icone":      ["logotipo", "simbolo"],
+    "meme":       ["imagem engracada", "piada", "captura de tela"],
+    "wallpaper":  ["papel de parede", "fundo de tela", "arte"],
+    "screenshot": ["captura de tela", "print", "tela"],
+    "print":      ["captura de tela", "screenshot", "tela"],
+    "3d":         ["render", "cgi", "modelagem", "arte digital"],
+    "render":     ["3d", "cgi", "modelagem"],
 }
 
 # Termos de GÊNERO na QUERY
@@ -1221,6 +1320,21 @@ _PALAVRAS_DESC_FEM = {
     "moca", "mocas", "senhora", "feminino", "namorada", "esposa",
     "vestido", "saia",
 }
+
+
+def _contem_termo(texto: str, termos) -> bool:
+    """
+    Procura qualquer um dos termos em `texto` casando PALAVRA INTEIRA.
+    Substring pura daria falso-positivo caro aqui: 'arte' casaria dentro de
+    'partes', 'meme' dentro de 'memento', 'mapa' dentro de qualquer coisa.
+    Funciona também com termos compostos ('pixel art', 'captura de tela').
+    """
+    if not texto:
+        return False
+    return any(
+        re.search(r"(?<!\w)" + re.escape(t) + r"(?!\w)", texto)
+        for t in termos
+    )
 
 
 def _tokenizar(texto: str) -> list[str]:
@@ -1253,6 +1367,23 @@ def _analisar_query(query: str) -> dict:
     norm = _normalizar(query)
     palavras = _tokenizar(query)
     palavras_set = set(palavras)
+
+    # Gênero: termos ambíguos depois de tirar acento ('vovô' e 'vovó' viram
+    # 'vovo') marcavam os dois gêneros ao mesmo tempo, e aí as duas regras de
+    # rejeição disparavam juntas e a busca voltava vazia. Empate = sem filtro.
+    fem  = bool(palavras_set & _TERMOS_FEMININO)
+    masc = bool(palavras_set & _TERMOS_MASCULINO)
+    if fem and masc:
+        fem = masc = False
+
+    # Estilo: casado contra a query inteira porque 'foto'/'imagem' são
+    # stopwords e não sobrevivem à tokenização.
+    busca_desenho = _contem_termo(norm, _TERMOS_DESENHO)
+    busca_foto    = _contem_termo(norm, _TERMOS_FOTO)
+    if busca_desenho and busca_foto:
+        # "foto de um desenho" — não dá pra decidir, não filtra por estilo.
+        busca_desenho = busca_foto = False
+
     return {
         "original":        query,
         "normalizada":     norm,
@@ -1261,8 +1392,10 @@ def _analisar_query(query: str) -> dict:
         "expandida":       _expandir_sinonimos(palavras) or norm,
         "busca_pessoa":    bool(palavras_set & _TERMOS_PESSOA),
         "busca_animal":    bool(palavras_set & _TERMOS_ANIMAL),
-        "busca_feminino":  bool(palavras_set & _TERMOS_FEMININO),
-        "busca_masculino": bool(palavras_set & _TERMOS_MASCULINO),
+        "busca_feminino":  fem,
+        "busca_masculino": masc,
+        "busca_desenho":   busca_desenho,
+        "busca_foto":      busca_foto,
     }
 
 
@@ -1279,15 +1412,22 @@ def _ajustar_score(score_raw: float, q: dict, desc_norm: str, nome_norm: str) ->
 
     desc_words = set(desc_norm.split())
 
+    # Palavra da query que aparece literalmente na descrição. Serve de escape
+    # para as regras de rejeição abaixo: se a descrição diz "Animais: nenhum"
+    # mas cita 'cachorro' em outro campo, quem decide é o juiz semântico, não
+    # uma regra de texto. Evita descartar desenhos e casos de borda.
+    matches_desc = q["palavras_set"] & desc_words
+    tem_literal = bool(matches_desc)
+
     # === Regras de rejeição ===============================================
 
     # Busca de pessoa não pode retornar imagem sem pessoa
-    if q["busca_pessoa"] and score_raw < 0.90:
+    if q["busca_pessoa"] and score_raw < 0.90 and not tem_literal:
         if any(frase in desc_norm for frase in _FRASES_SEM_PESSOA):
             return None
 
     # Busca de animal não pode retornar imagem sem animal
-    if q["busca_animal"] and score_raw < 0.90:
+    if q["busca_animal"] and score_raw < 0.90 and not tem_literal:
         if any(frase in desc_norm for frase in _FRASES_SEM_ANIMAL):
             return None
 
@@ -1307,12 +1447,24 @@ def _ajustar_score(score_raw: float, q: dict, desc_norm: str, nome_norm: str) ->
 
     score = score_raw
 
+    # Estilo pedido na query (desenho vs foto) casando com o campo "Estilo"
+    # da descrição. É preferência, não filtro: no máximo empurra pra cima ou
+    # pra baixo, nunca elimina — o corte final decide.
+    if (q["busca_desenho"] or q["busca_foto"]) and desc_norm:
+        estilo = _campo_descricao(desc_norm, "estilo")
+        if estilo:
+            e_desenho = _contem_termo(estilo, _TERMOS_DESENHO)
+            e_foto    = _contem_termo(estilo, _TERMOS_FOTO)
+            if q["busca_desenho"]:
+                score += 0.12 if e_desenho else (-0.12 if e_foto else 0.0)
+            elif q["busca_foto"]:
+                score += 0.12 if e_foto else (-0.12 if e_desenho else 0.0)
+
     # Query exata dentro do nome do arquivo → +15%
     if q["normalizada"] and q["normalizada"] in nome_norm:
         score += 0.15
 
     # Cada palavra-chave da query que aparece na descrição → +5%
-    matches_desc = q["palavras_set"] & desc_words
     if matches_desc:
         score += 0.05 * len(matches_desc)
 
@@ -1322,7 +1474,7 @@ def _ajustar_score(score_raw: float, q: dict, desc_norm: str, nome_norm: str) ->
     if q["busca_masculino"] and (desc_words & _PALAVRAS_DESC_MASC):
         score += 0.08
 
-    return min(1.0, score)
+    return max(0.0, min(1.0, score))
 
 
 def _bm25_scores(corpus_tokens: list[list[str]], query_tokens: list[str]) -> list[float]:
@@ -1516,6 +1668,14 @@ def api_search():
                 except Exception:
                     pass
 
+    # A similaridade CLIP texto↔imagem vive numa faixa estreita (~0.15 a 0.30),
+    # bem diferente do SBERT, que usa [0, 1]. Misturar as duas escalas cruas
+    # fazia o sinal visual valer quase nada: uma imagem sem descrição batia no
+    # máximo 0.09 de score e era cortada antes de chegar na tela. Aqui a faixa
+    # útil do CLIP é esticada para [0, 1] antes de entrar no blend. Os limiares
+    # continuam usando o valor cru (clip_sims), que é onde foram calibrados.
+    clip_norm = [max(0.0, min(1.0, (s - 0.15) / 0.15)) for s in clip_sims]
+
     # ── DESCRIÇÃO SOB DEMANDA (lazy) ────────────────────────────────────────
     # As imagens são indexadas só com embedding CLIP (sem descrição). Aqui,
     # na busca, pegamos as TOP-5 imagens visualmente mais parecidas com a query
@@ -1560,8 +1720,10 @@ def api_search():
 
     def _filtrar_e_pontuar(threshold_sbert: float) -> list:
         out = []
-        for f, s_sbert, s_bm25, s_clip in zip(rows, sbert_sims, bm25_sims, clip_sims):
-            desc_norm_local = _normalizar(f["descricao_ia"] or "")
+        for f, s_sbert, s_bm25, s_clip, s_visual in zip(
+                rows, sbert_sims, bm25_sims, clip_sims, clip_norm):
+            desc_local      = (f["descricao_ia"] or "").strip()
+            desc_norm_local = _normalizar(desc_local)
             tem_texto     = s_sbert >= threshold_sbert
             tem_visual    = (f["tipo"] in _EXT_IMG and CLIP_OK and s_clip >= 0.25)
             tem_keyword   = s_bm25 >= 0.5 and bool(q["palavras_set"])
@@ -1569,8 +1731,15 @@ def api_search():
             if not (tem_texto or tem_visual or tem_keyword or match_literal):
                 continue
 
-            if f["tipo"] in _EXT_IMG and CLIP_OK and s_clip > 0:
-                blended = W_SBERT_IMG * s_sbert + W_BM25_IMG * s_bm25 + W_CLIP_IMG * s_clip
+            eh_imagem_clip = f["tipo"] in _EXT_IMG and CLIP_OK and s_clip > 0
+            if eh_imagem_clip and desc_local:
+                blended = W_SBERT_IMG * s_sbert + W_BM25_IMG * s_bm25 + W_CLIP_IMG * s_visual
+            elif eh_imagem_clip:
+                # Imagem ainda sem descrição (indexada só com CLIP): não faz
+                # sentido cobrar dela os pesos de texto que ela não tem como
+                # ganhar. O sinal visual responde sozinho, mas com teto, pra
+                # não passar na frente de um acerto textual bem descrito.
+                blended = min(0.70, 0.85 * s_visual)
             else:
                 blended = W_SBERT_DOC * s_sbert + W_BM25_DOC * s_bm25
 
@@ -1759,6 +1928,9 @@ _CATEGORIAS_STATS = {
                 "ceu", "arvore", "jardim", "parque", "campo", "flor", "po do sol", "por do sol"],
     "urbano":  ["cidade", "rua", "predio", "carro", "veiculo", "moto", "edificio",
                 "loja", "trafego", "urbano"],
+    "desenhos":["desenho", "ilustracao", "cartoon", "anime", "manga", "quadrinho",
+                "pintura", "pixel art", "arte digital", "esboco", "caricatura",
+                "logotipo", "meme", "render 3d", "animacao"],
 }
 
 
@@ -1833,11 +2005,16 @@ _KW_COMIDA = ["comida", "refeicao", "alimento", "almoco", "janta", "lanche",
 _KW_NATUREZA = ["paisagem", "praia", "montanha", "floresta", "mata", "oceano",
                 "cachoeira", "arvore", "arvores", "jardim", "campo", "flor",
                 "por do sol", "natureza", "lago", "rio"]
+_KW_DESENHO = ["desenho", "desenhado", "desenhada", "ilustracao", "ilustrado",
+               "cartoon", "anime", "manga", "quadrinho", "hq", "caricatura",
+               "pintura", "aquarela", "pixel art", "arte digital", "esboco",
+               "render 3d", "cgi", "vetorial", "logotipo", "icone", "meme",
+               "captura de tela", "personagem", "animacao"]
 _KW_URBANO = ["cidade", "rua", "predio", "edificio", "avenida", "metropole",
               "arranha-ceu", "carro", "veiculo", "moto", "transito", "urbano"]
 
 
-def _campo_llava(desc_norm: str, nome_campo: str) -> str:
+def _campo_descricao(desc_norm: str, nome_campo: str) -> str:
     """Extrai o conteúdo de um campo da descrição (ex: 'pessoas', 'animais').
     Retorna '' se o campo não existe ou está negado (Nenhum/Nenhuma)."""
     for linha in desc_norm.splitlines():
@@ -1856,7 +2033,7 @@ def _campo_llava(desc_norm: str, nome_campo: str) -> str:
 
 def _categorias_do_arquivo(descricao_ia: str) -> list[str]:
     """
-    Categoriza um arquivo usando os CAMPOS ESTRUTURADOS da descrição LLaVA,
+    Categoriza um arquivo usando os CAMPOS ESTRUTURADOS da descrição,
     não busca solta. Isso evita os falsos-positivos:
       - prato com 'cachorro-quente' caindo em Animais
       - festa com 'bebida' caindo em Comida
@@ -1865,12 +2042,12 @@ def _categorias_do_arquivo(descricao_ia: str) -> list[str]:
     cats = []
 
     # Pessoas: SÓ se o campo "Pessoas" tiver conteúdo real (não negado)
-    if _campo_llava(desc_norm, "pessoas"):
+    if _campo_descricao(desc_norm, "pessoas"):
         cats.append("pessoas")
 
     # Animais: SÓ se o campo "Animais" tiver conteúdo real.
     # Ignora "cachorro-quente"/"cachorro quente" (é comida, não animal).
-    animais_val = _campo_llava(desc_norm, "animais")
+    animais_val = _campo_descricao(desc_norm, "animais")
     if animais_val:
         sem_hotdog = animais_val.replace("cachorro-quente", "").replace("cachorro quente", "")
         if sem_hotdog.strip():
@@ -1879,8 +2056,8 @@ def _categorias_do_arquivo(descricao_ia: str) -> list[str]:
     # Comida / Natureza / Urbano: por palavra-chave nos campos descritivos
     # (o que e / objetos / ambiente / acoes / tags), não em pessoas/animais.
     contexto = " ".join(
-        _campo_llava(desc_norm, c) or ""
-        for c in ("o que e", "objetos", "ambiente", "acoes", "tags")
+        _campo_descricao(desc_norm, c) or ""
+        for c in ("estilo", "o que e", "objetos", "ambiente", "acoes", "tags")
     )
     # Tokeniza por palavra inteira pra evitar substring (ex: 'cidade' em
     # 'feli-cidade', 'mar' em 'marca'). Mantém termos compostos via checagem
@@ -1903,6 +2080,12 @@ def _categorias_do_arquivo(descricao_ia: str) -> list[str]:
         cats.append("natureza")
     if _bate(_KW_URBANO):
         cats.append("urbano")
+
+    # Desenhos: decidido pelo campo "Estilo", que é onde o Claude declara o
+    # meio da imagem. Só cai aqui se o estilo NÃO for fotografia.
+    estilo = _campo_descricao(desc_norm, "estilo")
+    if _contem_termo(estilo, _KW_DESENHO):
+        cats.append("desenhos")
 
     return cats
 
@@ -2219,7 +2402,7 @@ def api_cancel_analysis():
     global _status
     descartados = 0
     # Esvazia a fila. O item que já está sendo processado no worker
-    # termina normalmente (não dá pra abortar uma chamada LLaVA em curso).
+    # termina normalmente (não dá pra abortar uma chamada de visão em curso).
     while True:
         try:
             _queue.get_nowait()
@@ -2374,17 +2557,35 @@ def api_reanalyze():
             ids
         )
         conn.commit()
+
+    # Imagens descritas ANTES do prompt ganhar o campo "Estilo:" não sabem dizer
+    # se são foto ou desenho — e as antigas ainda podiam marcar "Animais: nenhum"
+    # num desenho de cachorro. Limpar a descrição basta: a imagem continua
+    # indexada pelo CLIP (processado=1) e a própria busca a redescreve sob
+    # demanda com o prompt novo. Não precisa passar pela fila.
+    desatualizadas = conn.execute(
+        "UPDATE files SET descricao_ia = '', embedding = NULL "
+        "WHERE user_id = %s AND tipo = ANY(%s) AND embedding_clip IS NOT NULL "
+        "AND descricao_ia <> '' AND descricao_ia NOT LIKE %s "
+        "RETURNING id",
+        (uid, list(_EXT_IMG), "%Estilo:%")
+    ).fetchall()
+    conn.commit()
     conn.close()
 
     # Re-enfileira os arquivos para análise
     for r in rows:
         _queue.put({"path": r["caminho"], "nome": r["nome"], "ext": r["tipo"], "uid": uid})
 
-    return jsonify({"status": "ok", "reenfileirados": len(rows)})
+    return jsonify({
+        "status": "ok",
+        "reenfileirados": len(rows),
+        "descricoes_limpas": len(desatualizadas),
+    })
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Re-geração rápida de embeddings (sem re-executar LLaVA)
+# Re-geração rápida de embeddings (sem re-descrever as imagens)
 # ──────────────────────────────────────────────────────────────────────────────
 
 @app.route("/api/reembed", methods=["POST"])
@@ -2393,7 +2594,7 @@ def api_reembed():
     Re-gera os embeddings de todos os arquivos já processados:
     - SBERT a partir da descrição textual (rápido)
     - CLIP a partir da imagem no disco (lento, só imagens)
-    Não chama LLaVA novamente.
+    Não chama o Claude novamente.
     """
     uid = _uid()
     if not uid:
@@ -2813,58 +3014,73 @@ def _analyze_file(filepath: str, ext: str, *, prioridades=None, perfil="fast") -
     return f"{ext.upper()}: {os.path.basename(filepath)}"
 
 
-def _build_llava_prompt(prioridades: list) -> str:
-    """Constrói o prompt do LLaVA baseado nas prioridades do usuário."""
+def _build_prompt_visao(prioridades: list) -> str:
+    """Constrói o prompt de visão do Claude baseado nas prioridades do usuário."""
     base = (
         "Analise esta imagem e descreva APENAS o que VOCÊ VÊ. "
-        "NÃO INVENTE pessoas, animais ou objetos que não estão visíveis. "
-        "Se não tem pessoa, escreva 'nenhuma'. Se não tem animal, escreva 'nenhum'.\n\n"
+        "NÃO INVENTE pessoas, animais ou objetos que não estão visíveis.\n\n"
+        "REGRA MAIS IMPORTANTE — DESENHOS CONTAM COMO O QUE REPRESENTAM:\n"
+        "A imagem pode ser uma foto, mas também pode ser desenho, ilustração, "
+        "pintura, anime, cartoon, quadrinho, pixel art, render 3D, captura de tela "
+        "ou logotipo. Personagens desenhados, animados ou pintados devem ser "
+        "descritos como as PESSOAS e os ANIMAIS que representam. Um cachorro de "
+        "desenho animado é listado em 'Animais: cachorro'. Uma personagem de anime "
+        "é listada em 'Pessoas: mulher jovem'. NUNCA escreva 'nenhum' só porque a "
+        "imagem não é uma fotografia real — quem procura por 'cachorro' quer achar "
+        "o desenho de cachorro também. Escreva 'nenhuma'/'nenhum' apenas quando o "
+        "ser realmente não aparece na imagem, em nenhuma forma.\n\n"
         "REGRAS DE VOCABULÁRIO (obrigatório):\n"
         "• 'cachorro' (NUNCA 'cão' ou 'cãe')\n"
         "• 'gato' (NUNCA 'felino' ou 'bichano')\n"
         "• 'mulher' / 'menina' (NUNCA 'senhora', 'moça', 'dama')\n"
         "• 'homem' / 'menino' (NUNCA 'senhor', 'rapaz', 'cavalheiro')\n\n"
-        "FORMATO (sempre em português):\n"
+        "FORMATO (sempre em português, um campo por linha):\n"
+        "- Estilo: escolha os termos que se aplicam entre foto, desenho, ilustração, "
+        "pintura, anime, mangá, cartoon, quadrinho, pixel art, arte digital, "
+        "esboço, render 3D, captura de tela, logotipo, ícone, meme, gráfico, mapa\n"
         "- O que é: cena principal em uma frase curta\n"
-        "- Pessoas: liste somente as REALMENTE visíveis com gênero + idade + ação; "
-        "ou 'nenhuma' se não há pessoa\n"
-        "- Animais: liste somente os REALMENTE visíveis com espécie + ação; "
-        "ou 'nenhum' se não há animal\n"
+        "- Pessoas: pessoas e personagens humanos visíveis (inclusive desenhados) "
+        "com gênero + idade + ação; ou 'nenhuma' se não há nenhum\n"
+        "- Animais: animais e personagens-animais visíveis (inclusive desenhados) "
+        "com espécie + ação; ou 'nenhum' se não há nenhum\n"
         "- Objetos: itens visíveis (vírgula-separado)\n"
         "- Ambiente: local + cores dominantes\n"
         "- Ações: o que está acontecendo (verbos no gerúndio)\n"
-        "- Tags: 6 a 10 palavras-chave usando o vocabulário acima"
+        "- Texto: texto legível na imagem entre aspas; ou 'nenhum'\n"
+        "- Tags: 6 a 10 palavras-chave usando o vocabulário acima, incluindo o estilo"
     )
 
     extras = []
     prio_set = set(prioridades)
 
     if "tudo" in prio_set:
-        extras.append("Máximo 5 linhas.")
+        extras.append("Seja conciso: uma linha curta por campo, sem repetir.")
     else:
         if "animais" in prio_set:
             extras.append(
-                "Foque a descrição estritamente em identificar espécies, raças e "
-                "comportamentos de animais visíveis na imagem."
+                "Foque a descrição em identificar espécies, raças e comportamentos "
+                "dos animais visíveis, sejam eles reais ou desenhados."
             )
         if "pessoas" in prio_set:
             extras.append(
-                "Foque em descrever detalhadamente as pessoas: gênero, idade aproximada, "
-                "roupas, expressões faciais e ações."
+                "Foque em descrever detalhadamente as pessoas e personagens humanos: "
+                "gênero, idade aproximada, roupas, expressões faciais e ações."
             )
         if "paisagens" in prio_set:
             extras.append(
                 "Foque em descrever o ambiente, paisagem, elementos naturais, "
                 "arquitetônicos e as cores dominantes da cena."
             )
+        if extras:
+            extras.append("Mesmo assim, preencha TODOS os campos do formato.")
         if not extras:
-            extras.append("Máximo 5 linhas.")
+            extras.append("Seja conciso: uma linha curta por campo, sem repetir.")
 
     return base + "\n" + " ".join(extras)
 
 
-def _resize_image_for_llava(filepath: str, max_size=768) -> bytes:
-    """Redimensiona imagem em memória para otimizar processamento no LLaVA."""
+def _preparar_imagem(filepath: str, max_size=768) -> bytes:
+    """Redimensiona a imagem em memória antes de mandar pro Claude (menor = mais barato)."""
     if not PIL_OK:
         with open(filepath, "rb") as f:
             return f.read()
@@ -2895,26 +3111,27 @@ def _analyze_image_claude(filepath: str, prompt: str, perfil: str = "fast") -> s
         return None
     try:
         import base64
-        # Reusa o mesmo redimensionamento da LLaVA (imagem menor = mais barato/rápido)
-        img_bytes = _resize_image_for_llava(filepath)
-        media_type = "image/jpeg"  # _resize_image_for_llava sempre devolve JPEG
+        img_bytes = _preparar_imagem(filepath)
+        media_type = "image/jpeg"  # _preparar_imagem sempre devolve JPEG
         img_b64 = base64.standard_b64encode(img_bytes).decode("utf-8")
 
         # Perfil controla o quão detalhada é a descrição (deep gasta mais tokens).
+        # max_tokens é o teto do raciocínio + do texto juntos, por isso a folga.
         if perfil == "deep":
             prompt_final = prompt + (
                 "\n\nMODO PROFUNDO: seja minucioso. Identifique raças/espécies "
-                "específicas, marcas, texto visível na imagem e detalhes do ambiente. "
-                "Não deixe passar nada relevante para a busca."
+                "específicas, marcas, estilo artístico, texto visível na imagem e "
+                "detalhes do ambiente. Não deixe passar nada relevante para a busca."
             )
-            max_tok = 1024
+            max_tok, esforco = 3000, "medium"
         else:
             prompt_final = prompt
-            max_tok = 600
+            max_tok, esforco = 2000, "low"
 
         resp = _CLAUDE.messages.create(
-            model="claude-opus-4-8",
+            model=CLAUDE_MODEL,
             max_tokens=max_tok,
+            output_config={"effort": esforco},
             messages=[{
                 "role": "user",
                 "content": [
@@ -2925,6 +3142,9 @@ def _analyze_image_claude(filepath: str, prompt: str, perfil: str = "fast") -> s
                 ],
             }],
         )
+        if resp.stop_reason == "refusal":
+            print(f"[VLM:claude] Recusou descrever {os.path.basename(filepath)}")
+            return None
         # Concatena os blocos de texto da resposta (geralmente é um só)
         desc = "".join(b.text for b in resp.content if b.type == "text").strip()
         if desc:
@@ -2942,7 +3162,7 @@ def _analyze_image(filepath: str, *, prioridades=None, perfil="fast") -> str:
     if prioridades is None:
         prioridades = ["tudo"]
 
-    prompt = _build_llava_prompt(prioridades)
+    prompt = _build_prompt_visao(prioridades)
     desc = _analyze_image_claude(filepath, prompt, perfil=perfil)
     return desc or f"Imagem: {os.path.basename(filepath)}"
 
@@ -2955,7 +3175,7 @@ def _descrever_imagem_on_demand(caminho: str, nome: str) -> str | None:
         return None
     if not os.path.isfile(caminho):
         return None
-    prompt = _build_llava_prompt(["tudo"])
+    prompt = _build_prompt_visao(["tudo"])
     desc = _analyze_image_claude(caminho, prompt, perfil="fast")
     if desc:
         print(f"[Lazy] Descrita sob demanda: {nome}")
