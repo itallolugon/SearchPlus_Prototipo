@@ -42,6 +42,27 @@ Outros detalhes que aumentam a precisão: expansão de sinônimos nos dois lados
 
 ---
 
+## Vai trabalhar no frontend?
+
+Comece por aqui — não precisa de banco de dados, de modelos de IA nem de chave de API:
+
+```bash
+py -m pip install flask flask-cors
+py backend/mock_server.py
+```
+
+Abra `http://127.0.0.1:5001` e o Search+ roda inteiro com dados fictícios. Qualquer usuário e senha entram.
+
+| Documento | Conteúdo |
+|---|---|
+| [docs/FRONTEND.md](docs/FRONTEND.md) | Guia de substituição da interface: o que trocar, o que não tocar, fluxos a entregar |
+| [docs/API.md](docs/API.md) | Contrato da API: payloads, respostas e erros de cada endpoint |
+| [AGENTS.md](AGENTS.md) | Instruções para agentes de IA trabalhando neste repositório |
+
+A interface é substituível por completo; o backend fica como está. Detalhes em [docs/FRONTEND.md](docs/FRONTEND.md).
+
+---
+
 # Como instalar em outro computador
 
 Guia completo para colocar o Search+ funcionando numa máquina nova (Windows). Existe também o [COMO_RODAR.txt](COMO_RODAR.txt), escrito em linguagem mais simples para usuários leigos.

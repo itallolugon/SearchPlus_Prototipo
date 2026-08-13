@@ -26,18 +26,32 @@ from psycopg2.extras import RealDictCursor
 from pgvector.psycopg2 import register_vector
 from dotenv import load_dotenv
 
-from flask import Flask, jsonify, request, send_file, send_from_directory, session
+from flask import (
+    Flask, g, has_app_context, jsonify, request, send_file,
+    send_from_directory, session,
+)
 from flask_cors import CORS
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Configuração de caminhos e ambiente
 # ──────────────────────────────────────────────────────────────────────────────
 
-BASE_DIR = Path(__file__).parent          # .../backend/
-FRONTEND_DIR = BASE_DIR.parent            # .../
+BASE_DIR = Path(__file__).resolve().parent   # .../backend/
 
 # Carrega .env do diretório do backend
 load_dotenv(BASE_DIR / ".env")
+
+# Pasta servida como frontend. Por padrão é a raiz do projeto (o protótipo em
+# HTML/CSS/JS puro). Quando o front definitivo chegar, basta apontar o .env para
+# a pasta de build dele — nenhuma linha de Python muda:
+#   FRONTEND_DIR=../front/dist
+_frontend_cfg = os.environ.get("FRONTEND_DIR", "").strip()
+FRONTEND_DIR = (
+    (BASE_DIR / _frontend_cfg).resolve() if _frontend_cfg else BASE_DIR.parent
+)
+if _frontend_cfg and not FRONTEND_DIR.is_dir():
+    print(f"[Front] FRONTEND_DIR '{FRONTEND_DIR}' não existe — caindo para a raiz do projeto.")
+    FRONTEND_DIR = BASE_DIR.parent
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
@@ -141,22 +155,56 @@ except ImportError:
 # Flask App
 # ──────────────────────────────────────────────────────────────────────────────
 
-app = Flask(__name__, static_folder=str(FRONTEND_DIR), static_url_path="")
-app.secret_key = "searchplus_secret_2024_XkQ!9@#mZ"
-app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = False
+# static_folder=None desliga a rota estática automática do Flask. Com
+# static_url_path="" ela registrava o próprio '/<path:filename>' e, por ser
+# criada junto com o app, vencia a nossa — devolvendo 404 em rotas de SPA antes
+# que o fallback para o index.html tivesse chance de rodar. Servimos os arquivos
+# em serve_static(), logo abaixo.
+app = Flask(__name__, static_folder=None)
+
+# Chave de sessão: vem do .env em produção. O fallback só existe para o
+# desenvolvimento local não exigir configuração — trocar a chave invalida todas
+# as sessões abertas, então em produção ela PRECISA ser fixa e secreta.
+app.secret_key = os.environ.get("SECRET_KEY", "").strip() or "searchplus_dev_only_key"
+if app.secret_key == "searchplus_dev_only_key":
+    print("[Auth] SECRET_KEY não definida no .env — usando chave de desenvolvimento.")
+
+# ── Origens liberadas no CORS ───────────────────────────────────────────────
+# O front pode ser servido pelo próprio Flask (same-origin, porta 5000) ou por
+# um dev server separado (Vite 5173, Next/CRA 3000...). Configurável no .env:
+#   ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
+_ORIGENS_PADRAO = [
+    "http://127.0.0.1:5000",  "http://localhost:5000",   # Flask (same-origin)
+    "http://127.0.0.1:5500",  "http://localhost:5500",   # Live Server
+    "http://127.0.0.1:5173",  "http://localhost:5173",   # Vite
+    "http://127.0.0.1:3000",  "http://localhost:3000",   # Next.js / CRA
+    "http://127.0.0.1:4200",  "http://localhost:4200",   # Angular
+    "http://127.0.0.1:8080",  "http://localhost:8080",   # Vue CLI
+]
+_extra_origins = [
+    o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()
+]
+ALLOWED_ORIGINS = _extra_origins or _ORIGENS_PADRAO
+
+# ── Cookie de sessão ────────────────────────────────────────────────────────
+# SameSite=Lax faz o browser NÃO enviar o cookie em requisições cross-site, o
+# que quebra o login inteiro quando o front roda em outra porta (localhost:5173
+# → localhost:5000 são sites diferentes para essa regra). Nesse cenário é
+# preciso SameSite=None, que por especificação só vale acompanhado de Secure
+# (ou seja, HTTPS). Configurável no .env para não travar quem serve tudo pelo
+# Flask, onde Lax é a opção mais segura.
+#   CROSS_SITE_COOKIES=1  → SameSite=None + Secure (front em outro domínio/porta, sob HTTPS)
+_cross_site = os.environ.get("CROSS_SITE_COOKIES", "0") == "1"
+app.config["SESSION_COOKIE_SAMESITE"] = "None" if _cross_site else "Lax"
+app.config["SESSION_COOKIE_SECURE"] = _cross_site
 app.config["SESSION_COOKIE_HTTPONLY"] = True
+if _cross_site:
+    print("[Auth] Cookies cross-site ativos (SameSite=None; Secure) — exige HTTPS.")
 
 CORS(
     app,
     supports_credentials=True,
-    origins=[
-        "http://127.0.0.1:5000",
-        "http://localhost:5000",
-        "http://127.0.0.1:5500",
-        "http://localhost:5500",
-        "null",
-    ],
+    origins=ALLOWED_ORIGINS + ["null"],
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -293,9 +341,16 @@ def _rerank_com_claude(query: str, candidatos: list[dict], topk: int = 15) -> li
         if not desc:
             continue
         julgaveis.append(c)
+        # O tipo vai junto porque a régua é outra para imagem e para documento
+        # (ver o prompt abaixo). Sem essa marcação, o juiz cobrava de um manual
+        # de bicicleta o mesmo que cobraria de uma foto e o descartava.
+        eh_img = c.get("tipo") in _EXT_IMG
+        rotulo = "IMAGEM" if eh_img else "DOCUMENTO"
         # 500 caracteres: a descrição é multi-campo (Estilo/Pessoas/Animais/...),
         # e cortar cedo demais escondia justamente o campo que decide o veredito.
-        itens.append(f"{len(julgaveis)}. {desc[:500]}".replace("\n", " | "))
+        itens.append(
+            f"{len(julgaveis)}. [{rotulo}] {desc[:500]}".replace("\n", " | ")
+        )
 
     if not itens:
         return candidatos
@@ -305,16 +360,24 @@ def _rerank_com_claude(query: str, candidatos: list[dict], topk: int = 15) -> li
         f"Abaixo estão arquivos encontrados (com a descrição de cada um). "
         f"Para CADA número, responda se o arquivo REALMENTE corresponde ao que o "
         f"usuário buscou.\n\n"
-        f"Seja rigoroso com a diferença entre coisas parecidas mas distintas: se a "
-        f"busca é por 'cachorro', um GATO NÃO corresponde (são animais diferentes), "
-        f"mesmo que ambos sejam animais.\n\n"
-        f"Mas o MEIO da imagem nunca desqualifica: desenho, ilustração, pintura, "
+        f"A régua muda conforme o tipo do arquivo:\n\n"
+        f"[IMAGEM] — vale o que a imagem MOSTRA. Seja rigoroso com coisas "
+        f"parecidas mas distintas: numa busca por 'cachorro', um GATO NÃO "
+        f"corresponde, mesmo que ambos sejam animais.\n"
+        f"O MEIO da imagem nunca desqualifica: desenho, ilustração, pintura, "
         f"anime, cartoon, quadrinho, pixel art e render 3D contam pelo que "
         f"representam. Um desenho de cachorro CORRESPONDE a uma busca por "
         f"'cachorro'. Só marque false quando o assunto for outro, não quando o "
         f"estilo for diferente do esperado — a menos que o usuário tenha pedido um "
         f"estilo específico (ex.: 'foto de cachorro' exclui desenhos; "
         f"'desenho de cachorro' exclui fotos).\n\n"
+        f"[DOCUMENTO] — vale o ASSUNTO de que o texto trata. A pergunta é se "
+        f"alguém que buscou aquilo ficaria satisfeito ao abrir este documento, "
+        f"e NÃO se o documento é o objeto buscado. Um manual de manutenção de "
+        f"bicicleta CORRESPONDE a 'freio da bicicleta', porque é sobre isso que "
+        f"ele fala. Não exija que o texto responda a pergunta por completo nem "
+        f"que contenha um dado específico: tratar do assunto basta. Marque false "
+        f"só quando o tema for realmente outro.\n\n"
         + "\n".join(itens)
     )
 
@@ -386,9 +449,34 @@ def _rerank_com_claude(query: str, candidatos: list[dict], topk: int = 15) -> li
 # Banco de dados Postgres (Supabase) — pool de conexões
 # ──────────────────────────────────────────────────────────────────────────────
 
-# Pool com 1-10 conexões. Cada request pega uma do pool; devolve no close.
-_pg_pool = pg_pool.ThreadedConnectionPool(1, 10, dsn=DATABASE_URL)
-print(f"[DB] Pool Postgres pronto ({DATABASE_URL.split('@')[-1]})")
+# Tamanho do pool. O frontend dispara várias chamadas em paralelo ao abrir a
+# home (config + stats + gallery + favorites + collections + status), e cada aba
+# aberta multiplica isso — 10 conexões estouravam com facilidade. Configurável
+# no .env porque o teto depende do plano do Postgres/Supabase.
+_POOL_MAX = max(4, int(os.environ.get("DB_POOL_MAX", "20")))
+_POOL_TIMEOUT = float(os.environ.get("DB_POOL_TIMEOUT", "10"))
+
+_pg_pool = pg_pool.ThreadedConnectionPool(1, _POOL_MAX, dsn=DATABASE_URL)
+print(f"[DB] Pool Postgres pronto ({DATABASE_URL.split('@')[-1]}, máx {_POOL_MAX} conexões)")
+
+
+def _pegar_conexao_do_pool():
+    """
+    Pega uma conexão, esperando se todas estiverem ocupadas.
+
+    `ThreadedConnectionPool.getconn()` não espera: com o pool cheio ele levanta
+    PoolError na hora, e um pico de requisições paralelas virava uma rajada de
+    HTTP 500. Como as conexões são devolvidas em milissegundos, uma espera curta
+    resolve o pico sem precisar de um pool gigante.
+    """
+    limite = time.monotonic() + _POOL_TIMEOUT
+    while True:
+        try:
+            return _pg_pool.getconn()
+        except pg_pool.PoolError:
+            if time.monotonic() >= limite:
+                raise
+            time.sleep(0.05)
 
 
 class _PooledConnection:
@@ -399,6 +487,7 @@ class _PooledConnection:
     """
     def __init__(self, raw):
         self._raw = raw
+        self._fechada = False
         # Registra o adapter pgvector pra aceitar/devolver listas como vector(N)
         try:
             register_vector(raw)
@@ -422,6 +511,14 @@ class _PooledConnection:
         self._raw.rollback()
 
     def close(self):
+        """
+        Devolve a conexão ao pool. Idempotente: chamar duas vezes não faz nada
+        na segunda — é o que permite ao teardown do request fechar sobras sem
+        arriscar devolver ao pool uma conexão que já voltou.
+        """
+        if self._fechada:
+            return
+        self._fechada = True
         try:
             self._cursor.close()
         except Exception:
@@ -439,9 +536,34 @@ class _PooledConnection:
 
 
 def get_db():
-    """Pega uma conexão do pool. Sempre chame .close() no final pra devolver."""
-    raw = _pg_pool.getconn()
-    return _PooledConnection(raw)
+    """
+    Pega uma conexão do pool. Continue chamando `.close()` ao terminar — quanto
+    antes ela voltar ao pool, melhor (uma busca segura a conexão por segundos se
+    esperar o fim do request).
+
+    Dentro de um request as conexões entregues ficam anotadas em `flask.g`, e o
+    teardown fecha o que sobrar. É só uma rede de segurança: sem ela, qualquer
+    exceção entre o `get_db()` e o `conn.close()` vazava uma conexão para
+    sempre, e bastavam algumas dezenas de erros para esgotar o pool e derrubar
+    o servidor inteiro.
+    """
+    conn = _PooledConnection(_pegar_conexao_do_pool())
+    if has_app_context():
+        abertas = getattr(g, "_db_abertas", None)
+        if abertas is None:
+            abertas = []
+            g._db_abertas = abertas
+        abertas.append(conn)
+    return conn
+
+
+@app.teardown_appcontext
+def _fechar_db_do_request(_exc):
+    """Fecha conexões que o handler não devolveu — por exceção ou esquecimento."""
+    for conn in (getattr(g, "_db_abertas", None) or []):
+        if not conn._fechada:
+            print("[DB] Conexão não devolvida pelo handler — fechando no teardown.")
+        conn.close()   # idempotente: no-op se o handler já fechou
 
 
 def _safe_json_loads(raw, default=None):
@@ -535,6 +657,34 @@ def _uid():
 # Servir frontend (sem CORS, same-origin)
 # ──────────────────────────────────────────────────────────────────────────────
 
+# Extensões que um frontend legitimamente serve. É uma allowlist, e não uma
+# lista de bloqueio, porque a pasta servida é a raiz do projeto — que contém
+# backend/.env (senha do banco e chave da API), .git/ e o código do servidor.
+# Com denylist, qualquer arquivo novo nasceria público até alguém lembrar de
+# bloqueá-lo; assim, nasce privado.
+_EXT_PUBLICAS = {
+    ".html", ".htm", ".css", ".js", ".mjs", ".cjs", ".map", ".json", ".wasm",
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".ico", ".avif",
+    ".woff", ".woff2", ".ttf", ".otf", ".eot",
+    ".mp4", ".webm", ".mp3", ".ogg", ".wav",
+    ".txt", ".webmanifest", ".xml",
+}
+
+# Pastas nunca servidas, mesmo que contenham arquivos de extensão liberada.
+_PASTAS_PRIVADAS = {"backend", "docs", "node_modules", "venv", "__pycache__"}
+
+
+def _pode_servir(rel: Path) -> bool:
+    """Decide se um caminho relativo ao FRONTEND_DIR pode ir para o navegador."""
+    partes = rel.parts
+    # Dotfiles e dotdirs em qualquer nível: .env, .git/, .vscode/, .gitignore
+    if any(p.startswith(".") for p in partes):
+        return False
+    if any(p.lower() in _PASTAS_PRIVADAS for p in partes[:-1]):
+        return False
+    return rel.suffix.lower() in _EXT_PUBLICAS
+
+
 @app.route("/")
 def serve_index():
     return send_from_directory(str(FRONTEND_DIR), "index.html")
@@ -542,9 +692,38 @@ def serve_index():
 
 @app.route("/<path:filename>")
 def serve_static(filename):
+    """
+    Serve um arquivo do frontend; se a rota não for um arquivo, devolve o
+    index.html.
+
+    O fallback é o que faz uma SPA com roteamento próprio (React Router, Vue
+    Router) funcionar: abrir /configuracoes direto na barra de endereços não
+    corresponde a nenhum arquivo em disco, e sem isso viraria 404 em vez de
+    deixar o roteador do front resolver a rota.
+    """
     if filename.startswith("api/"):
         return jsonify({"error": "not found"}), 404
-    return send_from_directory(str(FRONTEND_DIR), filename)
+
+    destino = (FRONTEND_DIR / filename).resolve()
+    # Confere que o caminho pedido não escapou da pasta do frontend via '../'
+    if FRONTEND_DIR not in destino.parents and destino != FRONTEND_DIR:
+        return jsonify({"error": "not found"}), 404
+
+    rel = destino.relative_to(FRONTEND_DIR)
+    if destino.is_file():
+        if not _pode_servir(rel):
+            return jsonify({"error": "not found"}), 404
+        # as_posix(): send_from_directory espera '/' como separador. No Windows,
+        # str(rel) devolveria 'fonts\arquivo.ttf' e a barra invertida seria
+        # recusada, transformando um arquivo existente em 404.
+        return send_from_directory(str(FRONTEND_DIR), rel.as_posix())
+
+    # Não é arquivo: se o caminho tem cara de recurso estático (tem extensão),
+    # é um 404 de verdade. Sem extensão, é rota de SPA — entrega o index.html
+    # e deixa o roteador do frontend decidir.
+    if rel.suffix:
+        return jsonify({"error": "not found"}), 404
+    return send_from_directory(str(FRONTEND_DIR), "index.html")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -642,24 +821,25 @@ def api_register():
     except psycopg2.errors.UniqueViolation:
         return jsonify({"mensagem": "Este usuário já existe."}), 409
     except psycopg2.errors.UndefinedTable as exc:
-        # Banco existe mas sem schema (ex: arquivo zerado durante uso) — recria e tenta de novo
-        if "no such table" in str(exc).lower():
-            print(f"[DB] Schema ausente, recriando: {exc}")
-            conn.close()
+        # Banco existe mas sem schema (ex: tabelas dropadas durante o uso) —
+        # recria e tenta de novo. O próprio tipo da exceção já diz que a tabela
+        # não existe; não há mensagem a inspecionar.
+        print(f"[DB] Schema ausente, recriando: {exc}")
+        conn.close()  # limpa a transação abortada antes de rodar o DDL
+        try:
             init_db()
             conn = get_db()
-            try:
-                conn.execute(
-                    "INSERT INTO users (username, password_hash, config_json) VALUES (%s, %s, %s)",
-                    (username, _hash(password), json.dumps(cfg)),
-                )
-                conn.commit()
-                return jsonify({"status": "ok"})
-            except Exception as exc2:
-                print(f"[DB] Falha após recriar schema: {exc2}")
-                return jsonify({"mensagem": f"Erro interno: {exc2}"}), 500
-        print(f"[DB] Erro no registro: {exc}")
-        return jsonify({"mensagem": f"Erro interno: {exc}"}), 500
+            conn.execute(
+                "INSERT INTO users (username, password_hash, config_json) VALUES (%s, %s, %s)",
+                (username, _hash(password), json.dumps(cfg)),
+            )
+            conn.commit()
+            return jsonify({"status": "ok"})
+        except psycopg2.errors.UniqueViolation:
+            return jsonify({"mensagem": "Este usuário já existe."}), 409
+        except Exception as exc2:
+            print(f"[DB] Falha após recriar schema: {exc2}")
+            return jsonify({"mensagem": f"Erro interno: {exc2}"}), 500
     except Exception as exc:
         print(f"[DB] Erro no registro: {exc}")
         return jsonify({"mensagem": f"Erro interno: {exc}"}), 500
@@ -713,14 +893,10 @@ def api_config():
 
         conn = get_db()
         row = conn.execute("SELECT config_json FROM users WHERE id = %s", (uid,)).fetchone()
-        folders = conn.execute(
-            "SELECT path FROM folders WHERE user_id = %s ORDER BY added_at", (uid,)
-        ).fetchall()
         conn.close()
 
         cfg = {**_DEFAULT_CFG, **_safe_json_loads(row["config_json"], {})} if row else dict(_DEFAULT_CFG)
-        rows = _list_folders(uid)
-        cfg["pastas"] = _folders_to_json(rows)
+        cfg["pastas"] = _folders_to_json(_list_folders(uid))
         cfg["historico_pastas"] = len(cfg["pastas"]) > 0
         return jsonify(cfg)
 
@@ -734,7 +910,16 @@ def api_config():
     data.pop("historico_pastas", None)
 
     conn = get_db()
-    conn.execute("UPDATE users SET config_json = %s WHERE id = %s", (json.dumps(data), uid))
+    # MERGE, não replace: o config_json guarda também o histórico de buscas
+    # (chave 'search_history'). Sobrescrever o blob inteiro apagava o histórico
+    # a cada salvamento de preferência, e obrigaria o frontend a reenviar o
+    # objeto completo só para mudar um campo.
+    row = conn.execute("SELECT config_json FROM users WHERE id = %s", (uid,)).fetchone()
+    cfg_atual = _safe_json_loads(row["config_json"] if row else None, {}) or {}
+    cfg_atual.update(data)
+
+    conn.execute("UPDATE users SET config_json = %s WHERE id = %s",
+                 (json.dumps(cfg_atual), uid))
     conn.commit()
     conn.close()
     return jsonify({"status": "ok"})
@@ -743,6 +928,22 @@ def api_config():
 # ──────────────────────────────────────────────────────────────────────────────
 # Pastas monitoradas
 # ──────────────────────────────────────────────────────────────────────────────
+
+def _apagar_arquivos_da_pasta(conn, uid: int, pasta: str) -> None:
+    """
+    Remove do índice os arquivos que estão DENTRO de `pasta`.
+
+    Não usa LIKE de propósito: 'C:\\fotos%' casaria também com
+    'C:\\fotos_backup', apagando o índice de uma pasta irmã, e o '_' do LIKE é
+    curinga (qualquer pasta com underscore casaria demais). Comparar o prefixo
+    com left() e o separador no fim resolve os dois casos.
+    """
+    prefixo = pasta.rstrip("\\/") + os.sep
+    conn.execute(
+        "DELETE FROM files WHERE user_id = %s AND left(caminho, %s) = %s",
+        (uid, len(prefixo), prefixo),
+    )
+
 
 def _list_folders(uid: int):
     conn = get_db()
@@ -824,7 +1025,7 @@ def api_folders():
     pasta = (data.get("pasta") or "").strip()
 
     conn = get_db()
-    conn.execute("DELETE FROM files WHERE user_id = %s AND caminho LIKE %s", (uid, pasta + "%"))
+    _apagar_arquivos_da_pasta(conn, uid, pasta)
     conn.execute("DELETE FROM folders WHERE user_id = %s AND path = %s", (uid, pasta))
     conn.commit()
     conn.close()
@@ -844,8 +1045,7 @@ def api_delete_folder_by_id(folder_id):
     # Pegar o path da pasta para deletar os arquivos
     row = conn.execute("SELECT path FROM folders WHERE id = %s AND user_id = %s", (folder_id, uid)).fetchone()
     if row:
-        pasta = row["path"]
-        conn.execute("DELETE FROM files WHERE user_id = %s AND caminho LIKE %s", (uid, pasta + "%"))
+        _apagar_arquivos_da_pasta(conn, uid, row["path"])
 
     conn.execute("DELETE FROM folders WHERE id = %s AND user_id = %s", (folder_id, uid))
     conn.commit()
@@ -1657,7 +1857,7 @@ def api_search():
     # CLIP (visual): só pra imagens com embedding_clip (vetor da query já
     # foi calculado antes da SQL — reusa)
     clip_sims = [0.0] * len(rows)
-    if CLIP_OK and clip_query_vec is not None:
+    if CLIP_OK and SKLEARN_OK and clip_query_vec is not None:
         import numpy as np
         clip_q_np = np.array([clip_query_vec])
         for i, f in enumerate(rows):
@@ -1697,7 +1897,7 @@ def api_search():
                 rows[i]["descricao_ia"] = desc_nova
                 _salvar_descricao_e_embedding(uid, f["caminho"], desc_nova)
                 # Recalcula SBERT e BM25 desta imagem agora que ela tem descrição.
-                if SBERT_OK:
+                if SBERT_OK and SKLEARN_OK:
                     emb_nova = _gerar_embedding(_texto_para_embedding(desc_nova))
                     if emb_nova is not None and query_emb is not None:
                         import numpy as np
@@ -1977,7 +2177,10 @@ def api_stats():
         desc_filtrada = " ".join(linhas_validas)
 
         for cat, palavras in _CATEGORIAS_STATS.items():
-            if any(p in desc_filtrada for p in palavras):
+            # Palavra inteira, não substring: 'cao' casava dentro de 'locacao' e
+            # 'manutencao', e 'mar' dentro de 'camara' — o painel do perfil
+            # exibia animais e natureza em acervos que só tinham documentos.
+            if _contem_termo(desc_filtrada, palavras):
                 por_categoria[cat] += 1
 
     # Só categorias com pelo menos 1, ordenadas da maior pra menor
@@ -2375,13 +2578,20 @@ def api_status():
             "arquivos_processados_sessao": 0,
         })
     
+    # Alias nomeado ('n') porque o cursor é RealDictCursor: a linha volta como
+    # dict, e o antigo fetchone()[0] levantava KeyError — capturado pelo except
+    # abaixo, o contador ficava zerado em toda chamada.
+    conn = None
     try:
         conn = get_db()
-        count = conn.execute("SELECT COUNT(*) FROM files WHERE user_id = %s", (uid,)).fetchone()[0]
-    except Exception:
+        count = conn.execute(
+            "SELECT COUNT(*) AS n FROM files WHERE user_id = %s", (uid,)
+        ).fetchone()["n"]
+    except Exception as exc:
+        print(f"[Status] Falha ao contar arquivos: {exc}")
         count = 0
     finally:
-        if 'conn' in locals():
+        if conn is not None:
             conn.close()
 
     with _lock:

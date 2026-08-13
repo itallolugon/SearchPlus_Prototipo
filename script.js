@@ -1,4 +1,11 @@
-const API_BASE_URL = 'http://127.0.0.1:5000';
+// Deriva a URL da API da própria página, em vez de fixar uma porta: o mesmo
+// arquivo serve tanto o backend real (5000) quanto o servidor mock (5001), sem
+// editar nada. Só cai no valor fixo quando a página é aberta pelo file://,
+// onde não há origem HTTP para herdar.
+const API_BASE_URL =
+    window.location.protocol.startsWith("http")
+        ? window.location.origin
+        : "http://127.0.0.1:5000";
 let currentConfig = {};
 let tempConfig = {};
 
