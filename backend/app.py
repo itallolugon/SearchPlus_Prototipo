@@ -15,7 +15,7 @@ import threading
 import time
 import unicodedata
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -222,6 +222,19 @@ def _normalizar(text: str) -> str:
         c for c in unicodedata.normalize("NFD", text.lower())
         if unicodedata.category(c) != "Mn"
     )
+
+
+def _limpar_texto_para_banco(texto: str) -> str:
+    """
+    Tira o byte NUL do texto extraído de arquivos.
+
+    O Postgres recusa \\x00 em coluna `text` ("A string literal cannot contain
+    NUL characters"), e basta UM .txt/.csv corrompido com esse byte para o
+    UPDATE estourar. Como a exceção subia no meio do worker, a thread de
+    indexação morria e o acervo inteiro parava de ser processado — com o status
+    exibindo "Ocioso", sem nenhum sinal de erro para o usuário.
+    """
+    return texto.replace("\x00", "") if texto else texto
 
 
 def _gerar_embedding(text: str) -> list[float] | None:
@@ -799,6 +812,14 @@ def api_register():
     if not username or not password:
         return jsonify({"mensagem": "Preencha todos os campos."}), 400
 
+    # O bcrypt recusa senhas acima de 72 BYTES — e em UTF-8 cada acento ocupa
+    # 2, então uma senha em português estoura o limite antes dos 72 caracteres.
+    # Sem esta checagem o erro subia como 500, vazando a mensagem da biblioteca.
+    if len(password.encode("utf-8")) > 72:
+        return jsonify({
+            "mensagem": "Senha muito longa (máximo 72 bytes; letras acentuadas contam 2)."
+        }), 400
+
     cfg = {
         **_DEFAULT_CFG, 
         "perfil_nome": username, 
@@ -929,6 +950,22 @@ def api_config():
 # Pastas monitoradas
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _prefixo_pasta(pasta: str) -> str:
+    """
+    Prefixo canônico de uma pasta, para decidir se um caminho está DENTRO dela.
+
+    Três cuidados, e cada um corrige um jeito diferente de errar:
+      - `normpath` resolve '..' e unifica os separadores;
+      - o separador no fim impede 'C:\\fotos' de casar com 'C:\\fotos_backup';
+      - minúsculas porque o Windows não diferencia caixa, e o mesmo arquivo
+        pode estar no índice como 'C:\\Fotos\\a.jpg' ou 'c:\\fotos\\a.jpg'.
+
+    Quem compara com este prefixo tem que aplicar `lower()` no outro lado
+    também — daí o `left(lower(caminho), ...)` nas queries.
+    """
+    return os.path.normpath(pasta).rstrip("\\/").lower() + os.sep
+
+
 def _apagar_arquivos_da_pasta(conn, uid: int, pasta: str) -> None:
     """
     Remove do índice os arquivos que estão DENTRO de `pasta`.
@@ -937,12 +974,28 @@ def _apagar_arquivos_da_pasta(conn, uid: int, pasta: str) -> None:
     'C:\\fotos_backup', apagando o índice de uma pasta irmã, e o '_' do LIKE é
     curinga (qualquer pasta com underscore casaria demais). Comparar o prefixo
     com left() e o separador no fim resolve os dois casos.
+
+    Subpastas que continuam monitoradas são preservadas: quem monitora
+    'C:\\A' e 'C:\\A\\B' e remove só 'C:\\A' não pode perder o índice de
+    'C:\\A\\B', que segue na lista de pastas e não seria reindexado sozinho.
     """
-    prefixo = pasta.rstrip("\\/") + os.sep
-    conn.execute(
-        "DELETE FROM files WHERE user_id = %s AND left(caminho, %s) = %s",
-        (uid, len(prefixo), prefixo),
-    )
+    prefixo = _prefixo_pasta(pasta)
+
+    monitoradas = conn.execute(
+        "SELECT path FROM folders WHERE user_id = %s", (uid,)
+    ).fetchall()
+    subpastas = [
+        p for p in (_prefixo_pasta(r["path"]) for r in monitoradas)
+        if p.startswith(prefixo) and p != prefixo
+    ]
+
+    sql = "DELETE FROM files WHERE user_id = %s AND left(lower(caminho), %s) = %s"
+    params: list = [uid, len(prefixo), prefixo]
+    for sub in subpastas:
+        sql += " AND left(lower(caminho), %s) <> %s"
+        params.extend([len(sub), sub])
+
+    conn.execute(sql, params)
 
 
 def _list_folders(uid: int):
@@ -987,6 +1040,10 @@ def api_folders():
         if not pasta or not os.path.isdir(pasta):
             return jsonify({"error": "Caminho inválido ou inexistente."}), 400
 
+        # Unifica separadores e resolve '..' antes de gravar — sem isso a mesma
+        # pasta escrita de dois jeitos vira dois registros distintos.
+        pasta = os.path.normpath(pasta)
+
         # Novos campos de Indexação Inteligente
         prioridades = data.get("prioridades", ["tudo"])
         perfil      = data.get("perfil_analise", "fast")
@@ -995,19 +1052,39 @@ def api_folders():
         name = os.path.basename(pasta) or pasta
         conn = get_db()
         try:
-            conn.execute(
-                "INSERT INTO folders (user_id, path, name, added_at, prioridades, perfil_analise, janela_processamento) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                (uid, pasta, name, datetime.now().isoformat(),
-                 json.dumps(prioridades), perfil, janela),
-            )
+            # O UNIQUE (user_id, path) diferencia maiúsculas, mas o Windows não:
+            # cadastrar 'C:\Fotos' e depois 'c:\fotos' indexava a MESMA pasta
+            # duas vezes — resultado repetido na busca e o dobro de chamadas ao
+            # Claude. A checagem case-insensitive resolve antes do INSERT e
+            # preserva o caminho já gravado, com a caixa original.
+            ja_existe = conn.execute(
+                "SELECT path FROM folders WHERE user_id = %s AND lower(path) = %s",
+                (uid, pasta.lower()),
+            ).fetchone()
+
+            if ja_existe:
+                conn.execute(
+                    "UPDATE folders SET prioridades=%s, perfil_analise=%s, janela_processamento=%s "
+                    "WHERE user_id=%s AND path=%s",
+                    (json.dumps(prioridades), perfil, janela, uid, ja_existe["path"]),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO folders (user_id, path, name, added_at, prioridades, perfil_analise, janela_processamento) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (uid, pasta, name, datetime.now(timezone.utc).isoformat(),
+                     json.dumps(prioridades), perfil, janela),
+                )
             conn.commit()
         except psycopg2.errors.UniqueViolation:
-            # Pasta já existe — atualiza config
+            # Corrida entre dois requests simultâneos — o outro inseriu primeiro.
+            # O rollback é obrigatório: sem ele a transação fica abortada e o
+            # UPDATE abaixo estoura InFailedSqlTransaction, virando um 500.
+            conn.rollback()
             conn.execute(
                 "UPDATE folders SET prioridades=%s, perfil_analise=%s, janela_processamento=%s "
-                "WHERE user_id=%s AND path=%s",
-                (json.dumps(prioridades), perfil, janela, uid, pasta),
+                "WHERE user_id=%s AND lower(path)=%s",
+                (json.dumps(prioridades), perfil, janela, uid, pasta.lower()),
             )
             conn.commit()
         finally:
@@ -1026,7 +1103,13 @@ def api_folders():
 
     conn = get_db()
     _apagar_arquivos_da_pasta(conn, uid, pasta)
-    conn.execute("DELETE FROM folders WHERE user_id = %s AND path = %s", (uid, pasta))
+    # Compara sem caixa e sem barra final, pelo mesmo motivo do cadastro: no
+    # Windows 'C:\Fotos' e 'c:\fotos\' são a mesma pasta.
+    alvo = os.path.normpath(pasta).rstrip("\\/").lower() if pasta else ""
+    conn.execute(
+        "DELETE FROM folders WHERE user_id = %s AND lower(rtrim(path, '\\/')) = %s",
+        (uid, alvo),
+    )
     conn.commit()
     conn.close()
 
@@ -1781,10 +1864,12 @@ def api_search():
 
     # Filtro avançado: pasta específica (caminho começa com o path da pasta).
     # Usa left()=prefixo em vez de LIKE porque o '\' do Windows é caractere
-    # de escape no LIKE do Postgres e quebraria o match.
+    # de escape no LIKE do Postgres e quebraria o match. O prefixo sai de
+    # _prefixo_pasta(): sem o separador no fim, filtrar por 'C:\Fotos' trazia
+    # junto os arquivos de 'C:\Fotos_backup' e 'C:\Fotos2'.
     if avancado.get("pasta"):
-        prefixo_pasta = avancado["pasta"].rstrip("\\/")
-        sql_filtros.append("left(caminho, %s) = %s")
+        prefixo_pasta = _prefixo_pasta(avancado["pasta"])
+        sql_filtros.append("left(lower(caminho), %s) = %s")
         params_filtro.append(len(prefixo_pasta))
         params_filtro.append(prefixo_pasta)
 
@@ -2385,22 +2470,24 @@ def api_favorites_toggle():
     file_id = data.get("id")
 
     conn = get_db()
-    row  = conn.execute(
-        "SELECT favorito FROM files WHERE id = %s AND user_id = %s", (file_id, uid)
+    # Inverte dentro do próprio UPDATE, em vez de ler e escrever em dois passos:
+    #   - dois cliques rápidos no coração liam o mesmo valor e gravavam o mesmo
+    #     resultado, deixando o favorito "preso";
+    #   - a coluna aceita NULL, e o `1 - int(None)` do jeito antigo virava 500.
+    row = conn.execute(
+        "UPDATE files SET favorito = CASE WHEN COALESCE(favorito, 0) = 1 THEN 0 ELSE 1 END "
+        "WHERE id = %s AND user_id = %s RETURNING favorito",
+        (file_id, uid)
     ).fetchone()
 
     if not row:
         conn.close()
         return jsonify({"error": "Arquivo não encontrado."}), 404
 
-    new_fav = 1 - int(row["favorito"])
-    conn.execute(
-        "UPDATE files SET favorito = %s WHERE id = %s AND user_id = %s", (new_fav, file_id, uid)
-    )
     conn.commit()
     conn.close()
 
-    return jsonify({"status": "sucesso", "favorito": bool(new_fav)})
+    return jsonify({"status": "sucesso", "favorito": bool(row["favorito"])})
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3033,7 +3120,8 @@ def _scan_folder(folder_path: str, uid: int) -> None:
                            (folder_id, user_id, nome, caminho, tipo,
                             data_adicionado, favorito, processado)
                            VALUES (%s, %s, %s, %s, %s, %s, 0, 0)""",
-                        (folder_id, uid, fname, fpath, ext, datetime.now().isoformat()),
+                        (folder_id, uid, fname, fpath, ext,
+                         datetime.now(timezone.utc).isoformat()),
                     )
                     conn.commit()
                 except psycopg2.errors.UniqueViolation:
@@ -3056,6 +3144,9 @@ def _is_within_window(janela: str) -> bool:
         if len(parts) != 2:
             return True
         h_start, h_end = int(parts[0].split(":")[0]), int(parts[1].split(":")[0])
+        # Hora LOCAL de propósito (os timestamps do banco são UTC, este não):
+        # a janela é configurada pelo usuário no fuso dele — "22:00-06:00"
+        # significa a madrugada de quem usa a máquina, não a madrugada em UTC.
         now_h = datetime.now().hour
         if h_start <= h_end:
             return h_start <= now_h < h_end
@@ -3131,81 +3222,100 @@ def _process_worker() -> None:
         uid       = item["uid"]
         folder_id = item.get("folder_id")
 
-        # ── Buscar config da pasta ──
-        prioridades, perfil, janela = _get_folder_config(folder_id, uid)
+        # Todo o processamento de UM item fica dentro deste try: sem ele, uma
+        # exceção aqui matava a thread e a indexação parava para sempre — com o
+        # status exibindo "Ocioso", sem nenhum sinal de que algo quebrou.
+        try:
+            # ── Buscar config da pasta ──
+            prioridades, perfil, janela = _get_folder_config(folder_id, uid)
 
-        # ── Scheduling: verificar janela de processamento ──
-        if not _is_within_window(janela):
-            _queue.put(item)
-            _queue.task_done()
-            fora_da_janela_consecutivos += 1
-            # Se já passamos por uma volta inteira da fila sem nada entrar,
-            # dorme uma vez ao invés de 30s × N itens.
-            if fora_da_janela_consecutivos >= max(_queue.qsize(), 1):
-                with _lock:
-                    _status = f"Aguardando janela de processamento ({janela})"
-                import time as _t
-                _t.sleep(60)  # 1 min antes de tentar de novo (granularidade da janela é hora)
-                fora_da_janela_consecutivos = 0
-            continue
-        fora_da_janela_consecutivos = 0
+            # ── Scheduling: verificar janela de processamento ──
+            if not _is_within_window(janela):
+                _queue.put(item)
+                _queue.task_done()
+                fora_da_janela_consecutivos += 1
+                # Se já passamos por uma volta inteira da fila sem nada entrar,
+                # dorme uma vez ao invés de 30s × N itens.
+                if fora_da_janela_consecutivos >= max(_queue.qsize(), 1):
+                    with _lock:
+                        _status = f"Aguardando janela de processamento ({janela})"
+                    import time as _t
+                    _t.sleep(60)  # 1 min antes de tentar de novo (granularidade da janela é hora)
+                    fora_da_janela_consecutivos = 0
+                continue
+            fora_da_janela_consecutivos = 0
 
-        with _lock:
-            _status = f"Indexando ({_queue.qsize()} na fila): {fname}"
+            with _lock:
+                _status = f"Indexando ({_queue.qsize()} na fila): {fname}"
 
-        # ── INDEXAÇÃO LAZY ──────────────────────────────────────────────────
-        # No upload NÃO chamamos o Claude. Geramos só o embedding CLIP (local,
-        # rápido, grátis) para imagens, e extraímos texto de documentos. A
-        # descrição rica (Claude) é gerada SOB DEMANDA na busca, só para as
-        # imagens que aparecem como candidatas — economiza tempo e créditos.
-        desc = ""
-        emb_clip_vec = None
+            # ── INDEXAÇÃO LAZY ──────────────────────────────────────────────
+            # No upload NÃO chamamos o Claude. Geramos só o embedding CLIP
+            # (local, rápido, grátis) para imagens, e extraímos texto de
+            # documentos. A descrição rica (Claude) é gerada SOB DEMANDA na
+            # busca, só para as imagens que aparecem como candidatas —
+            # economiza tempo e créditos.
+            desc = ""
+            emb_clip_vec = None
 
-        if ext in _EXT_IMG:
-            # Imagem: só o embedding visual CLIP. Descrição vem depois, na busca.
-            if CLIP_OK:
-                emb_clip = _gerar_embedding_clip_imagem(fpath)
-                if emb_clip:
-                    emb_clip_vec = emb_clip
-            desc = ""  # vazia de propósito — a busca preenche quando precisar
-        else:
-            # Documentos (pdf/docx/txt/csv): extrai o texto na hora (é local e
-            # barato, e a busca textual precisa dele de cara).
+            if ext in _EXT_IMG:
+                # Imagem: só o embedding visual CLIP. Descrição vem na busca.
+                if CLIP_OK:
+                    emb_clip = _gerar_embedding_clip_imagem(fpath)
+                    if emb_clip:
+                        emb_clip_vec = emb_clip
+                desc = ""  # vazia de propósito — a busca preenche depois
+            else:
+                # Documentos (pdf/docx/txt/csv): extrai o texto na hora (é local
+                # e barato, e a busca textual precisa dele de cara).
+                try:
+                    desc = _analyze_file(fpath, ext, prioridades=prioridades, perfil=perfil)
+                except Exception as exc:
+                    print(f"[ERRO] {fpath}: {exc}")
+                    desc = f"{ext.upper()}: {fname}"
+                # Binário/corrompido pode trazer \x00, que o Postgres recusa.
+                desc = _limpar_texto_para_banco(desc)
+
+            # Embedding SBERT só para documentos (imagens ainda não têm texto)
+            emb_vec = None
+            if SBERT_OK and desc:
+                texto_emb = _texto_para_embedding(desc)
+                emb = _gerar_embedding(texto_emb)
+                if emb:
+                    emb_vec = emb
+
+            # Imagem indexada (tem embedding CLIP) ou documento com texto =
+            # processado. Imagem sem CLIP = não indexada (tenta de novo depois).
+            if ext in _EXT_IMG:
+                processado_flag = 1 if emb_clip_vec is not None else 0
+            else:
+                caiu_no_fallback = any(desc.startswith(prefix) for prefix in _DESCRICOES_RUINS)
+                processado_flag = 0 if caiu_no_fallback else 1
+
+            conn = get_db()
             try:
-                desc = _analyze_file(fpath, ext, prioridades=prioridades, perfil=perfil)
-            except Exception as exc:
-                print(f"[ERRO] {fpath}: {exc}")
-                desc = f"{ext.upper()}: {fname}"
+                conn.execute(
+                    "UPDATE files SET descricao_ia = %s, embedding = %s, embedding_clip = %s, processado = %s "
+                    "WHERE user_id = %s AND caminho = %s",
+                    (desc, emb_vec, emb_clip_vec, processado_flag, uid, fpath),
+                )
+                conn.commit()
+            finally:
+                # Esta thread roda fora do app context, então o teardown do
+                # Flask não recolhe a conexão: sem o finally, cada falha no
+                # UPDATE vazava uma conexão até esgotar o pool.
+                conn.close()
 
-        # Embedding SBERT só para documentos (imagens não têm descrição ainda)
-        emb_vec = None
-        if SBERT_OK and desc:
-            texto_emb = _texto_para_embedding(desc)
-            emb = _gerar_embedding(texto_emb)
-            if emb:
-                emb_vec = emb
+            with _lock:
+                _processed += 1
 
-        # Imagem indexada (tem embedding CLIP) ou documento com texto = processado.
-        # Imagem sem CLIP = não indexada (tenta de novo depois).
-        if ext in _EXT_IMG:
-            processado_flag = 1 if emb_clip_vec is not None else 0
-        else:
-            caiu_no_fallback = any(desc.startswith(prefix) for prefix in _DESCRICOES_RUINS)
-            processado_flag = 0 if caiu_no_fallback else 1
+            _queue.task_done()
 
-        conn = get_db()
-        conn.execute(
-            "UPDATE files SET descricao_ia = %s, embedding = %s, embedding_clip = %s, processado = %s "
-            "WHERE user_id = %s AND caminho = %s",
-            (desc, emb_vec, emb_clip_vec, processado_flag, uid, fpath),
-        )
-        conn.commit()
-        conn.close()
-
-        with _lock:
-            _processed += 1
-
-        _queue.task_done()
+        except Exception as exc:
+            print(f"[WORKER] Falha ao processar '{fname}': {type(exc).__name__}: {exc}")
+            try:
+                _queue.task_done()
+            except ValueError:
+                pass  # já contabilizado antes da exceção
 
 
 # ──────────────────────────────────────────────────────────────────────────────
