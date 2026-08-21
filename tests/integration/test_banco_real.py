@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.ambiente import DATABASE_URL_DA_APLICACAO
 from tests.caminhos import caminho
 
 pytestmark = [pytest.mark.integration, pytest.mark.requires_db]
@@ -38,12 +39,20 @@ pytestmark.append(
 
 
 def _guardar_contra_producao() -> None:
-    """Impede o apontamento acidental para o banco da aplicação."""
-    producao = (os.environ.get("DATABASE_URL") or "").strip()
-    if producao and URL_TESTE == producao:
+    """
+    Impede o apontamento acidental para o banco da aplicação.
+
+    A comparação usa a URL capturada em `tests.ambiente` no início da sessão,
+    NÃO `os.environ["DATABASE_URL"]`: o conftest já apontou essa variável para o
+    banco de teste (sem isso `app.py` não importa), então compará-la aqui daria
+    sempre igual e a trava bloquearia até o CI, que roda contra um Postgres
+    efêmero e descartável.
+    """
+    if DATABASE_URL_DA_APLICACAO and URL_TESTE == DATABASE_URL_DA_APLICACAO:
         pytest.fail(
-            "SEARCHPLUS_TEST_DATABASE_URL é idêntica a DATABASE_URL. Estes testes "
-            "escrevem e apagam dados — aponte para um banco de teste dedicado."
+            "SEARCHPLUS_TEST_DATABASE_URL é idêntica à DATABASE_URL da aplicação. "
+            "Estes testes escrevem e apagam dados — aponte para um banco de teste "
+            "dedicado."
         )
 
 

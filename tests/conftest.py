@@ -33,6 +33,11 @@ from unittest import mock
 
 import pytest
 
+# Importado ANTES de qualquer alteração no ambiente: guarda a DATABASE_URL real
+# da aplicação, que `_preparar_ambiente` sobrescreve logo abaixo. A trava
+# anti-produção dos testes de banco depende desse valor original.
+from tests.ambiente import DATABASE_URL_DA_APLICACAO  # noqa: F401
+
 RAIZ = Path(__file__).resolve().parent.parent
 BACKEND = RAIZ / "backend"
 
