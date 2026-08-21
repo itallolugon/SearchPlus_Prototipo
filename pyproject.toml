@@ -13,6 +13,9 @@ requires-python = ">=3.11"
 # ─────────────────────────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Põe a raiz do projeto no sys.path para que `from tests.caminhos import ...`
+# resolva igual no Windows e no Linux do CI.
+pythonpath = ["."]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

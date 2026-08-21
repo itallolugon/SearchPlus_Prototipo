@@ -20,6 +20,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.caminhos import caminho
+
 pytestmark = [pytest.mark.integration, pytest.mark.requires_db]
 
 psycopg2 = pytest.importorskip("psycopg2", reason="psycopg2 não instalado")
@@ -95,9 +97,9 @@ class TestSchema:
         assert {"users", "folders", "files"} <= tabelas
 
     def test_caminho_e_unico_por_usuario(self, conexao, usuario):
-        _inserir_arquivo(conexao, usuario, r"C:\A\x.jpg")
+        _inserir_arquivo(conexao, usuario, caminho("A", "x.jpg"))
         with pytest.raises(psycopg2.errors.UniqueViolation):
-            _inserir_arquivo(conexao, usuario, r"C:\A\x.jpg")
+            _inserir_arquivo(conexao, usuario, caminho("A", "x.jpg"))
 
     def test_apagar_usuario_leva_os_arquivos(self, conexao):
         with conexao.cursor() as cur:
@@ -106,7 +108,7 @@ class TestSchema:
                 (f"cascata_{os.urandom(4).hex()}",),
             )
             uid = cur.fetchone()[0]
-        _inserir_arquivo(conexao, uid, r"C:\B\y.jpg")
+        _inserir_arquivo(conexao, uid, caminho("B", "y.jpg"))
         with conexao.cursor() as cur:
             cur.execute("DELETE FROM users WHERE id = %s", (uid,))
             cur.execute("SELECT count(*) FROM files WHERE user_id = %s", (uid,))
@@ -122,7 +124,7 @@ class TestIsolamentoEntreUsuarios:
             )
             outro = cur.fetchone()[0]
         try:
-            _inserir_arquivo(conexao, outro, r"C:\Privado\segredo.jpg", "segredo.jpg")
+            _inserir_arquivo(conexao, outro, caminho("Privado", "segredo.jpg"), "segredo.jpg")
             with conexao.cursor() as cur:
                 cur.execute("SELECT count(*) FROM files WHERE user_id = %s", (usuario,))
                 assert cur.fetchone()[0] == 0
@@ -138,11 +140,11 @@ class TestPrefixoDePastaNoBanco:
     """
 
     def test_prefixo_nao_alcanca_pasta_irma(self, conexao, usuario, app_module):
-        _inserir_arquivo(conexao, usuario, r"C:\Fotos\dentro.jpg", "dentro.jpg")
-        _inserir_arquivo(conexao, usuario, r"C:\Fotos_backup\irma.jpg", "irma.jpg")
-        _inserir_arquivo(conexao, usuario, r"C:\Fotos\sub\neta.jpg", "neta.jpg")
+        _inserir_arquivo(conexao, usuario, caminho("Fotos", "dentro.jpg"), "dentro.jpg")
+        _inserir_arquivo(conexao, usuario, caminho("Fotos_backup", "irma.jpg"), "irma.jpg")
+        _inserir_arquivo(conexao, usuario, caminho("Fotos", "sub", "neta.jpg"), "neta.jpg")
 
-        prefixo = app_module._prefixo_pasta(r"C:\Fotos")
+        prefixo = app_module._prefixo_pasta(caminho("Fotos"))
         with conexao.cursor() as cur:
             cur.execute(
                 "SELECT nome FROM files WHERE user_id = %s AND left(lower(caminho), %s) = %s",
@@ -154,8 +156,8 @@ class TestPrefixoDePastaNoBanco:
         assert "irma.jpg" not in achados
 
     def test_prefixo_ignora_diferenca_de_caixa(self, conexao, usuario, app_module):
-        _inserir_arquivo(conexao, usuario, r"c:\FOTOS\CAIXA.jpg", "CAIXA.jpg")
-        prefixo = app_module._prefixo_pasta(r"C:\Fotos")
+        _inserir_arquivo(conexao, usuario, caminho("Fotos", "CAIXA.jpg").upper(), "CAIXA.jpg")
+        prefixo = app_module._prefixo_pasta(caminho("Fotos"))
         with conexao.cursor() as cur:
             cur.execute(
                 "SELECT count(*) FROM files WHERE user_id = %s AND left(lower(caminho), %s) = %s",
@@ -177,7 +179,7 @@ class TestTimestamps:
             cur.execute(
                 "INSERT INTO files (user_id, nome, caminho, tipo, processado, data_adicionado) "
                 "VALUES (%s,'t.jpg',%s,'jpg',1,%s) RETURNING data_adicionado",
-                (usuario, rf"C:\T\{os.urandom(3).hex()}.jpg", agora.isoformat()),
+                (usuario, caminho("T", f"{os.urandom(3).hex()}.jpg"), agora.isoformat()),
             )
             gravado = cur.fetchone()[0]
         assert abs((gravado - agora).total_seconds()) < 5
