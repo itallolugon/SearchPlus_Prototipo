@@ -71,28 +71,61 @@ class TestExtensoesDesconhecidas:
 
 
 class TestServeStaticPelaRota:
-    """A mesma proteção, agora atravessando a rota HTTP de verdade."""
+    """
+    A mesma proteção, agora atravessando a rota HTTP de verdade.
 
-    @pytest.mark.parametrize(
-        "rota", ["/backend/.env", "/.git/config", "/backend/app.py", "/backend/requirements.txt"]
-    )
-    def test_rota_nao_entrega_segredo(self, client, rota):
-        resposta = client.get(rota)
-        assert resposta.status_code != 200, f"{rota} foi servido!"
+    Um detalhe descoberto quando o CI rodou pela primeira vez: o status sozinho
+    NÃO serve de asserção aqui. Para um arquivo que não existe, `serve_static`
+    cai no fallback da SPA e devolve o index.html com 200 — comportamento
+    correto, necessário para o roteamento do frontend. E `Path(".env").suffix`
+    é vazio (dotfile não tem extensão para o Python), então `/backend/.env`
+    entra nesse fallback justamente onde o arquivo não existe: na máquina de
+    desenvolvimento ele está presente e dá 404; no CI, é gitignored e some.
 
-    def test_conteudo_do_env_nunca_aparece_no_corpo(self, client):
-        """Mesmo num fallback de SPA, o conteúdo do .env não pode vazar."""
-        corpo = client.get("/backend/.env").get_data(as_text=True)
-        assert "DATABASE_URL" not in corpo
+    Por isso a garantia é sobre o CORPO: nunca pode conter o segredo. Quando o
+    arquivo privado existe de fato (os versionados abaixo), aí sim o status é
+    checado.
+    """
+
+    # Arquivos privados que estão no Git, logo existem em qualquer ambiente.
+    PRIVADOS_VERSIONADOS = [
+        "/backend/app.py",
+        "/backend/mock_server.py",
+        "/backend/requirements.txt",
+        "/backend/schema.sql",
+        "/docs/API.md",
+    ]
+
+    @pytest.mark.parametrize("rota", PRIVADOS_VERSIONADOS)
+    def test_arquivo_privado_existente_e_recusado(self, client, rota):
+        assert client.get(rota).status_code != 200, f"{rota} foi servido!"
+
+    @pytest.mark.parametrize("rota", PRIVADOS_VERSIONADOS)
+    def test_corpo_nunca_traz_o_codigo_do_servidor(self, client, rota):
+        corpo = client.get(rota).get_data(as_text=True)
         assert "ANTHROPIC_API_KEY" not in corpo
+        assert "def api_login" not in corpo
+        assert "DATABASE_URL" not in corpo
 
     @pytest.mark.parametrize(
         "rota",
         [
+            "/backend/.env",
             "/../backend/.env",
             "/..%2Fbackend%2F.env",
             "/landing/../backend/.env",
+            "/.git/config",
         ],
     )
-    def test_traversal_nao_escapa_da_pasta(self, client, rota):
-        assert client.get(rota).status_code != 200
+    def test_credenciais_nunca_aparecem_no_corpo(self, client, rota):
+        """
+        Vale existindo o arquivo ou não: com ele presente vem 404; ausente, vem
+        o index.html da SPA. Em nenhum dos casos o segredo pode sair.
+        """
+        corpo = client.get(rota).get_data(as_text=True)
+        for marcador in ("DATABASE_URL", "ANTHROPIC_API_KEY", "SUPABASE_SERVICE_ROLE_KEY"):
+            assert marcador not in corpo, f"{rota} vazou {marcador}"
+
+    def test_traversal_nao_alcanca_arquivo_privado_existente(self, client):
+        """Subir de pasta com '..' não pode contornar a allowlist."""
+        assert client.get("/landing/../backend/app.py").status_code != 200

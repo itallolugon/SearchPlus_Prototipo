@@ -7,6 +7,7 @@ caminho, duplicata por diferença de caixa, transação abortada devolvendo 500 
 exclusão levando junto o índice de uma subpasta ainda monitorada.
 """
 
+import os
 from unittest import mock
 
 import pytest
@@ -41,11 +42,38 @@ class TestCadastroDePasta:
         sqls = " ".join(str(c) for c in conexao.execute.call_args_list)
         assert "INSERT INTO folders" in sqls
 
+    def test_pasta_ja_cadastrada_vira_update_e_nao_insert(self, client_logado, db_falso, tmp_path):
+        """
+        Reenviar uma pasta existente atualiza a configuração — não insere de
+        novo. É o fluxo de quem troca o perfil de indexação pela interface.
+        """
+        _, conexao = db_falso
+        conexao.execute.return_value.fetchone.return_value = {"path": str(tmp_path)}
+        conexao.execute.return_value.fetchall.return_value = []
+
+        resposta = client_logado.post(
+            "/api/folders", json={"pasta": str(tmp_path), "perfil_analise": "deep"}
+        )
+        assert resposta.status_code == 200
+
+        sqls = " ".join(str(c) for c in conexao.execute.call_args_list)
+        assert "UPDATE folders" in sqls
+        assert "INSERT INTO folders" not in sqls
+
+    @pytest.mark.skipif(
+        os.name != "nt",
+        reason=(
+            "cenário só existe em sistema de arquivos que ignora maiúsculas. "
+            "No Linux, 'C:/Fotos' e 'C:/FOTOS' são pastas DIFERENTES e cadastrar "
+            "as duas é o comportamento correto — o 400 do CI estava certo."
+        ),
+    )
     def test_duplicata_por_caixa_vira_update_e_nao_insert(self, client_logado, db_falso, tmp_path):
         """
         O UNIQUE do Postgres diferencia maiúsculas; o Windows não. Cadastrar a
         mesma pasta com outra caixa precisa atualizar a existente, senão o
-        acervo é indexado duas vezes.
+        acervo é indexado duas vezes — resultado repetido e o dobro de chamadas
+        ao Claude.
         """
         _, conexao = db_falso
         conexao.execute.return_value.fetchone.return_value = {"path": str(tmp_path)}
@@ -59,6 +87,21 @@ class TestCadastroDePasta:
         sqls = " ".join(str(c) for c in conexao.execute.call_args_list)
         assert "UPDATE folders" in sqls
         assert "INSERT INTO folders" not in sqls
+
+    def test_consulta_de_duplicata_ignora_caixa(self, client_logado, db_falso, tmp_path):
+        """
+        Independente da plataforma: a checagem antes do INSERT compara
+        `lower(path)`. Sem isso, o UNIQUE do Postgres deixaria passar a mesma
+        pasta escrita de dois jeitos.
+        """
+        _, conexao = db_falso
+        conexao.execute.return_value.fetchone.return_value = None
+        conexao.execute.return_value.fetchall.return_value = []
+
+        client_logado.post("/api/folders", json={"pasta": str(tmp_path)})
+
+        sqls = " ".join(str(c) for c in conexao.execute.call_args_list)
+        assert "lower(path)" in sqls
 
     def test_conflito_de_corrida_faz_rollback_antes_do_update(
         self, client_logado, db_falso, tmp_path, app_module
