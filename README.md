@@ -199,15 +199,43 @@ SearchPlus_Prototipo/
 ├── style.css           # Estilos
 ├── script.js           # Lógica do frontend (sem framework)
 ├── rodar.bat           # Atalho para ligar o servidor no Windows
+├── dev.py              # Atalhos: testes, lint, cobertura, carga
 ├── fonts/              # Fontes locais
 ├── landing/            # Página de apresentação do produto (estática)
 ├── docs/               # Diagramas UML, DER e documentação acadêmica
+├── tests/              # Suíte de testes (unitários, integração, carga)
 └── backend/
     ├── app.py          # Servidor Flask: API, worker de indexação e busca
+    ├── mock_server.py  # Mesma API com dados fictícios, sem banco nem IA
     ├── schema.sql      # DDL do banco (5 tabelas + índices HNSW)
     ├── requirements.txt
     └── .env            # Credenciais (você cria; não vai para o Git)
 ```
+
+## Testes
+
+A suíte roda **sem Postgres, sem os modelos de IA e sem chave de API** — os
+testes substituem essas dependências antes de importar o backend.
+
+```bash
+py -m pip install -r requirements-dev.txt
+```
+
+```bash
+py dev.py testes
+```
+
+```bash
+py dev.py cobertura
+```
+
+São 297 testes em ~6 segundos, cobrindo as regras de busca, o parsing da
+descrição da IA, o tratamento de caminhos, a autenticação, a allowlist de
+arquivos estáticos e os endpoints de dados. Há ainda testes de carga (Locust) e
+um pipeline de CI no GitHub Actions.
+
+Guia completo — incluindo testes com banco real, perfis de carga e o que ainda
+não tem cobertura: **[docs/TESTING.md](docs/TESTING.md)**.
 
 ## Status do projeto
 

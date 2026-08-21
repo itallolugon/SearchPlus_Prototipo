@@ -1,0 +1,18 @@
+# Ferramentas de teste e qualidade do Search+.
+# As dependências da aplicação estão em backend/requirements.txt.
+#
+#   py -m pip install -r requirements-dev.txt
+
+pytest>=8.0.0
+pytest-cov>=5.0.0
+
+# Lint e formatação. Binário único, cobre o que flake8 + black cobriam.
+ruff>=0.6.0
+
+# Testes de carga. Escolhido em vez de k6/Artillery por ser Python — mesma
+# stack do projeto, instalável por pip, sem exigir Node nem Docker.
+locust>=2.30.0
+
+# Verificação de tipos. Informativa: o projeto não usa type hints de forma
+# sistemática, então mypy dá sinal mas não barra a entrega.
+mypy>=1.11.0

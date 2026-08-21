@@ -44,3 +44,12 @@ search_plus_backend.log
 # Exceção: incluir os arquivos do backend/
 !backend/app.py
 !backend/requirements.txt
+
+# Artefatos de teste e cobertura
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+relatorios/
+.mypy_cache/
+.ruff_cache/

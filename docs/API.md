@@ -187,7 +187,10 @@ Mantenha um rótulo de fallback: se o backend ganhar uma categoria nova, ela che
 ```json
 { "username": "demo", "handle": "demo", "password": "123" }
 ```
-→ `200` `{"status": "ok"}` · `409` usuário já existe
+→ `200` `{"status": "ok"}` · `400` campo vazio ou senha acima de 72 bytes · `409` usuário já existe
+
+A senha é limitada a **72 bytes** (limite do bcrypt). Conte em bytes, não em
+caracteres: em UTF-8 cada letra acentuada ocupa 2, então "çã" × 40 já estoura.
 
 `POST /api/cadastro` é um alias idêntico.
 

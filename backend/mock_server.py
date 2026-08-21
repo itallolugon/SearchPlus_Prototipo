@@ -308,8 +308,15 @@ def login():
 @app.route("/api/cadastro", methods=["POST"])
 def register():
     data = request.get_json(force=True, silent=True) or {}
-    if not (data.get("username") or "").strip() or not (data.get("password") or "").strip():
+    senha = (data.get("password") or "").strip()
+    if not (data.get("username") or "").strip() or not senha:
         return jsonify({"mensagem": "Preencha todos os campos."}), 400
+    # Mesmo limite do backend real: o bcrypt recusa acima de 72 bytes, e em
+    # UTF-8 cada acento ocupa 2.
+    if len(senha.encode("utf-8")) > 72:
+        return jsonify({
+            "mensagem": "Senha muito longa (máximo 72 bytes; letras acentuadas contam 2)."
+        }), 400
     return jsonify({"status": "ok"})
 
 
