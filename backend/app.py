@@ -397,6 +397,28 @@ def get_db():
     return _PooledConnection(raw)
 
 
+def _vec_to_list(v):
+    """
+    Normaliza um vetor lido do banco para lista de float puro.
+
+    O pgvector >= 0.4 devolve um objeto `Vector`, que NÃO é iterável e não
+    converte pra float direto — np.array([Vector]) vira array de dtype=object
+    e quebra o cosine_similarity. Aceita também list/tuple/numpy (caso o
+    adapter não esteja registrado) pra ficar à prova de versão.
+    """
+    if v is None:
+        return None
+    to_list = getattr(v, "to_list", None)     # pgvector.Vector
+    if callable(to_list):
+        return [float(x) for x in to_list()]
+    tolist = getattr(v, "tolist", None)       # numpy.ndarray
+    if callable(tolist):
+        return [float(x) for x in tolist()]
+    if isinstance(v, str):                    # fallback: '[0.1,0.2,...]'
+        return [float(x) for x in v.strip("[]").split(",") if x.strip()]
+    return [float(x) for x in v]              # list/tuple
+
+
 def _safe_json_loads(raw, default=None):
     """
     Wrapper tolerante de json.loads. No Postgres com JSONB, vem como dict
@@ -1511,10 +1533,12 @@ def api_search():
         for i, f in enumerate(rows):
             if f["tipo"] in _EXT_IMG and f["embedding_clip"] is not None:
                 try:
-                    img_vec = np.array([f["embedding_clip"]])
+                    img_vec = np.array([_vec_to_list(f["embedding_clip"])], dtype=float)
                     clip_sims[i] = float(cosine_similarity(clip_q_np, img_vec)[0][0])
-                except Exception:
-                    pass
+                except Exception as e:
+                    # Não engole em silêncio: sem CLIP, imagem sem descrição
+                    # nunca pontua e some da busca.
+                    print(f"[CLIP] falha ao comparar '{f['nome']}': {type(e).__name__}: {e}")
 
     # ── DESCRIÇÃO SOB DEMANDA (lazy) ────────────────────────────────────────
     # As imagens são indexadas só com embedding CLIP (sem descrição). Aqui,
@@ -1672,9 +1696,9 @@ def api_search_by_image():
         if not row or row["embedding_clip"] is None:
             return jsonify({"erro": "Essa imagem ainda não tem dados visuais. "
                                     "Rode 'Re-analisar' para gerá-los."})
-        # pgvector devolve numpy array; converte pra float puro (psycopg2 não
-        # adapta numpy.float32 na query de volta)
-        query_vec = [float(x) for x in row["embedding_clip"]]
+        # pgvector devolve um objeto Vector (não iterável); converte pra float
+        # puro (psycopg2 não adapta numpy.float32/Vector na query de volta)
+        query_vec = _vec_to_list(row["embedding_clip"])
 
     elif data_url:
         # Decodifica base64 → arquivo temporário → embedding CLIP → apaga
