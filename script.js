@@ -1,4 +1,11 @@
-const API_BASE_URL = 'http://127.0.0.1:5000';
+// Deriva a URL da API da própria página, em vez de fixar uma porta: o mesmo
+// arquivo serve tanto o backend real (5000) quanto o servidor mock (5001), sem
+// editar nada. Só cai no valor fixo quando a página é aberta pelo file://,
+// onde não há origem HTTP para herdar.
+const API_BASE_URL =
+    window.location.protocol.startsWith("http")
+        ? window.location.origin
+        : "http://127.0.0.1:5000";
 let currentConfig = {};
 let tempConfig = {};
 
@@ -1058,6 +1065,7 @@ const _CATEGORIA_LABEL = {
     comida:   { icone: '🍽️', nome: 'Comida' },
     natureza: { icone: '🌳', nome: 'Natureza' },
     urbano:   { icone: '🏙️', nome: 'Urbano' },
+    desenhos: { icone: '🎨', nome: 'Desenhos e Arte' },
 };
 
 async function carregarEstatisticas() {
@@ -1360,11 +1368,16 @@ async function reAnalizarArquivos() {
     try {
         const res = await fetch(`${API_BASE_URL}/api/reanalyze`, { method: 'POST' });
         const data = await res.json();
+        // Imagens com descrição em formato antigo não vão pra fila: elas são
+        // redescritas sozinhas na próxima busca em que aparecerem.
+        const limpas = data.descricoes_limpas || 0;
+        const extra = limpas ? ` + ${limpas} imagem(ns) marcada(s) pra redescrever` : '';
         if (btn) {
             btn.innerText = `✅ ${data.reenfileirados} arquivo(s) na fila!`;
             setTimeout(() => { btn.innerText = 'Re-analisar Arquivos com Descrição Ruim'; btn.disabled = false; }, 3000);
+            if (limpas) toastOk(`${limpas} imagem(ns) serão redescritas na próxima busca.`);
         } else {
-            toastOk(`${data.reenfileirados} arquivo(s) na fila de reanálise.`);
+            toastOk(`${data.reenfileirados} arquivo(s) na fila de reanálise${extra}.`);
         }
     } catch(e) {
         if (btn) { btn.innerText = 'Re-analisar Arquivos com Descrição Ruim'; btn.disabled = false; }
@@ -1956,6 +1969,7 @@ const _CAT_GALERIA = {
     comida:   { icone: '🍽️', nome: 'Comida' },
     natureza: { icone: '🌳', nome: 'Natureza' },
     urbano:   { icone: '🏙️', nome: 'Urbano' },
+    desenhos: { icone: '🎨', nome: 'Desenhos e Arte' },
     outras:   { icone: '📦', nome: 'Outras' },
 };
 

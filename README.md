@@ -42,6 +42,27 @@ Outros detalhes que aumentam a precisão: expansão de sinônimos nos dois lados
 
 ---
 
+## Vai trabalhar no frontend?
+
+Comece por aqui — não precisa de banco de dados, de modelos de IA nem de chave de API:
+
+```bash
+py -m pip install flask flask-cors
+py backend/mock_server.py
+```
+
+Abra `http://127.0.0.1:5001` e o Search+ roda inteiro com dados fictícios. Qualquer usuário e senha entram.
+
+| Documento | Conteúdo |
+|---|---|
+| [docs/FRONTEND.md](docs/FRONTEND.md) | Guia de substituição da interface: o que trocar, o que não tocar, fluxos a entregar |
+| [docs/API.md](docs/API.md) | Contrato da API: payloads, respostas e erros de cada endpoint |
+| [AGENTS.md](AGENTS.md) | Instruções para agentes de IA trabalhando neste repositório |
+
+A interface é substituível por completo; o backend fica como está. Detalhes em [docs/FRONTEND.md](docs/FRONTEND.md).
+
+---
+
 # Como instalar em outro computador
 
 Guia completo para colocar o Search+ funcionando numa máquina nova (Windows). Existe também o [COMO_RODAR.txt](COMO_RODAR.txt), escrito em linguagem mais simples para usuários leigos.
@@ -178,15 +199,43 @@ SearchPlus_Prototipo/
 ├── style.css           # Estilos
 ├── script.js           # Lógica do frontend (sem framework)
 ├── rodar.bat           # Atalho para ligar o servidor no Windows
+├── dev.py              # Atalhos: testes, lint, cobertura, carga
 ├── fonts/              # Fontes locais
 ├── landing/            # Página de apresentação do produto (estática)
 ├── docs/               # Diagramas UML, DER e documentação acadêmica
+├── tests/              # Suíte de testes (unitários, integração, carga)
 └── backend/
     ├── app.py          # Servidor Flask: API, worker de indexação e busca
+    ├── mock_server.py  # Mesma API com dados fictícios, sem banco nem IA
     ├── schema.sql      # DDL do banco (5 tabelas + índices HNSW)
     ├── requirements.txt
     └── .env            # Credenciais (você cria; não vai para o Git)
 ```
+
+## Testes
+
+A suíte roda **sem Postgres, sem os modelos de IA e sem chave de API** — os
+testes substituem essas dependências antes de importar o backend.
+
+```bash
+py -m pip install -r requirements-dev.txt
+```
+
+```bash
+py dev.py testes
+```
+
+```bash
+py dev.py cobertura
+```
+
+São 297 testes em ~6 segundos, cobrindo as regras de busca, o parsing da
+descrição da IA, o tratamento de caminhos, a autenticação, a allowlist de
+arquivos estáticos e os endpoints de dados. Há ainda testes de carga (Locust) e
+um pipeline de CI no GitHub Actions.
+
+Guia completo — incluindo testes com banco real, perfis de carga e o que ainda
+não tem cobertura: **[docs/TESTING.md](docs/TESTING.md)**.
 
 ## Status do projeto
 

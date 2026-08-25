@@ -1,0 +1,231 @@
+# -*- coding: utf-8 -*-
+"""
+Teste de carga do Search+.
+
+Três perfis, selecionados por `SEARCHPLUS_LOAD_PROFILE`:
+
+    smoke   poucos usuários, ~30s — verifica que o script e o ambiente funcionam
+    load    rampa, carga sustentada, descida — uso normal com picos moderados
+    stress  rampa progressiva acima do esperado — acha o ponto de degradação
+
+    py -m locust -f tests/load/locustfile.py --headless \\
+        --host http://127.0.0.1:5001 -u 2 -r 1 -t 30s
+
+Alvo padrão: o `mock_server` (porta 5001), que responde o mesmo contrato sem
+Postgres nem API paga. Apontar para o backend real (5000) mede o motor de
+verdade — inclusive as chamadas ao Claude, que custam dinheiro. Faça isso
+conscientemente e só em máquina local.
+
+TRAVA DE SEGURANÇA: hosts fora de localhost são recusados, a menos que
+`SEARCHPLUS_LOAD_ALLOW_REMOTE=1` seja definido explicitamente. Nunca aponte
+para produção.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from urllib.parse import urlparse
+
+from locust import HttpUser, LoadTestShape, between, events, task
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Configuração — tudo por variável de ambiente, com padrões seguros
+# ─────────────────────────────────────────────────────────────────────────────
+PERFIL = os.environ.get("SEARCHPLUS_LOAD_PROFILE", "smoke").lower()
+USUARIO = os.environ.get("SEARCHPLUS_LOAD_USER", "carga_teste")
+SENHA = os.environ.get("SEARCHPLUS_LOAD_PASSWORD", "carga_teste")
+PERMITE_REMOTO = os.environ.get("SEARCHPLUS_LOAD_ALLOW_REMOTE") == "1"
+
+# Limites de aceitação. São referências iniciais: ajuste conforme a máquina e o
+# ambiente, documentando a mudança.
+MAX_TAXA_ERRO = float(os.environ.get("SEARCHPLUS_LOAD_MAX_ERROR_RATE", "0.01"))  # 1%
+MAX_P95_MS = float(os.environ.get("SEARCHPLUS_LOAD_MAX_P95_MS", "1000"))  # 1s
+MAX_P95_IA_MS = float(os.environ.get("SEARCHPLUS_LOAD_MAX_P95_IA_MS", "5000"))  # 5s
+
+# Endpoints que dependem de IA toleram p95 maior: uma busca no backend real pode
+# chamar o Claude para descrever imagem e para re-ranquear.
+NOMES_DEPENDENTES_DE_IA = {"/api/search", "/api/search_by_image"}
+
+CONSULTAS = [
+    "cachorro",
+    "gato",
+    "foto de praia",
+    "documento contrato",
+    "desenho",
+    "paisagem",
+    "pessoa sorrindo",
+    "gráfico de vendas",
+]
+
+
+@events.init.add_listener
+def _validar_alvo(environment, **_kwargs):
+    """Recusa alvo remoto: carga contra produção não pode acontecer por engano."""
+    host = environment.host or ""
+    nome = (urlparse(host).hostname or "").lower()
+    local = nome in {"localhost", "127.0.0.1", "::1", "0.0.0.0"}
+    if not local and not PERMITE_REMOTO:
+        print(
+            f"\n[CARGA] RECUSADO: host '{host}' não é local.\n"
+            "        Teste de carga roda contra ambiente local ou de teste.\n"
+            "        Se este é mesmo um ambiente de teste dedicado, defina\n"
+            "        SEARCHPLUS_LOAD_ALLOW_REMOTE=1 conscientemente.\n"
+        )
+        sys.exit(1)
+
+
+class UsuarioDoSearchPlus(HttpUser):
+    """
+    Simula o uso real: entra uma vez e depois navega — buscando, filtrando e
+    abrindo painéis. A busca pesa mais porque é o que o produto faz.
+    """
+
+    wait_time = between(1, 3)
+    _contador = 0
+
+    def on_start(self):
+        """Uma sessão por usuário virtual, como no navegador."""
+        with self.client.post(
+            "/api/login",
+            json={"username": USUARIO, "password": SENHA},
+            catch_response=True,
+            name="/api/login",
+        ) as r:
+            if r.status_code == 200:
+                r.success()
+            else:
+                r.failure(f"login falhou: HTTP {r.status_code}")
+
+    @task(10)
+    def buscar(self):
+        UsuarioDoSearchPlus._contador += 1
+        consulta = CONSULTAS[UsuarioDoSearchPlus._contador % len(CONSULTAS)]
+        with self.client.post(
+            "/api/search",
+            json={"query": consulta, "filtro": "all"},
+            catch_response=True,
+            name="/api/search",
+        ) as r:
+            if r.status_code != 200:
+                r.failure(f"HTTP {r.status_code}")
+            elif "resultados" not in (r.json() or {}):
+                r.failure("resposta sem o campo 'resultados'")
+            else:
+                r.success()
+
+    @task(4)
+    def buscar_com_filtro(self):
+        filtro = ["imagem", "documento", "midia"][UsuarioDoSearchPlus._contador % 3]
+        self.client.post(
+            "/api/search",
+            json={"query": "foto", "filtro": filtro},
+            name="/api/search (filtrado)",
+        )
+
+    @task(3)
+    def abrir_painel_inicial(self):
+        """O front dispara stats e galeria juntos ao abrir a home."""
+        self.client.get("/api/stats", name="/api/stats")
+        self.client.get("/api/gallery", name="/api/gallery")
+
+    @task(2)
+    def listar_colecoes(self):
+        self.client.get("/api/collections", name="/api/collections")
+
+    @task(2)
+    def validar_sessao(self):
+        self.client.get("/api/check_session", name="/api/check_session")
+
+    @task(1)
+    def listar_favoritos(self):
+        self.client.get("/api/favorites", name="/api/favorites")
+
+    @task(1)
+    def consultar_status_do_motor(self):
+        self.client.get("/api/status", name="/api/status")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Perfis de carga
+# ─────────────────────────────────────────────────────────────────────────────
+# (segundo_final, usuários, taxa de subida por segundo)
+ESTAGIOS: dict[str, list[tuple[int, int, int]]] = {
+    # Sobe até 20, sustenta, desce — uso normal com pico moderado.
+    "load": [
+        (30, 5, 1),  # rampa inicial
+        (90, 20, 2),  # carga sustentada
+        (150, 20, 2),
+        (180, 5, 2),  # descida controlada
+    ],
+    # Sobe além do esperado até achar onde degrada. Rodar só sob supervisão.
+    "stress": [
+        (30, 10, 2),
+        (60, 30, 3),
+        (90, 60, 5),
+        (120, 100, 8),
+        (150, 150, 10),
+    ],
+}
+
+# A classe de shape só é DEFINIDA quando o perfil a usa. O Locust encontra
+# qualquer LoadTestShape no arquivo e passa a ignorar -u/-r/-t; deixá-la sempre
+# presente fazia o smoke encerrar antes da primeira requisição.
+if PERFIL in ESTAGIOS:
+
+    class FormaDeCarga(LoadTestShape):
+        """Rampa do perfil ativo; None encerra o teste."""
+
+        estagios = ESTAGIOS[PERFIL]
+
+        def tick(self):
+            decorrido = self.get_run_time()
+            for fim, usuarios, taxa in self.estagios:
+                if decorrido < fim:
+                    return (usuarios, taxa)
+            return None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Verificação dos limites ao final — sai com código 1 se algum for violado
+# ─────────────────────────────────────────────────────────────────────────────
+@events.quitting.add_listener
+def _verificar_limites(environment, **_kwargs):
+    estatisticas = environment.stats
+    total = estatisticas.total
+    problemas: list[str] = []
+
+    if total.num_requests == 0:
+        problemas.append("nenhuma requisição executada — o alvo estava no ar?")
+    else:
+        taxa_erro = total.num_failures / total.num_requests
+        if taxa_erro > MAX_TAXA_ERRO:
+            problemas.append(f"taxa de erro {taxa_erro:.2%} acima do limite de {MAX_TAXA_ERRO:.2%}")
+
+    for nome, entrada in estatisticas.entries.items():
+        if entrada.num_requests == 0:
+            continue
+        rotulo = nome[0] if isinstance(nome, tuple) else str(nome)
+        limite = (
+            MAX_P95_IA_MS if any(ia in rotulo for ia in NOMES_DEPENDENTES_DE_IA) else MAX_P95_MS
+        )
+        p95 = entrada.get_response_time_percentile(0.95)
+        if p95 and p95 > limite:
+            problemas.append(f"{rotulo}: p95 {p95:.0f}ms acima do limite de {limite:.0f}ms")
+
+    print("\n" + "=" * 70)
+    print(f"  PERFIL: {PERFIL}   requisições: {total.num_requests}   falhas: {total.num_failures}")
+    if total.num_requests:
+        print(f"  p95 geral: {total.get_response_time_percentile(0.95):.0f}ms")
+    print("=" * 70)
+
+    if problemas:
+        print("  LIMITES VIOLADOS:")
+        for p in problemas:
+            print(f"    - {p}")
+        print("=" * 70)
+        environment.process_exit_code = 1
+    else:
+        print("  Todos os limites respeitados.")
+        print("=" * 70)
+        environment.process_exit_code = 0

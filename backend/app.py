@@ -15,7 +15,7 @@ import threading
 import time
 import unicodedata
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -26,18 +26,32 @@ from psycopg2.extras import RealDictCursor
 from pgvector.psycopg2 import register_vector
 from dotenv import load_dotenv
 
-from flask import Flask, jsonify, request, send_file, send_from_directory, session
+from flask import (
+    Flask, g, has_app_context, jsonify, request, send_file,
+    send_from_directory, session,
+)
 from flask_cors import CORS
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Configuração de caminhos e ambiente
 # ──────────────────────────────────────────────────────────────────────────────
 
-BASE_DIR = Path(__file__).parent          # .../backend/
-FRONTEND_DIR = BASE_DIR.parent            # .../
+BASE_DIR = Path(__file__).resolve().parent   # .../backend/
 
 # Carrega .env do diretório do backend
 load_dotenv(BASE_DIR / ".env")
+
+# Pasta servida como frontend. Por padrão é a raiz do projeto (o protótipo em
+# HTML/CSS/JS puro). Quando o front definitivo chegar, basta apontar o .env para
+# a pasta de build dele — nenhuma linha de Python muda:
+#   FRONTEND_DIR=../front/dist
+_frontend_cfg = os.environ.get("FRONTEND_DIR", "").strip()
+FRONTEND_DIR = (
+    (BASE_DIR / _frontend_cfg).resolve() if _frontend_cfg else BASE_DIR.parent
+)
+if _frontend_cfg and not FRONTEND_DIR.is_dir():
+    print(f"[Front] FRONTEND_DIR '{FRONTEND_DIR}' não existe — caindo para a raiz do projeto.")
+    FRONTEND_DIR = BASE_DIR.parent
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
@@ -56,6 +70,9 @@ if not DATABASE_URL:
 # julgamento usam a API.
 _CLAUDE = None
 CLAUDE_OK = False
+# Modelo usado tanto para descrever imagens quanto para julgar a busca.
+# Pode ser trocado no .env (CLAUDE_MODEL) sem mexer no código.
+CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "").strip() or "claude-opus-5"
 try:
     import anthropic as _anthropic
     _chave = os.environ.get("ANTHROPIC_API_KEY", "").strip()
@@ -138,22 +155,56 @@ except ImportError:
 # Flask App
 # ──────────────────────────────────────────────────────────────────────────────
 
-app = Flask(__name__, static_folder=str(FRONTEND_DIR), static_url_path="")
-app.secret_key = "searchplus_secret_2024_XkQ!9@#mZ"
-app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-app.config["SESSION_COOKIE_SECURE"] = False
+# static_folder=None desliga a rota estática automática do Flask. Com
+# static_url_path="" ela registrava o próprio '/<path:filename>' e, por ser
+# criada junto com o app, vencia a nossa — devolvendo 404 em rotas de SPA antes
+# que o fallback para o index.html tivesse chance de rodar. Servimos os arquivos
+# em serve_static(), logo abaixo.
+app = Flask(__name__, static_folder=None)
+
+# Chave de sessão: vem do .env em produção. O fallback só existe para o
+# desenvolvimento local não exigir configuração — trocar a chave invalida todas
+# as sessões abertas, então em produção ela PRECISA ser fixa e secreta.
+app.secret_key = os.environ.get("SECRET_KEY", "").strip() or "searchplus_dev_only_key"
+if app.secret_key == "searchplus_dev_only_key":
+    print("[Auth] SECRET_KEY não definida no .env — usando chave de desenvolvimento.")
+
+# ── Origens liberadas no CORS ───────────────────────────────────────────────
+# O front pode ser servido pelo próprio Flask (same-origin, porta 5000) ou por
+# um dev server separado (Vite 5173, Next/CRA 3000...). Configurável no .env:
+#   ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
+_ORIGENS_PADRAO = [
+    "http://127.0.0.1:5000",  "http://localhost:5000",   # Flask (same-origin)
+    "http://127.0.0.1:5500",  "http://localhost:5500",   # Live Server
+    "http://127.0.0.1:5173",  "http://localhost:5173",   # Vite
+    "http://127.0.0.1:3000",  "http://localhost:3000",   # Next.js / CRA
+    "http://127.0.0.1:4200",  "http://localhost:4200",   # Angular
+    "http://127.0.0.1:8080",  "http://localhost:8080",   # Vue CLI
+]
+_extra_origins = [
+    o.strip() for o in os.environ.get("ALLOWED_ORIGINS", "").split(",") if o.strip()
+]
+ALLOWED_ORIGINS = _extra_origins or _ORIGENS_PADRAO
+
+# ── Cookie de sessão ────────────────────────────────────────────────────────
+# SameSite=Lax faz o browser NÃO enviar o cookie em requisições cross-site, o
+# que quebra o login inteiro quando o front roda em outra porta (localhost:5173
+# → localhost:5000 são sites diferentes para essa regra). Nesse cenário é
+# preciso SameSite=None, que por especificação só vale acompanhado de Secure
+# (ou seja, HTTPS). Configurável no .env para não travar quem serve tudo pelo
+# Flask, onde Lax é a opção mais segura.
+#   CROSS_SITE_COOKIES=1  → SameSite=None + Secure (front em outro domínio/porta, sob HTTPS)
+_cross_site = os.environ.get("CROSS_SITE_COOKIES", "0") == "1"
+app.config["SESSION_COOKIE_SAMESITE"] = "None" if _cross_site else "Lax"
+app.config["SESSION_COOKIE_SECURE"] = _cross_site
 app.config["SESSION_COOKIE_HTTPONLY"] = True
+if _cross_site:
+    print("[Auth] Cookies cross-site ativos (SameSite=None; Secure) — exige HTTPS.")
 
 CORS(
     app,
     supports_credentials=True,
-    origins=[
-        "http://127.0.0.1:5000",
-        "http://localhost:5000",
-        "http://127.0.0.1:5500",
-        "http://localhost:5500",
-        "null",
-    ],
+    origins=ALLOWED_ORIGINS + ["null"],
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -171,6 +222,19 @@ def _normalizar(text: str) -> str:
         c for c in unicodedata.normalize("NFD", text.lower())
         if unicodedata.category(c) != "Mn"
     )
+
+
+def _limpar_texto_para_banco(texto: str) -> str:
+    """
+    Tira o byte NUL do texto extraído de arquivos.
+
+    O Postgres recusa \\x00 em coluna `text` ("A string literal cannot contain
+    NUL characters"), e basta UM .txt/.csv corrompido com esse byte para o
+    UPDATE estourar. Como a exceção subia no meio do worker, a thread de
+    indexação morria e o acervo inteiro parava de ser processado — com o status
+    exibindo "Ocioso", sem nenhum sinal de erro para o usuário.
+    """
+    return texto.replace("\x00", "") if texto else texto
 
 
 def _gerar_embedding(text: str) -> list[float] | None:
@@ -209,14 +273,15 @@ def _gerar_embedding_clip_texto(text: str) -> list[float] | None:
         return None
 
 
-def _extrair_campos_llava(desc: str) -> str:
+def _extrair_campos_descricao(desc: str) -> str:
     """
-    Extrai campos semanticamente ricos da saída LLaVA para gerar embedding.
-    Inclui 'O que é', 'Pessoas', 'Animais', 'Objetos', 'Ações' e 'Tags'.
-    Descarta 'Ambiente' (cores/local) para reduzir ruído.
+    Extrai campos semanticamente ricos da descrição para gerar embedding.
+    Inclui 'Estilo', 'O que é', 'Pessoas', 'Animais', 'Objetos', 'Ações',
+    'Texto' e 'Tags'. Descarta 'Ambiente' (cores/local) para reduzir ruído.
     Retorna o texto original se o formato estruturado não for encontrado.
     """
-    campos_alvo = {"o que e", "pessoas", "animais", "objetos", "acoes", "tags"}
+    campos_alvo = {"estilo", "o que e", "pessoas", "animais", "objetos",
+                   "acoes", "texto", "tags"}
     linhas_extraidas = []
 
     for linha in desc.splitlines():
@@ -252,11 +317,11 @@ def _variantes_morfologicas(palavra: str) -> set[str]:
 
 def _texto_para_embedding(desc: str) -> str:
     """
-    Prepara texto da descrição LLaVA para virar embedding de alto recall.
+    Prepara o texto da descrição para virar embedding de alto recall.
     Expande sinônimos no próprio texto do documento (não só na query), então
     uma imagem com 'cão' também casa com buscas por 'cachorro', 'caozinho' etc.
     """
-    campos = _extrair_campos_llava(desc)
+    campos = _extrair_campos_descricao(desc)
     tokens = _tokenizar(campos)
     expandido = _expandir_sinonimos(tokens)
     return expandido or _normalizar(campos)
@@ -264,8 +329,8 @@ def _texto_para_embedding(desc: str) -> str:
 
 def _rerank_com_claude(query: str, candidatos: list[dict], topk: int = 15) -> list[dict]:
     """
-    Re-rank usando o Claude como juiz semântico. Diferente do Ollama (que dá notas),
-    aqui o Claude diz QUAIS resultados realmente correspondem à busca e quais não.
+    Re-rank usando o Claude como juiz semântico: em vez de dar notas, ele diz
+    QUAIS resultados realmente correspondem à busca e quais não.
     Resolve casos como 'gato aparecendo em busca de cachorro' — o Claude entende
     que são animais diferentes, mesmo que os embeddings os achem parecidos.
 
@@ -289,7 +354,16 @@ def _rerank_com_claude(query: str, candidatos: list[dict], topk: int = 15) -> li
         if not desc:
             continue
         julgaveis.append(c)
-        itens.append(f"{len(julgaveis)}. {desc[:200]}".replace("\n", " "))
+        # O tipo vai junto porque a régua é outra para imagem e para documento
+        # (ver o prompt abaixo). Sem essa marcação, o juiz cobrava de um manual
+        # de bicicleta o mesmo que cobraria de uma foto e o descartava.
+        eh_img = c.get("tipo") in _EXT_IMG
+        rotulo = "IMAGEM" if eh_img else "DOCUMENTO"
+        # 500 caracteres: a descrição é multi-campo (Estilo/Pessoas/Animais/...),
+        # e cortar cedo demais escondia justamente o campo que decide o veredito.
+        itens.append(
+            f"{len(julgaveis)}. [{rotulo}] {desc[:500]}".replace("\n", " | ")
+        )
 
     if not itens:
         return candidatos
@@ -298,38 +372,87 @@ def _rerank_com_claude(query: str, candidatos: list[dict], topk: int = 15) -> li
         f"O usuário buscou por: \"{query}\"\n\n"
         f"Abaixo estão arquivos encontrados (com a descrição de cada um). "
         f"Para CADA número, responda se o arquivo REALMENTE corresponde ao que o "
-        f"usuário buscou. Seja rigoroso com a diferença entre coisas parecidas mas "
-        f"distintas: por exemplo, se a busca é por 'cachorro', um GATO NÃO corresponde "
-        f"(são animais diferentes), mesmo que ambos sejam animais.\n\n"
-        f"Responda APENAS em JSON, sem markdown, sem explicação. Para cada número, "
-        f"use true (corresponde) ou false (não corresponde).\n"
-        f"Formato: {{\"1\": true, \"2\": false, \"3\": true}}\n\n"
+        f"usuário buscou.\n\n"
+        f"A régua muda conforme o tipo do arquivo:\n\n"
+        f"[IMAGEM] — vale o que a imagem MOSTRA. Seja rigoroso com coisas "
+        f"parecidas mas distintas: numa busca por 'cachorro', um GATO NÃO "
+        f"corresponde, mesmo que ambos sejam animais.\n"
+        f"O MEIO da imagem nunca desqualifica: desenho, ilustração, pintura, "
+        f"anime, cartoon, quadrinho, pixel art e render 3D contam pelo que "
+        f"representam. Um desenho de cachorro CORRESPONDE a uma busca por "
+        f"'cachorro'. Só marque false quando o assunto for outro, não quando o "
+        f"estilo for diferente do esperado — a menos que o usuário tenha pedido um "
+        f"estilo específico (ex.: 'foto de cachorro' exclui desenhos; "
+        f"'desenho de cachorro' exclui fotos).\n\n"
+        f"[DOCUMENTO] — vale o ASSUNTO de que o texto trata. A pergunta é se "
+        f"alguém que buscou aquilo ficaria satisfeito ao abrir este documento, "
+        f"e NÃO se o documento é o objeto buscado. Um manual de manutenção de "
+        f"bicicleta CORRESPONDE a 'freio da bicicleta', porque é sobre isso que "
+        f"ele fala. Não exija que o texto responda a pergunta por completo nem "
+        f"que contenha um dado específico: tratar do assunto basta. Marque false "
+        f"só quando o tema for realmente outro.\n\n"
         + "\n".join(itens)
     )
 
     try:
         resp = _CLAUDE.messages.create(
-            model="claude-opus-4-8",
-            max_tokens=500,
+            model=CLAUDE_MODEL,
+            max_tokens=2000,
+            output_config={
+                "effort": "low",
+                "format": {
+                    "type": "json_schema",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "veredictos": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "n": {"type": "integer"},
+                                        "corresponde": {"type": "boolean"},
+                                    },
+                                    "required": ["n", "corresponde"],
+                                    "additionalProperties": False,
+                                },
+                            },
+                        },
+                        "required": ["veredictos"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
             messages=[{"role": "user", "content": prompt}],
         )
+        if resp.stop_reason == "refusal":
+            print("[Rerank Claude] Recusado — mantendo ordem original")
+            return candidatos
         raw = "".join(b.text for b in resp.content if b.type == "text").strip()
-        if raw.startswith("```"):
-            raw = raw.strip("`").lstrip("json").strip()
-        veredictos = json.loads(raw)
+        dados = json.loads(raw)
+        veredictos = {
+            int(v["n"]): bool(v["corresponde"])
+            for v in dados.get("veredictos", [])
+            if isinstance(v, dict) and "n" in v and "corresponde" in v
+        }
     except Exception as exc:
         print(f"[Rerank Claude] Falhou, mantendo ordem original: {exc}")
         return candidatos
 
     for i, c in enumerate(julgaveis, 1):
-        v = veredictos.get(str(i), veredictos.get(i))
-        if v is False:
-            # Claude diz que NÃO corresponde → joga o score pra baixo do corte final.
-            # Não remove direto (deixa o corte > 0.25 do api_search descartar),
-            # assim a lógica de corte fica num lugar só.
-            print(f"[Rerank Claude] '{c['nome']}' nao corresponde a '{query}' — descartado")
-            c["score"] = 0.10
-        # Se v is True ou None (Claude não opinou), mantém o score do motor.
+        if veredictos.get(i) is not False:
+            continue  # corresponde, ou o Claude não opinou → mantém o score do motor
+        # Hit semântico muito forte: o juiz pode estar errado (descrição pobre,
+        # sinônimo que ele não reconheceu). Penaliza sem eliminar.
+        if c.get("_sbert", 0.0) >= 0.75:
+            c["score"] = min(c["score"], 0.45)
+            print(f"[Rerank Claude] '{c['nome']}' duvidoso para '{query}' — rebaixado")
+            continue
+        # Caso normal: joga o score pra baixo do corte final. Não remove direto
+        # (deixa o corte > 0.25 do api_search descartar), assim a lógica de corte
+        # fica num lugar só.
+        print(f"[Rerank Claude] '{c['nome']}' nao corresponde a '{query}' — descartado")
+        c["score"] = 0.10
 
     topo.sort(key=lambda x: x["score"], reverse=True)
     return topo + resto
@@ -339,9 +462,34 @@ def _rerank_com_claude(query: str, candidatos: list[dict], topk: int = 15) -> li
 # Banco de dados Postgres (Supabase) — pool de conexões
 # ──────────────────────────────────────────────────────────────────────────────
 
-# Pool com 1-10 conexões. Cada request pega uma do pool; devolve no close.
-_pg_pool = pg_pool.ThreadedConnectionPool(1, 10, dsn=DATABASE_URL)
-print(f"[DB] Pool Postgres pronto ({DATABASE_URL.split('@')[-1]})")
+# Tamanho do pool. O frontend dispara várias chamadas em paralelo ao abrir a
+# home (config + stats + gallery + favorites + collections + status), e cada aba
+# aberta multiplica isso — 10 conexões estouravam com facilidade. Configurável
+# no .env porque o teto depende do plano do Postgres/Supabase.
+_POOL_MAX = max(4, int(os.environ.get("DB_POOL_MAX", "20")))
+_POOL_TIMEOUT = float(os.environ.get("DB_POOL_TIMEOUT", "10"))
+
+_pg_pool = pg_pool.ThreadedConnectionPool(1, _POOL_MAX, dsn=DATABASE_URL)
+print(f"[DB] Pool Postgres pronto ({DATABASE_URL.split('@')[-1]}, máx {_POOL_MAX} conexões)")
+
+
+def _pegar_conexao_do_pool():
+    """
+    Pega uma conexão, esperando se todas estiverem ocupadas.
+
+    `ThreadedConnectionPool.getconn()` não espera: com o pool cheio ele levanta
+    PoolError na hora, e um pico de requisições paralelas virava uma rajada de
+    HTTP 500. Como as conexões são devolvidas em milissegundos, uma espera curta
+    resolve o pico sem precisar de um pool gigante.
+    """
+    limite = time.monotonic() + _POOL_TIMEOUT
+    while True:
+        try:
+            return _pg_pool.getconn()
+        except pg_pool.PoolError:
+            if time.monotonic() >= limite:
+                raise
+            time.sleep(0.05)
 
 
 class _PooledConnection:
@@ -352,6 +500,7 @@ class _PooledConnection:
     """
     def __init__(self, raw):
         self._raw = raw
+        self._fechada = False
         # Registra o adapter pgvector pra aceitar/devolver listas como vector(N)
         try:
             register_vector(raw)
@@ -375,6 +524,14 @@ class _PooledConnection:
         self._raw.rollback()
 
     def close(self):
+        """
+        Devolve a conexão ao pool. Idempotente: chamar duas vezes não faz nada
+        na segunda — é o que permite ao teardown do request fechar sobras sem
+        arriscar devolver ao pool uma conexão que já voltou.
+        """
+        if self._fechada:
+            return
+        self._fechada = True
         try:
             self._cursor.close()
         except Exception:
@@ -392,9 +549,34 @@ class _PooledConnection:
 
 
 def get_db():
-    """Pega uma conexão do pool. Sempre chame .close() no final pra devolver."""
-    raw = _pg_pool.getconn()
-    return _PooledConnection(raw)
+    """
+    Pega uma conexão do pool. Continue chamando `.close()` ao terminar — quanto
+    antes ela voltar ao pool, melhor (uma busca segura a conexão por segundos se
+    esperar o fim do request).
+
+    Dentro de um request as conexões entregues ficam anotadas em `flask.g`, e o
+    teardown fecha o que sobrar. É só uma rede de segurança: sem ela, qualquer
+    exceção entre o `get_db()` e o `conn.close()` vazava uma conexão para
+    sempre, e bastavam algumas dezenas de erros para esgotar o pool e derrubar
+    o servidor inteiro.
+    """
+    conn = _PooledConnection(_pegar_conexao_do_pool())
+    if has_app_context():
+        abertas = getattr(g, "_db_abertas", None)
+        if abertas is None:
+            abertas = []
+            g._db_abertas = abertas
+        abertas.append(conn)
+    return conn
+
+
+@app.teardown_appcontext
+def _fechar_db_do_request(_exc):
+    """Fecha conexões que o handler não devolveu — por exceção ou esquecimento."""
+    for conn in (getattr(g, "_db_abertas", None) or []):
+        if not conn._fechada:
+            print("[DB] Conexão não devolvida pelo handler — fechando no teardown.")
+        conn.close()   # idempotente: no-op se o handler já fechou
 
 
 def _vec_to_list(v):
@@ -510,6 +692,34 @@ def _uid():
 # Servir frontend (sem CORS, same-origin)
 # ──────────────────────────────────────────────────────────────────────────────
 
+# Extensões que um frontend legitimamente serve. É uma allowlist, e não uma
+# lista de bloqueio, porque a pasta servida é a raiz do projeto — que contém
+# backend/.env (senha do banco e chave da API), .git/ e o código do servidor.
+# Com denylist, qualquer arquivo novo nasceria público até alguém lembrar de
+# bloqueá-lo; assim, nasce privado.
+_EXT_PUBLICAS = {
+    ".html", ".htm", ".css", ".js", ".mjs", ".cjs", ".map", ".json", ".wasm",
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".ico", ".avif",
+    ".woff", ".woff2", ".ttf", ".otf", ".eot",
+    ".mp4", ".webm", ".mp3", ".ogg", ".wav",
+    ".txt", ".webmanifest", ".xml",
+}
+
+# Pastas nunca servidas, mesmo que contenham arquivos de extensão liberada.
+_PASTAS_PRIVADAS = {"backend", "docs", "node_modules", "venv", "__pycache__"}
+
+
+def _pode_servir(rel: Path) -> bool:
+    """Decide se um caminho relativo ao FRONTEND_DIR pode ir para o navegador."""
+    partes = rel.parts
+    # Dotfiles e dotdirs em qualquer nível: .env, .git/, .vscode/, .gitignore
+    if any(p.startswith(".") for p in partes):
+        return False
+    if any(p.lower() in _PASTAS_PRIVADAS for p in partes[:-1]):
+        return False
+    return rel.suffix.lower() in _EXT_PUBLICAS
+
+
 @app.route("/")
 def serve_index():
     return send_from_directory(str(FRONTEND_DIR), "index.html")
@@ -517,9 +727,38 @@ def serve_index():
 
 @app.route("/<path:filename>")
 def serve_static(filename):
+    """
+    Serve um arquivo do frontend; se a rota não for um arquivo, devolve o
+    index.html.
+
+    O fallback é o que faz uma SPA com roteamento próprio (React Router, Vue
+    Router) funcionar: abrir /configuracoes direto na barra de endereços não
+    corresponde a nenhum arquivo em disco, e sem isso viraria 404 em vez de
+    deixar o roteador do front resolver a rota.
+    """
     if filename.startswith("api/"):
         return jsonify({"error": "not found"}), 404
-    return send_from_directory(str(FRONTEND_DIR), filename)
+
+    destino = (FRONTEND_DIR / filename).resolve()
+    # Confere que o caminho pedido não escapou da pasta do frontend via '../'
+    if FRONTEND_DIR not in destino.parents and destino != FRONTEND_DIR:
+        return jsonify({"error": "not found"}), 404
+
+    rel = destino.relative_to(FRONTEND_DIR)
+    if destino.is_file():
+        if not _pode_servir(rel):
+            return jsonify({"error": "not found"}), 404
+        # as_posix(): send_from_directory espera '/' como separador. No Windows,
+        # str(rel) devolveria 'fonts\arquivo.ttf' e a barra invertida seria
+        # recusada, transformando um arquivo existente em 404.
+        return send_from_directory(str(FRONTEND_DIR), rel.as_posix())
+
+    # Não é arquivo: se o caminho tem cara de recurso estático (tem extensão),
+    # é um 404 de verdade. Sem extensão, é rota de SPA — entrega o index.html
+    # e deixa o roteador do frontend decidir.
+    if rel.suffix:
+        return jsonify({"error": "not found"}), 404
+    return send_from_directory(str(FRONTEND_DIR), "index.html")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -595,6 +834,14 @@ def api_register():
     if not username or not password:
         return jsonify({"mensagem": "Preencha todos os campos."}), 400
 
+    # O bcrypt recusa senhas acima de 72 BYTES — e em UTF-8 cada acento ocupa
+    # 2, então uma senha em português estoura o limite antes dos 72 caracteres.
+    # Sem esta checagem o erro subia como 500, vazando a mensagem da biblioteca.
+    if len(password.encode("utf-8")) > 72:
+        return jsonify({
+            "mensagem": "Senha muito longa (máximo 72 bytes; letras acentuadas contam 2)."
+        }), 400
+
     cfg = {
         **_DEFAULT_CFG, 
         "perfil_nome": username, 
@@ -617,24 +864,25 @@ def api_register():
     except psycopg2.errors.UniqueViolation:
         return jsonify({"mensagem": "Este usuário já existe."}), 409
     except psycopg2.errors.UndefinedTable as exc:
-        # Banco existe mas sem schema (ex: arquivo zerado durante uso) — recria e tenta de novo
-        if "no such table" in str(exc).lower():
-            print(f"[DB] Schema ausente, recriando: {exc}")
-            conn.close()
+        # Banco existe mas sem schema (ex: tabelas dropadas durante o uso) —
+        # recria e tenta de novo. O próprio tipo da exceção já diz que a tabela
+        # não existe; não há mensagem a inspecionar.
+        print(f"[DB] Schema ausente, recriando: {exc}")
+        conn.close()  # limpa a transação abortada antes de rodar o DDL
+        try:
             init_db()
             conn = get_db()
-            try:
-                conn.execute(
-                    "INSERT INTO users (username, password_hash, config_json) VALUES (%s, %s, %s)",
-                    (username, _hash(password), json.dumps(cfg)),
-                )
-                conn.commit()
-                return jsonify({"status": "ok"})
-            except Exception as exc2:
-                print(f"[DB] Falha após recriar schema: {exc2}")
-                return jsonify({"mensagem": f"Erro interno: {exc2}"}), 500
-        print(f"[DB] Erro no registro: {exc}")
-        return jsonify({"mensagem": f"Erro interno: {exc}"}), 500
+            conn.execute(
+                "INSERT INTO users (username, password_hash, config_json) VALUES (%s, %s, %s)",
+                (username, _hash(password), json.dumps(cfg)),
+            )
+            conn.commit()
+            return jsonify({"status": "ok"})
+        except psycopg2.errors.UniqueViolation:
+            return jsonify({"mensagem": "Este usuário já existe."}), 409
+        except Exception as exc2:
+            print(f"[DB] Falha após recriar schema: {exc2}")
+            return jsonify({"mensagem": f"Erro interno: {exc2}"}), 500
     except Exception as exc:
         print(f"[DB] Erro no registro: {exc}")
         return jsonify({"mensagem": f"Erro interno: {exc}"}), 500
@@ -688,14 +936,10 @@ def api_config():
 
         conn = get_db()
         row = conn.execute("SELECT config_json FROM users WHERE id = %s", (uid,)).fetchone()
-        folders = conn.execute(
-            "SELECT path FROM folders WHERE user_id = %s ORDER BY added_at", (uid,)
-        ).fetchall()
         conn.close()
 
         cfg = {**_DEFAULT_CFG, **_safe_json_loads(row["config_json"], {})} if row else dict(_DEFAULT_CFG)
-        rows = _list_folders(uid)
-        cfg["pastas"] = _folders_to_json(rows)
+        cfg["pastas"] = _folders_to_json(_list_folders(uid))
         cfg["historico_pastas"] = len(cfg["pastas"]) > 0
         return jsonify(cfg)
 
@@ -709,7 +953,16 @@ def api_config():
     data.pop("historico_pastas", None)
 
     conn = get_db()
-    conn.execute("UPDATE users SET config_json = %s WHERE id = %s", (json.dumps(data), uid))
+    # MERGE, não replace: o config_json guarda também o histórico de buscas
+    # (chave 'search_history'). Sobrescrever o blob inteiro apagava o histórico
+    # a cada salvamento de preferência, e obrigaria o frontend a reenviar o
+    # objeto completo só para mudar um campo.
+    row = conn.execute("SELECT config_json FROM users WHERE id = %s", (uid,)).fetchone()
+    cfg_atual = _safe_json_loads(row["config_json"] if row else None, {}) or {}
+    cfg_atual.update(data)
+
+    conn.execute("UPDATE users SET config_json = %s WHERE id = %s",
+                 (json.dumps(cfg_atual), uid))
     conn.commit()
     conn.close()
     return jsonify({"status": "ok"})
@@ -718,6 +971,54 @@ def api_config():
 # ──────────────────────────────────────────────────────────────────────────────
 # Pastas monitoradas
 # ──────────────────────────────────────────────────────────────────────────────
+
+def _prefixo_pasta(pasta: str) -> str:
+    """
+    Prefixo canônico de uma pasta, para decidir se um caminho está DENTRO dela.
+
+    Três cuidados, e cada um corrige um jeito diferente de errar:
+      - `normpath` resolve '..' e unifica os separadores;
+      - o separador no fim impede 'C:\\fotos' de casar com 'C:\\fotos_backup';
+      - minúsculas porque o Windows não diferencia caixa, e o mesmo arquivo
+        pode estar no índice como 'C:\\Fotos\\a.jpg' ou 'c:\\fotos\\a.jpg'.
+
+    Quem compara com este prefixo tem que aplicar `lower()` no outro lado
+    também — daí o `left(lower(caminho), ...)` nas queries.
+    """
+    return os.path.normpath(pasta).rstrip("\\/").lower() + os.sep
+
+
+def _apagar_arquivos_da_pasta(conn, uid: int, pasta: str) -> None:
+    """
+    Remove do índice os arquivos que estão DENTRO de `pasta`.
+
+    Não usa LIKE de propósito: 'C:\\fotos%' casaria também com
+    'C:\\fotos_backup', apagando o índice de uma pasta irmã, e o '_' do LIKE é
+    curinga (qualquer pasta com underscore casaria demais). Comparar o prefixo
+    com left() e o separador no fim resolve os dois casos.
+
+    Subpastas que continuam monitoradas são preservadas: quem monitora
+    'C:\\A' e 'C:\\A\\B' e remove só 'C:\\A' não pode perder o índice de
+    'C:\\A\\B', que segue na lista de pastas e não seria reindexado sozinho.
+    """
+    prefixo = _prefixo_pasta(pasta)
+
+    monitoradas = conn.execute(
+        "SELECT path FROM folders WHERE user_id = %s", (uid,)
+    ).fetchall()
+    subpastas = [
+        p for p in (_prefixo_pasta(r["path"]) for r in monitoradas)
+        if p.startswith(prefixo) and p != prefixo
+    ]
+
+    sql = "DELETE FROM files WHERE user_id = %s AND left(lower(caminho), %s) = %s"
+    params: list = [uid, len(prefixo), prefixo]
+    for sub in subpastas:
+        sql += " AND left(lower(caminho), %s) <> %s"
+        params.extend([len(sub), sub])
+
+    conn.execute(sql, params)
+
 
 def _list_folders(uid: int):
     conn = get_db()
@@ -761,6 +1062,10 @@ def api_folders():
         if not pasta or not os.path.isdir(pasta):
             return jsonify({"error": "Caminho inválido ou inexistente."}), 400
 
+        # Unifica separadores e resolve '..' antes de gravar — sem isso a mesma
+        # pasta escrita de dois jeitos vira dois registros distintos.
+        pasta = os.path.normpath(pasta)
+
         # Novos campos de Indexação Inteligente
         prioridades = data.get("prioridades", ["tudo"])
         perfil      = data.get("perfil_analise", "fast")
@@ -769,19 +1074,39 @@ def api_folders():
         name = os.path.basename(pasta) or pasta
         conn = get_db()
         try:
-            conn.execute(
-                "INSERT INTO folders (user_id, path, name, added_at, prioridades, perfil_analise, janela_processamento) "
-                "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                (uid, pasta, name, datetime.now().isoformat(),
-                 json.dumps(prioridades), perfil, janela),
-            )
+            # O UNIQUE (user_id, path) diferencia maiúsculas, mas o Windows não:
+            # cadastrar 'C:\Fotos' e depois 'c:\fotos' indexava a MESMA pasta
+            # duas vezes — resultado repetido na busca e o dobro de chamadas ao
+            # Claude. A checagem case-insensitive resolve antes do INSERT e
+            # preserva o caminho já gravado, com a caixa original.
+            ja_existe = conn.execute(
+                "SELECT path FROM folders WHERE user_id = %s AND lower(path) = %s",
+                (uid, pasta.lower()),
+            ).fetchone()
+
+            if ja_existe:
+                conn.execute(
+                    "UPDATE folders SET prioridades=%s, perfil_analise=%s, janela_processamento=%s "
+                    "WHERE user_id=%s AND path=%s",
+                    (json.dumps(prioridades), perfil, janela, uid, ja_existe["path"]),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO folders (user_id, path, name, added_at, prioridades, perfil_analise, janela_processamento) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                    (uid, pasta, name, datetime.now(timezone.utc).isoformat(),
+                     json.dumps(prioridades), perfil, janela),
+                )
             conn.commit()
         except psycopg2.errors.UniqueViolation:
-            # Pasta já existe — atualiza config
+            # Corrida entre dois requests simultâneos — o outro inseriu primeiro.
+            # O rollback é obrigatório: sem ele a transação fica abortada e o
+            # UPDATE abaixo estoura InFailedSqlTransaction, virando um 500.
+            conn.rollback()
             conn.execute(
                 "UPDATE folders SET prioridades=%s, perfil_analise=%s, janela_processamento=%s "
-                "WHERE user_id=%s AND path=%s",
-                (json.dumps(prioridades), perfil, janela, uid, pasta),
+                "WHERE user_id=%s AND lower(path)=%s",
+                (json.dumps(prioridades), perfil, janela, uid, pasta.lower()),
             )
             conn.commit()
         finally:
@@ -799,8 +1124,14 @@ def api_folders():
     pasta = (data.get("pasta") or "").strip()
 
     conn = get_db()
-    conn.execute("DELETE FROM files WHERE user_id = %s AND caminho LIKE %s", (uid, pasta + "%"))
-    conn.execute("DELETE FROM folders WHERE user_id = %s AND path = %s", (uid, pasta))
+    _apagar_arquivos_da_pasta(conn, uid, pasta)
+    # Compara sem caixa e sem barra final, pelo mesmo motivo do cadastro: no
+    # Windows 'C:\Fotos' e 'c:\fotos\' são a mesma pasta.
+    alvo = os.path.normpath(pasta).rstrip("\\/").lower() if pasta else ""
+    conn.execute(
+        "DELETE FROM folders WHERE user_id = %s AND lower(rtrim(path, '\\/')) = %s",
+        (uid, alvo),
+    )
     conn.commit()
     conn.close()
 
@@ -819,8 +1150,7 @@ def api_delete_folder_by_id(folder_id):
     # Pegar o path da pasta para deletar os arquivos
     row = conn.execute("SELECT path FROM folders WHERE id = %s AND user_id = %s", (folder_id, uid)).fetchone()
     if row:
-        pasta = row["path"]
-        conn.execute("DELETE FROM files WHERE user_id = %s AND caminho LIKE %s", (uid, pasta + "%"))
+        _apagar_arquivos_da_pasta(conn, uid, row["path"])
 
     conn.execute("DELETE FROM folders WHERE id = %s AND user_id = %s", (folder_id, uid))
     conn.commit()
@@ -1092,7 +1422,32 @@ _TERMOS_ANIMAL = {
     "cavalo", "coelho", "hamster", "peixe", "tartaruga", "papagaio",
 }
 
-# Frases na descrição LLaVA que confirmam AUSÊNCIA de pessoas (normalizadas)
+# Termos que indicam busca por imagem NÃO fotográfica (desenho, arte, etc.).
+# Casados contra a query normalizada inteira, não contra os tokens, porque
+# 'imagem'/'foto' são stopwords e sumiriam da tokenização.
+_TERMOS_DESENHO = (
+    "desenho", "desenhos", "desenhado", "desenhada", "desenhar",
+    "ilustracao", "ilustracoes", "ilustrado", "arte", "artistico",
+    "anime", "animes", "manga", "mangas", "animacao", "animado", "animada",
+    "cartoon", "cartoons", "caricatura", "quadrinho", "quadrinhos", "hq",
+    "pintura", "pintado", "aquarela", "oleo sobre tela",
+    "pixel art", "pixelart", "arte digital", "digital art",
+    "esboco", "rascunho", "sketch", "rabisco", "traco",
+    "render", "3d", "cgi", "vetor", "vetorial",
+    "logotipo", "logotipos", "icone", "icones", "emoji", "meme", "memes",
+    "wallpaper", "papel de parede", "personagem", "personagens", "chibi",
+    "captura de tela", "screenshot", "print", "grafico", "diagrama", "mapa",
+)
+# 'logo' fica de fora de propósito: é advérbio comum em pt-BR ("me mostre logo
+# as fotos") e apareceria em buscas que nada têm a ver com logotipo.
+
+# Termos que indicam busca por FOTOGRAFIA real (o oposto do conjunto acima)
+_TERMOS_FOTO = (
+    "foto", "fotos", "fotografia", "fotografias", "fotografico",
+    "foto real", "imagem real", "vida real", "retrato fotografico",
+)
+
+# Frases na descrição que confirmam AUSÊNCIA de pessoas (normalizadas)
 _FRASES_SEM_PESSOA = (
     "nenhuma pessoa", "sem pessoas", "nenhum humano", "sem humanos",
     "nenhuma figura humana", "nao ha pessoas", "pessoas: nenhuma",
@@ -1216,6 +1571,33 @@ _SINONIMOS_QUERY: dict[str, list[str]] = {
     "vestido":  ["traje"],
     "sapato":   ["tenis", "calcado"],
     "tenis":    ["sapato", "calcado"],
+
+    # ── Estilo da imagem (desenho, arte, etc.) ───────────────────────────
+    "desenho":    ["ilustracao", "arte", "desenhado", "cartoon", "esboco", "arte digital"],
+    "desenhos":   ["ilustracoes", "desenho", "arte", "cartoon"],
+    "ilustracao": ["desenho", "arte", "arte digital", "ilustrado"],
+    "arte":       ["desenho", "ilustracao", "pintura", "arte digital"],
+    "anime":      ["manga", "desenho", "animacao japonesa", "ilustracao", "personagem"],
+    "manga":      ["anime", "quadrinho", "desenho", "ilustracao"],
+    "cartoon":    ["desenho", "animacao", "caricatura", "ilustracao"],
+    "animacao":   ["desenho", "cartoon", "animado"],
+    "quadrinho":  ["hq", "manga", "cartoon", "desenho"],
+    "quadrinhos": ["hq", "manga", "cartoon", "desenhos"],
+    "hq":         ["quadrinho", "manga", "cartoon"],
+    "pintura":    ["quadro", "arte", "pintado", "aquarela", "tela"],
+    "esboco":     ["rascunho", "sketch", "desenho", "traco"],
+    "sketch":     ["esboco", "rascunho", "desenho"],
+    "personagem": ["desenho", "ilustracao", "anime", "cartoon", "figura"],
+    "personagens": ["desenhos", "ilustracoes", "anime", "cartoon", "figuras"],
+    # 'logo' sozinho não entra: é advérbio comum e poluiria o embedding da query.
+    "logotipo":   ["marca", "icone", "simbolo", "identidade visual"],
+    "icone":      ["logotipo", "simbolo"],
+    "meme":       ["imagem engracada", "piada", "captura de tela"],
+    "wallpaper":  ["papel de parede", "fundo de tela", "arte"],
+    "screenshot": ["captura de tela", "print", "tela"],
+    "print":      ["captura de tela", "screenshot", "tela"],
+    "3d":         ["render", "cgi", "modelagem", "arte digital"],
+    "render":     ["3d", "cgi", "modelagem"],
 }
 
 # Termos de GÊNERO na QUERY
@@ -1243,6 +1625,21 @@ _PALAVRAS_DESC_FEM = {
     "moca", "mocas", "senhora", "feminino", "namorada", "esposa",
     "vestido", "saia",
 }
+
+
+def _contem_termo(texto: str, termos) -> bool:
+    """
+    Procura qualquer um dos termos em `texto` casando PALAVRA INTEIRA.
+    Substring pura daria falso-positivo caro aqui: 'arte' casaria dentro de
+    'partes', 'meme' dentro de 'memento', 'mapa' dentro de qualquer coisa.
+    Funciona também com termos compostos ('pixel art', 'captura de tela').
+    """
+    if not texto:
+        return False
+    return any(
+        re.search(r"(?<!\w)" + re.escape(t) + r"(?!\w)", texto)
+        for t in termos
+    )
 
 
 def _tokenizar(texto: str) -> list[str]:
@@ -1275,6 +1672,23 @@ def _analisar_query(query: str) -> dict:
     norm = _normalizar(query)
     palavras = _tokenizar(query)
     palavras_set = set(palavras)
+
+    # Gênero: termos ambíguos depois de tirar acento ('vovô' e 'vovó' viram
+    # 'vovo') marcavam os dois gêneros ao mesmo tempo, e aí as duas regras de
+    # rejeição disparavam juntas e a busca voltava vazia. Empate = sem filtro.
+    fem  = bool(palavras_set & _TERMOS_FEMININO)
+    masc = bool(palavras_set & _TERMOS_MASCULINO)
+    if fem and masc:
+        fem = masc = False
+
+    # Estilo: casado contra a query inteira porque 'foto'/'imagem' são
+    # stopwords e não sobrevivem à tokenização.
+    busca_desenho = _contem_termo(norm, _TERMOS_DESENHO)
+    busca_foto    = _contem_termo(norm, _TERMOS_FOTO)
+    if busca_desenho and busca_foto:
+        # "foto de um desenho" — não dá pra decidir, não filtra por estilo.
+        busca_desenho = busca_foto = False
+
     return {
         "original":        query,
         "normalizada":     norm,
@@ -1283,8 +1697,10 @@ def _analisar_query(query: str) -> dict:
         "expandida":       _expandir_sinonimos(palavras) or norm,
         "busca_pessoa":    bool(palavras_set & _TERMOS_PESSOA),
         "busca_animal":    bool(palavras_set & _TERMOS_ANIMAL),
-        "busca_feminino":  bool(palavras_set & _TERMOS_FEMININO),
-        "busca_masculino": bool(palavras_set & _TERMOS_MASCULINO),
+        "busca_feminino":  fem,
+        "busca_masculino": masc,
+        "busca_desenho":   busca_desenho,
+        "busca_foto":      busca_foto,
     }
 
 
@@ -1301,15 +1717,22 @@ def _ajustar_score(score_raw: float, q: dict, desc_norm: str, nome_norm: str) ->
 
     desc_words = set(desc_norm.split())
 
+    # Palavra da query que aparece literalmente na descrição. Serve de escape
+    # para as regras de rejeição abaixo: se a descrição diz "Animais: nenhum"
+    # mas cita 'cachorro' em outro campo, quem decide é o juiz semântico, não
+    # uma regra de texto. Evita descartar desenhos e casos de borda.
+    matches_desc = q["palavras_set"] & desc_words
+    tem_literal = bool(matches_desc)
+
     # === Regras de rejeição ===============================================
 
     # Busca de pessoa não pode retornar imagem sem pessoa
-    if q["busca_pessoa"] and score_raw < 0.90:
+    if q["busca_pessoa"] and score_raw < 0.90 and not tem_literal:
         if any(frase in desc_norm for frase in _FRASES_SEM_PESSOA):
             return None
 
     # Busca de animal não pode retornar imagem sem animal
-    if q["busca_animal"] and score_raw < 0.90:
+    if q["busca_animal"] and score_raw < 0.90 and not tem_literal:
         if any(frase in desc_norm for frase in _FRASES_SEM_ANIMAL):
             return None
 
@@ -1329,12 +1752,24 @@ def _ajustar_score(score_raw: float, q: dict, desc_norm: str, nome_norm: str) ->
 
     score = score_raw
 
+    # Estilo pedido na query (desenho vs foto) casando com o campo "Estilo"
+    # da descrição. É preferência, não filtro: no máximo empurra pra cima ou
+    # pra baixo, nunca elimina — o corte final decide.
+    if (q["busca_desenho"] or q["busca_foto"]) and desc_norm:
+        estilo = _campo_descricao(desc_norm, "estilo")
+        if estilo:
+            e_desenho = _contem_termo(estilo, _TERMOS_DESENHO)
+            e_foto    = _contem_termo(estilo, _TERMOS_FOTO)
+            if q["busca_desenho"]:
+                score += 0.12 if e_desenho else (-0.12 if e_foto else 0.0)
+            elif q["busca_foto"]:
+                score += 0.12 if e_foto else (-0.12 if e_desenho else 0.0)
+
     # Query exata dentro do nome do arquivo → +15%
     if q["normalizada"] and q["normalizada"] in nome_norm:
         score += 0.15
 
     # Cada palavra-chave da query que aparece na descrição → +5%
-    matches_desc = q["palavras_set"] & desc_words
     if matches_desc:
         score += 0.05 * len(matches_desc)
 
@@ -1344,7 +1779,7 @@ def _ajustar_score(score_raw: float, q: dict, desc_norm: str, nome_norm: str) ->
     if q["busca_masculino"] and (desc_words & _PALAVRAS_DESC_MASC):
         score += 0.08
 
-    return min(1.0, score)
+    return max(0.0, min(1.0, score))
 
 
 def _bm25_scores(corpus_tokens: list[list[str]], query_tokens: list[str]) -> list[float]:
@@ -1451,10 +1886,12 @@ def api_search():
 
     # Filtro avançado: pasta específica (caminho começa com o path da pasta).
     # Usa left()=prefixo em vez de LIKE porque o '\' do Windows é caractere
-    # de escape no LIKE do Postgres e quebraria o match.
+    # de escape no LIKE do Postgres e quebraria o match. O prefixo sai de
+    # _prefixo_pasta(): sem o separador no fim, filtrar por 'C:\Fotos' trazia
+    # junto os arquivos de 'C:\Fotos_backup' e 'C:\Fotos2'.
     if avancado.get("pasta"):
-        prefixo_pasta = avancado["pasta"].rstrip("\\/")
-        sql_filtros.append("left(caminho, %s) = %s")
+        prefixo_pasta = _prefixo_pasta(avancado["pasta"])
+        sql_filtros.append("left(lower(caminho), %s) = %s")
         params_filtro.append(len(prefixo_pasta))
         params_filtro.append(prefixo_pasta)
 
@@ -1527,7 +1964,7 @@ def api_search():
     # CLIP (visual): só pra imagens com embedding_clip (vetor da query já
     # foi calculado antes da SQL — reusa)
     clip_sims = [0.0] * len(rows)
-    if CLIP_OK and clip_query_vec is not None:
+    if CLIP_OK and SKLEARN_OK and clip_query_vec is not None:
         import numpy as np
         clip_q_np = np.array([clip_query_vec])
         for i, f in enumerate(rows):
@@ -1539,6 +1976,14 @@ def api_search():
                     # Não engole em silêncio: sem CLIP, imagem sem descrição
                     # nunca pontua e some da busca.
                     print(f"[CLIP] falha ao comparar '{f['nome']}': {type(e).__name__}: {e}")
+
+    # A similaridade CLIP texto↔imagem vive numa faixa estreita (~0.15 a 0.30),
+    # bem diferente do SBERT, que usa [0, 1]. Misturar as duas escalas cruas
+    # fazia o sinal visual valer quase nada: uma imagem sem descrição batia no
+    # máximo 0.09 de score e era cortada antes de chegar na tela. Aqui a faixa
+    # útil do CLIP é esticada para [0, 1] antes de entrar no blend. Os limiares
+    # continuam usando o valor cru (clip_sims), que é onde foram calibrados.
+    clip_norm = [max(0.0, min(1.0, (s - 0.15) / 0.15)) for s in clip_sims]
 
     # ── DESCRIÇÃO SOB DEMANDA (lazy) ────────────────────────────────────────
     # As imagens são indexadas só com embedding CLIP (sem descrição). Aqui,
@@ -1561,7 +2006,7 @@ def api_search():
                 rows[i]["descricao_ia"] = desc_nova
                 _salvar_descricao_e_embedding(uid, f["caminho"], desc_nova)
                 # Recalcula SBERT e BM25 desta imagem agora que ela tem descrição.
-                if SBERT_OK:
+                if SBERT_OK and SKLEARN_OK:
                     emb_nova = _gerar_embedding(_texto_para_embedding(desc_nova))
                     if emb_nova is not None and query_emb is not None:
                         import numpy as np
@@ -1584,8 +2029,10 @@ def api_search():
 
     def _filtrar_e_pontuar(threshold_sbert: float) -> list:
         out = []
-        for f, s_sbert, s_bm25, s_clip in zip(rows, sbert_sims, bm25_sims, clip_sims):
-            desc_norm_local = _normalizar(f["descricao_ia"] or "")
+        for f, s_sbert, s_bm25, s_clip, s_visual in zip(
+                rows, sbert_sims, bm25_sims, clip_sims, clip_norm):
+            desc_local      = (f["descricao_ia"] or "").strip()
+            desc_norm_local = _normalizar(desc_local)
             tem_texto     = s_sbert >= threshold_sbert
             tem_visual    = (f["tipo"] in _EXT_IMG and CLIP_OK and s_clip >= 0.25)
             tem_keyword   = s_bm25 >= 0.5 and bool(q["palavras_set"])
@@ -1593,8 +2040,15 @@ def api_search():
             if not (tem_texto or tem_visual or tem_keyword or match_literal):
                 continue
 
-            if f["tipo"] in _EXT_IMG and CLIP_OK and s_clip > 0:
-                blended = W_SBERT_IMG * s_sbert + W_BM25_IMG * s_bm25 + W_CLIP_IMG * s_clip
+            eh_imagem_clip = f["tipo"] in _EXT_IMG and CLIP_OK and s_clip > 0
+            if eh_imagem_clip and desc_local:
+                blended = W_SBERT_IMG * s_sbert + W_BM25_IMG * s_bm25 + W_CLIP_IMG * s_visual
+            elif eh_imagem_clip:
+                # Imagem ainda sem descrição (indexada só com CLIP): não faz
+                # sentido cobrar dela os pesos de texto que ela não tem como
+                # ganhar. O sinal visual responde sozinho, mas com teto, pra
+                # não passar na frente de um acerto textual bem descrito.
+                blended = min(0.70, 0.85 * s_visual)
             else:
                 blended = W_SBERT_DOC * s_sbert + W_BM25_DOC * s_bm25
 
@@ -1783,6 +2237,9 @@ _CATEGORIAS_STATS = {
                 "ceu", "arvore", "jardim", "parque", "campo", "flor", "po do sol", "por do sol"],
     "urbano":  ["cidade", "rua", "predio", "carro", "veiculo", "moto", "edificio",
                 "loja", "trafego", "urbano"],
+    "desenhos":["desenho", "ilustracao", "cartoon", "anime", "manga", "quadrinho",
+                "pintura", "pixel art", "arte digital", "esboco", "caricatura",
+                "logotipo", "meme", "render 3d", "animacao"],
 }
 
 
@@ -1829,7 +2286,10 @@ def api_stats():
         desc_filtrada = " ".join(linhas_validas)
 
         for cat, palavras in _CATEGORIAS_STATS.items():
-            if any(p in desc_filtrada for p in palavras):
+            # Palavra inteira, não substring: 'cao' casava dentro de 'locacao' e
+            # 'manutencao', e 'mar' dentro de 'camara' — o painel do perfil
+            # exibia animais e natureza em acervos que só tinham documentos.
+            if _contem_termo(desc_filtrada, palavras):
                 por_categoria[cat] += 1
 
     # Só categorias com pelo menos 1, ordenadas da maior pra menor
@@ -1857,11 +2317,16 @@ _KW_COMIDA = ["comida", "refeicao", "alimento", "almoco", "janta", "lanche",
 _KW_NATUREZA = ["paisagem", "praia", "montanha", "floresta", "mata", "oceano",
                 "cachoeira", "arvore", "arvores", "jardim", "campo", "flor",
                 "por do sol", "natureza", "lago", "rio"]
+_KW_DESENHO = ["desenho", "desenhado", "desenhada", "ilustracao", "ilustrado",
+               "cartoon", "anime", "manga", "quadrinho", "hq", "caricatura",
+               "pintura", "aquarela", "pixel art", "arte digital", "esboco",
+               "render 3d", "cgi", "vetorial", "logotipo", "icone", "meme",
+               "captura de tela", "personagem", "animacao"]
 _KW_URBANO = ["cidade", "rua", "predio", "edificio", "avenida", "metropole",
               "arranha-ceu", "carro", "veiculo", "moto", "transito", "urbano"]
 
 
-def _campo_llava(desc_norm: str, nome_campo: str) -> str:
+def _campo_descricao(desc_norm: str, nome_campo: str) -> str:
     """Extrai o conteúdo de um campo da descrição (ex: 'pessoas', 'animais').
     Retorna '' se o campo não existe ou está negado (Nenhum/Nenhuma)."""
     for linha in desc_norm.splitlines():
@@ -1880,7 +2345,7 @@ def _campo_llava(desc_norm: str, nome_campo: str) -> str:
 
 def _categorias_do_arquivo(descricao_ia: str) -> list[str]:
     """
-    Categoriza um arquivo usando os CAMPOS ESTRUTURADOS da descrição LLaVA,
+    Categoriza um arquivo usando os CAMPOS ESTRUTURADOS da descrição,
     não busca solta. Isso evita os falsos-positivos:
       - prato com 'cachorro-quente' caindo em Animais
       - festa com 'bebida' caindo em Comida
@@ -1889,12 +2354,12 @@ def _categorias_do_arquivo(descricao_ia: str) -> list[str]:
     cats = []
 
     # Pessoas: SÓ se o campo "Pessoas" tiver conteúdo real (não negado)
-    if _campo_llava(desc_norm, "pessoas"):
+    if _campo_descricao(desc_norm, "pessoas"):
         cats.append("pessoas")
 
     # Animais: SÓ se o campo "Animais" tiver conteúdo real.
     # Ignora "cachorro-quente"/"cachorro quente" (é comida, não animal).
-    animais_val = _campo_llava(desc_norm, "animais")
+    animais_val = _campo_descricao(desc_norm, "animais")
     if animais_val:
         sem_hotdog = animais_val.replace("cachorro-quente", "").replace("cachorro quente", "")
         if sem_hotdog.strip():
@@ -1903,8 +2368,8 @@ def _categorias_do_arquivo(descricao_ia: str) -> list[str]:
     # Comida / Natureza / Urbano: por palavra-chave nos campos descritivos
     # (o que e / objetos / ambiente / acoes / tags), não em pessoas/animais.
     contexto = " ".join(
-        _campo_llava(desc_norm, c) or ""
-        for c in ("o que e", "objetos", "ambiente", "acoes", "tags")
+        _campo_descricao(desc_norm, c) or ""
+        for c in ("estilo", "o que e", "objetos", "ambiente", "acoes", "tags")
     )
     # Tokeniza por palavra inteira pra evitar substring (ex: 'cidade' em
     # 'feli-cidade', 'mar' em 'marca'). Mantém termos compostos via checagem
@@ -1927,6 +2392,12 @@ def _categorias_do_arquivo(descricao_ia: str) -> list[str]:
         cats.append("natureza")
     if _bate(_KW_URBANO):
         cats.append("urbano")
+
+    # Desenhos: decidido pelo campo "Estilo", que é onde o Claude declara o
+    # meio da imagem. Só cai aqui se o estilo NÃO for fotografia.
+    estilo = _campo_descricao(desc_norm, "estilo")
+    if _contem_termo(estilo, _KW_DESENHO):
+        cats.append("desenhos")
 
     return cats
 
@@ -2023,22 +2494,24 @@ def api_favorites_toggle():
     file_id = data.get("id")
 
     conn = get_db()
-    row  = conn.execute(
-        "SELECT favorito FROM files WHERE id = %s AND user_id = %s", (file_id, uid)
+    # Inverte dentro do próprio UPDATE, em vez de ler e escrever em dois passos:
+    #   - dois cliques rápidos no coração liam o mesmo valor e gravavam o mesmo
+    #     resultado, deixando o favorito "preso";
+    #   - a coluna aceita NULL, e o `1 - int(None)` do jeito antigo virava 500.
+    row = conn.execute(
+        "UPDATE files SET favorito = CASE WHEN COALESCE(favorito, 0) = 1 THEN 0 ELSE 1 END "
+        "WHERE id = %s AND user_id = %s RETURNING favorito",
+        (file_id, uid)
     ).fetchone()
 
     if not row:
         conn.close()
         return jsonify({"error": "Arquivo não encontrado."}), 404
 
-    new_fav = 1 - int(row["favorito"])
-    conn.execute(
-        "UPDATE files SET favorito = %s WHERE id = %s AND user_id = %s", (new_fav, file_id, uid)
-    )
     conn.commit()
     conn.close()
 
-    return jsonify({"status": "sucesso", "favorito": bool(new_fav)})
+    return jsonify({"status": "sucesso", "favorito": bool(row["favorito"])})
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2216,13 +2689,20 @@ def api_status():
             "arquivos_processados_sessao": 0,
         })
     
+    # Alias nomeado ('n') porque o cursor é RealDictCursor: a linha volta como
+    # dict, e o antigo fetchone()[0] levantava KeyError — capturado pelo except
+    # abaixo, o contador ficava zerado em toda chamada.
+    conn = None
     try:
         conn = get_db()
-        count = conn.execute("SELECT COUNT(*) FROM files WHERE user_id = %s", (uid,)).fetchone()[0]
-    except Exception:
+        count = conn.execute(
+            "SELECT COUNT(*) AS n FROM files WHERE user_id = %s", (uid,)
+        ).fetchone()["n"]
+    except Exception as exc:
+        print(f"[Status] Falha ao contar arquivos: {exc}")
         count = 0
     finally:
-        if 'conn' in locals():
+        if conn is not None:
             conn.close()
 
     with _lock:
@@ -2243,7 +2723,7 @@ def api_cancel_analysis():
     global _status
     descartados = 0
     # Esvazia a fila. O item que já está sendo processado no worker
-    # termina normalmente (não dá pra abortar uma chamada LLaVA em curso).
+    # termina normalmente (não dá pra abortar uma chamada de visão em curso).
     while True:
         try:
             _queue.get_nowait()
@@ -2398,17 +2878,35 @@ def api_reanalyze():
             ids
         )
         conn.commit()
+
+    # Imagens descritas ANTES do prompt ganhar o campo "Estilo:" não sabem dizer
+    # se são foto ou desenho — e as antigas ainda podiam marcar "Animais: nenhum"
+    # num desenho de cachorro. Limpar a descrição basta: a imagem continua
+    # indexada pelo CLIP (processado=1) e a própria busca a redescreve sob
+    # demanda com o prompt novo. Não precisa passar pela fila.
+    desatualizadas = conn.execute(
+        "UPDATE files SET descricao_ia = '', embedding = NULL "
+        "WHERE user_id = %s AND tipo = ANY(%s) AND embedding_clip IS NOT NULL "
+        "AND descricao_ia <> '' AND descricao_ia NOT LIKE %s "
+        "RETURNING id",
+        (uid, list(_EXT_IMG), "%Estilo:%")
+    ).fetchall()
+    conn.commit()
     conn.close()
 
     # Re-enfileira os arquivos para análise
     for r in rows:
         _queue.put({"path": r["caminho"], "nome": r["nome"], "ext": r["tipo"], "uid": uid})
 
-    return jsonify({"status": "ok", "reenfileirados": len(rows)})
+    return jsonify({
+        "status": "ok",
+        "reenfileirados": len(rows),
+        "descricoes_limpas": len(desatualizadas),
+    })
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Re-geração rápida de embeddings (sem re-executar LLaVA)
+# Re-geração rápida de embeddings (sem re-descrever as imagens)
 # ──────────────────────────────────────────────────────────────────────────────
 
 @app.route("/api/reembed", methods=["POST"])
@@ -2417,7 +2915,7 @@ def api_reembed():
     Re-gera os embeddings de todos os arquivos já processados:
     - SBERT a partir da descrição textual (rápido)
     - CLIP a partir da imagem no disco (lento, só imagens)
-    Não chama LLaVA novamente.
+    Não chama o Claude novamente.
     """
     uid = _uid()
     if not uid:
@@ -2646,7 +3144,8 @@ def _scan_folder(folder_path: str, uid: int) -> None:
                            (folder_id, user_id, nome, caminho, tipo,
                             data_adicionado, favorito, processado)
                            VALUES (%s, %s, %s, %s, %s, %s, 0, 0)""",
-                        (folder_id, uid, fname, fpath, ext, datetime.now().isoformat()),
+                        (folder_id, uid, fname, fpath, ext,
+                         datetime.now(timezone.utc).isoformat()),
                     )
                     conn.commit()
                 except psycopg2.errors.UniqueViolation:
@@ -2669,6 +3168,9 @@ def _is_within_window(janela: str) -> bool:
         if len(parts) != 2:
             return True
         h_start, h_end = int(parts[0].split(":")[0]), int(parts[1].split(":")[0])
+        # Hora LOCAL de propósito (os timestamps do banco são UTC, este não):
+        # a janela é configurada pelo usuário no fuso dele — "22:00-06:00"
+        # significa a madrugada de quem usa a máquina, não a madrugada em UTC.
         now_h = datetime.now().hour
         if h_start <= h_end:
             return h_start <= now_h < h_end
@@ -2744,81 +3246,100 @@ def _process_worker() -> None:
         uid       = item["uid"]
         folder_id = item.get("folder_id")
 
-        # ── Buscar config da pasta ──
-        prioridades, perfil, janela = _get_folder_config(folder_id, uid)
+        # Todo o processamento de UM item fica dentro deste try: sem ele, uma
+        # exceção aqui matava a thread e a indexação parava para sempre — com o
+        # status exibindo "Ocioso", sem nenhum sinal de que algo quebrou.
+        try:
+            # ── Buscar config da pasta ──
+            prioridades, perfil, janela = _get_folder_config(folder_id, uid)
 
-        # ── Scheduling: verificar janela de processamento ──
-        if not _is_within_window(janela):
-            _queue.put(item)
-            _queue.task_done()
-            fora_da_janela_consecutivos += 1
-            # Se já passamos por uma volta inteira da fila sem nada entrar,
-            # dorme uma vez ao invés de 30s × N itens.
-            if fora_da_janela_consecutivos >= max(_queue.qsize(), 1):
-                with _lock:
-                    _status = f"Aguardando janela de processamento ({janela})"
-                import time as _t
-                _t.sleep(60)  # 1 min antes de tentar de novo (granularidade da janela é hora)
-                fora_da_janela_consecutivos = 0
-            continue
-        fora_da_janela_consecutivos = 0
+            # ── Scheduling: verificar janela de processamento ──
+            if not _is_within_window(janela):
+                _queue.put(item)
+                _queue.task_done()
+                fora_da_janela_consecutivos += 1
+                # Se já passamos por uma volta inteira da fila sem nada entrar,
+                # dorme uma vez ao invés de 30s × N itens.
+                if fora_da_janela_consecutivos >= max(_queue.qsize(), 1):
+                    with _lock:
+                        _status = f"Aguardando janela de processamento ({janela})"
+                    import time as _t
+                    _t.sleep(60)  # 1 min antes de tentar de novo (granularidade da janela é hora)
+                    fora_da_janela_consecutivos = 0
+                continue
+            fora_da_janela_consecutivos = 0
 
-        with _lock:
-            _status = f"Indexando ({_queue.qsize()} na fila): {fname}"
+            with _lock:
+                _status = f"Indexando ({_queue.qsize()} na fila): {fname}"
 
-        # ── INDEXAÇÃO LAZY ──────────────────────────────────────────────────
-        # No upload NÃO chamamos o Claude. Geramos só o embedding CLIP (local,
-        # rápido, grátis) para imagens, e extraímos texto de documentos. A
-        # descrição rica (Claude) é gerada SOB DEMANDA na busca, só para as
-        # imagens que aparecem como candidatas — economiza tempo e créditos.
-        desc = ""
-        emb_clip_vec = None
+            # ── INDEXAÇÃO LAZY ──────────────────────────────────────────────
+            # No upload NÃO chamamos o Claude. Geramos só o embedding CLIP
+            # (local, rápido, grátis) para imagens, e extraímos texto de
+            # documentos. A descrição rica (Claude) é gerada SOB DEMANDA na
+            # busca, só para as imagens que aparecem como candidatas —
+            # economiza tempo e créditos.
+            desc = ""
+            emb_clip_vec = None
 
-        if ext in _EXT_IMG:
-            # Imagem: só o embedding visual CLIP. Descrição vem depois, na busca.
-            if CLIP_OK:
-                emb_clip = _gerar_embedding_clip_imagem(fpath)
-                if emb_clip:
-                    emb_clip_vec = emb_clip
-            desc = ""  # vazia de propósito — a busca preenche quando precisar
-        else:
-            # Documentos (pdf/docx/txt/csv): extrai o texto na hora (é local e
-            # barato, e a busca textual precisa dele de cara).
+            if ext in _EXT_IMG:
+                # Imagem: só o embedding visual CLIP. Descrição vem na busca.
+                if CLIP_OK:
+                    emb_clip = _gerar_embedding_clip_imagem(fpath)
+                    if emb_clip:
+                        emb_clip_vec = emb_clip
+                desc = ""  # vazia de propósito — a busca preenche depois
+            else:
+                # Documentos (pdf/docx/txt/csv): extrai o texto na hora (é local
+                # e barato, e a busca textual precisa dele de cara).
+                try:
+                    desc = _analyze_file(fpath, ext, prioridades=prioridades, perfil=perfil)
+                except Exception as exc:
+                    print(f"[ERRO] {fpath}: {exc}")
+                    desc = f"{ext.upper()}: {fname}"
+                # Binário/corrompido pode trazer \x00, que o Postgres recusa.
+                desc = _limpar_texto_para_banco(desc)
+
+            # Embedding SBERT só para documentos (imagens ainda não têm texto)
+            emb_vec = None
+            if SBERT_OK and desc:
+                texto_emb = _texto_para_embedding(desc)
+                emb = _gerar_embedding(texto_emb)
+                if emb:
+                    emb_vec = emb
+
+            # Imagem indexada (tem embedding CLIP) ou documento com texto =
+            # processado. Imagem sem CLIP = não indexada (tenta de novo depois).
+            if ext in _EXT_IMG:
+                processado_flag = 1 if emb_clip_vec is not None else 0
+            else:
+                caiu_no_fallback = any(desc.startswith(prefix) for prefix in _DESCRICOES_RUINS)
+                processado_flag = 0 if caiu_no_fallback else 1
+
+            conn = get_db()
             try:
-                desc = _analyze_file(fpath, ext, prioridades=prioridades, perfil=perfil)
-            except Exception as exc:
-                print(f"[ERRO] {fpath}: {exc}")
-                desc = f"{ext.upper()}: {fname}"
+                conn.execute(
+                    "UPDATE files SET descricao_ia = %s, embedding = %s, embedding_clip = %s, processado = %s "
+                    "WHERE user_id = %s AND caminho = %s",
+                    (desc, emb_vec, emb_clip_vec, processado_flag, uid, fpath),
+                )
+                conn.commit()
+            finally:
+                # Esta thread roda fora do app context, então o teardown do
+                # Flask não recolhe a conexão: sem o finally, cada falha no
+                # UPDATE vazava uma conexão até esgotar o pool.
+                conn.close()
 
-        # Embedding SBERT só para documentos (imagens não têm descrição ainda)
-        emb_vec = None
-        if SBERT_OK and desc:
-            texto_emb = _texto_para_embedding(desc)
-            emb = _gerar_embedding(texto_emb)
-            if emb:
-                emb_vec = emb
+            with _lock:
+                _processed += 1
 
-        # Imagem indexada (tem embedding CLIP) ou documento com texto = processado.
-        # Imagem sem CLIP = não indexada (tenta de novo depois).
-        if ext in _EXT_IMG:
-            processado_flag = 1 if emb_clip_vec is not None else 0
-        else:
-            caiu_no_fallback = any(desc.startswith(prefix) for prefix in _DESCRICOES_RUINS)
-            processado_flag = 0 if caiu_no_fallback else 1
+            _queue.task_done()
 
-        conn = get_db()
-        conn.execute(
-            "UPDATE files SET descricao_ia = %s, embedding = %s, embedding_clip = %s, processado = %s "
-            "WHERE user_id = %s AND caminho = %s",
-            (desc, emb_vec, emb_clip_vec, processado_flag, uid, fpath),
-        )
-        conn.commit()
-        conn.close()
-
-        with _lock:
-            _processed += 1
-
-        _queue.task_done()
+        except Exception as exc:
+            print(f"[WORKER] Falha ao processar '{fname}': {type(exc).__name__}: {exc}")
+            try:
+                _queue.task_done()
+            except ValueError:
+                pass  # já contabilizado antes da exceção
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2837,58 +3358,73 @@ def _analyze_file(filepath: str, ext: str, *, prioridades=None, perfil="fast") -
     return f"{ext.upper()}: {os.path.basename(filepath)}"
 
 
-def _build_llava_prompt(prioridades: list) -> str:
-    """Constrói o prompt do LLaVA baseado nas prioridades do usuário."""
+def _build_prompt_visao(prioridades: list) -> str:
+    """Constrói o prompt de visão do Claude baseado nas prioridades do usuário."""
     base = (
         "Analise esta imagem e descreva APENAS o que VOCÊ VÊ. "
-        "NÃO INVENTE pessoas, animais ou objetos que não estão visíveis. "
-        "Se não tem pessoa, escreva 'nenhuma'. Se não tem animal, escreva 'nenhum'.\n\n"
+        "NÃO INVENTE pessoas, animais ou objetos que não estão visíveis.\n\n"
+        "REGRA MAIS IMPORTANTE — DESENHOS CONTAM COMO O QUE REPRESENTAM:\n"
+        "A imagem pode ser uma foto, mas também pode ser desenho, ilustração, "
+        "pintura, anime, cartoon, quadrinho, pixel art, render 3D, captura de tela "
+        "ou logotipo. Personagens desenhados, animados ou pintados devem ser "
+        "descritos como as PESSOAS e os ANIMAIS que representam. Um cachorro de "
+        "desenho animado é listado em 'Animais: cachorro'. Uma personagem de anime "
+        "é listada em 'Pessoas: mulher jovem'. NUNCA escreva 'nenhum' só porque a "
+        "imagem não é uma fotografia real — quem procura por 'cachorro' quer achar "
+        "o desenho de cachorro também. Escreva 'nenhuma'/'nenhum' apenas quando o "
+        "ser realmente não aparece na imagem, em nenhuma forma.\n\n"
         "REGRAS DE VOCABULÁRIO (obrigatório):\n"
         "• 'cachorro' (NUNCA 'cão' ou 'cãe')\n"
         "• 'gato' (NUNCA 'felino' ou 'bichano')\n"
         "• 'mulher' / 'menina' (NUNCA 'senhora', 'moça', 'dama')\n"
         "• 'homem' / 'menino' (NUNCA 'senhor', 'rapaz', 'cavalheiro')\n\n"
-        "FORMATO (sempre em português):\n"
+        "FORMATO (sempre em português, um campo por linha):\n"
+        "- Estilo: escolha os termos que se aplicam entre foto, desenho, ilustração, "
+        "pintura, anime, mangá, cartoon, quadrinho, pixel art, arte digital, "
+        "esboço, render 3D, captura de tela, logotipo, ícone, meme, gráfico, mapa\n"
         "- O que é: cena principal em uma frase curta\n"
-        "- Pessoas: liste somente as REALMENTE visíveis com gênero + idade + ação; "
-        "ou 'nenhuma' se não há pessoa\n"
-        "- Animais: liste somente os REALMENTE visíveis com espécie + ação; "
-        "ou 'nenhum' se não há animal\n"
+        "- Pessoas: pessoas e personagens humanos visíveis (inclusive desenhados) "
+        "com gênero + idade + ação; ou 'nenhuma' se não há nenhum\n"
+        "- Animais: animais e personagens-animais visíveis (inclusive desenhados) "
+        "com espécie + ação; ou 'nenhum' se não há nenhum\n"
         "- Objetos: itens visíveis (vírgula-separado)\n"
         "- Ambiente: local + cores dominantes\n"
         "- Ações: o que está acontecendo (verbos no gerúndio)\n"
-        "- Tags: 6 a 10 palavras-chave usando o vocabulário acima"
+        "- Texto: texto legível na imagem entre aspas; ou 'nenhum'\n"
+        "- Tags: 6 a 10 palavras-chave usando o vocabulário acima, incluindo o estilo"
     )
 
     extras = []
     prio_set = set(prioridades)
 
     if "tudo" in prio_set:
-        extras.append("Máximo 5 linhas.")
+        extras.append("Seja conciso: uma linha curta por campo, sem repetir.")
     else:
         if "animais" in prio_set:
             extras.append(
-                "Foque a descrição estritamente em identificar espécies, raças e "
-                "comportamentos de animais visíveis na imagem."
+                "Foque a descrição em identificar espécies, raças e comportamentos "
+                "dos animais visíveis, sejam eles reais ou desenhados."
             )
         if "pessoas" in prio_set:
             extras.append(
-                "Foque em descrever detalhadamente as pessoas: gênero, idade aproximada, "
-                "roupas, expressões faciais e ações."
+                "Foque em descrever detalhadamente as pessoas e personagens humanos: "
+                "gênero, idade aproximada, roupas, expressões faciais e ações."
             )
         if "paisagens" in prio_set:
             extras.append(
                 "Foque em descrever o ambiente, paisagem, elementos naturais, "
                 "arquitetônicos e as cores dominantes da cena."
             )
+        if extras:
+            extras.append("Mesmo assim, preencha TODOS os campos do formato.")
         if not extras:
-            extras.append("Máximo 5 linhas.")
+            extras.append("Seja conciso: uma linha curta por campo, sem repetir.")
 
     return base + "\n" + " ".join(extras)
 
 
-def _resize_image_for_llava(filepath: str, max_size=768) -> bytes:
-    """Redimensiona imagem em memória para otimizar processamento no LLaVA."""
+def _preparar_imagem(filepath: str, max_size=768) -> bytes:
+    """Redimensiona a imagem em memória antes de mandar pro Claude (menor = mais barato)."""
     if not PIL_OK:
         with open(filepath, "rb") as f:
             return f.read()
@@ -2919,26 +3455,27 @@ def _analyze_image_claude(filepath: str, prompt: str, perfil: str = "fast") -> s
         return None
     try:
         import base64
-        # Reusa o mesmo redimensionamento da LLaVA (imagem menor = mais barato/rápido)
-        img_bytes = _resize_image_for_llava(filepath)
-        media_type = "image/jpeg"  # _resize_image_for_llava sempre devolve JPEG
+        img_bytes = _preparar_imagem(filepath)
+        media_type = "image/jpeg"  # _preparar_imagem sempre devolve JPEG
         img_b64 = base64.standard_b64encode(img_bytes).decode("utf-8")
 
         # Perfil controla o quão detalhada é a descrição (deep gasta mais tokens).
+        # max_tokens é o teto do raciocínio + do texto juntos, por isso a folga.
         if perfil == "deep":
             prompt_final = prompt + (
                 "\n\nMODO PROFUNDO: seja minucioso. Identifique raças/espécies "
-                "específicas, marcas, texto visível na imagem e detalhes do ambiente. "
-                "Não deixe passar nada relevante para a busca."
+                "específicas, marcas, estilo artístico, texto visível na imagem e "
+                "detalhes do ambiente. Não deixe passar nada relevante para a busca."
             )
-            max_tok = 1024
+            max_tok, esforco = 3000, "medium"
         else:
             prompt_final = prompt
-            max_tok = 600
+            max_tok, esforco = 2000, "low"
 
         resp = _CLAUDE.messages.create(
-            model="claude-opus-4-8",
+            model=CLAUDE_MODEL,
             max_tokens=max_tok,
+            output_config={"effort": esforco},
             messages=[{
                 "role": "user",
                 "content": [
@@ -2949,6 +3486,9 @@ def _analyze_image_claude(filepath: str, prompt: str, perfil: str = "fast") -> s
                 ],
             }],
         )
+        if resp.stop_reason == "refusal":
+            print(f"[VLM:claude] Recusou descrever {os.path.basename(filepath)}")
+            return None
         # Concatena os blocos de texto da resposta (geralmente é um só)
         desc = "".join(b.text for b in resp.content if b.type == "text").strip()
         if desc:
@@ -2966,7 +3506,7 @@ def _analyze_image(filepath: str, *, prioridades=None, perfil="fast") -> str:
     if prioridades is None:
         prioridades = ["tudo"]
 
-    prompt = _build_llava_prompt(prioridades)
+    prompt = _build_prompt_visao(prioridades)
     desc = _analyze_image_claude(filepath, prompt, perfil=perfil)
     return desc or f"Imagem: {os.path.basename(filepath)}"
 
@@ -2979,7 +3519,7 @@ def _descrever_imagem_on_demand(caminho: str, nome: str) -> str | None:
         return None
     if not os.path.isfile(caminho):
         return None
-    prompt = _build_llava_prompt(["tudo"])
+    prompt = _build_prompt_visao(["tudo"])
     desc = _analyze_image_claude(caminho, prompt, perfil="fast")
     if desc:
         print(f"[Lazy] Descrita sob demanda: {nome}")

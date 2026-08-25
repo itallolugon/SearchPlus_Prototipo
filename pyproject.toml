@@ -1,0 +1,93 @@
+[project]
+name = "searchplus"
+version = "0.1.0"
+description = "Search+ — busca semântica em imagens e documentos locais"
+requires-python = ">=3.11"
+
+# O projeto NÃO é instalado como pacote: o backend roda como script
+# (`py backend/app.py`). Este arquivo existe só para centralizar a
+# configuração de pytest, coverage e ruff.
+
+# ─────────────────────────────────────────────────────────────────────────────
+# pytest
+# ─────────────────────────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Põe a raiz do projeto no sys.path para que `from tests.caminhos import ...`
+# resolva igual no Windows e no Linux do CI.
+pythonpath = ["."]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+# --strict-markers: marker escrito errado vira erro, não teste silenciosamente
+# fora da seleção.
+addopts = [
+    "--strict-markers",
+    "--strict-config",
+    "-ra",
+]
+markers = [
+    "unit: teste isolado, sem rede, banco ou modelo de IA",
+    "integration: sobe o mock_server e fala HTTP com ele",
+    "requires_db: precisa de um Postgres COM pgvector em SEARCHPLUS_TEST_DATABASE_URL (nunca o banco de produção)",
+    "slow: leva mais de alguns segundos",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:pkg_resources.*",
+]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# coverage
+# ─────────────────────────────────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["backend"]
+branch = true
+omit = [
+    "backend/mock_server.py",   # é fixture de teste, não código de produção
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+# 43% é piso, não meta: a suíte mede 45% hoje e a folga evita quebrar o CI por
+# flutuação de uma linha. Não é 70% porque metade de app.py é I/O que só roda
+# com infraestrutura real — pgvector, API da Anthropic, modelos de 1 GB, diálogos
+# do tkinter, o worker em thread. O que dava para cobrir sem inventar teste está
+# coberto: regras de busca, parsing da descrição, caminhos, autenticação,
+# allowlist de estáticos e os endpoints de dados.
+#
+# docs/TESTING.md lista módulo a módulo o que ficou de fora e o que é preciso
+# para cobrir. Suba este número quando a cobertura subir de verdade — nunca
+# fabricando teste para mover a porcentagem.
+fail_under = 43
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ruff
+# ─────────────────────────────────────────────────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = [".git", "__pycache__", ".venv", "htmlcov", "local_models"]
+
+[tool.ruff.lint]
+# Conjunto deliberadamente enxuto: erros reais (E9/F) e bugs prováveis (B),
+# sem regras de estilo que gerariam centenas de avisos numa base existente e
+# afogariam o sinal útil. Amplie aos poucos.
+select = ["E4", "E7", "E9", "F", "B", "UP032"]
+ignore = [
+    "E402",  # import fora do topo: o conftest PRECISA preparar o ambiente antes
+    "B008",  # chamada em argumento default — padrão comum de Flask
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["F811", "F401"]  # fixtures do pytest reusam nomes por design
