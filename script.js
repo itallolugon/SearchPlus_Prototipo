@@ -1,4 +1,11 @@
-const API_BASE_URL = 'http://127.0.0.1:5000';
+// Deriva a URL da API da própria página, em vez de fixar uma porta: o mesmo
+// arquivo serve tanto o backend real (5000) quanto o servidor mock (5001), sem
+// editar nada. Só cai no valor fixo quando a página é aberta pelo file://,
+// onde não há origem HTTP para herdar.
+const API_BASE_URL =
+    window.location.protocol.startsWith("http")
+        ? window.location.origin
+        : "http://127.0.0.1:5000";
 let currentConfig = {};
 let tempConfig = {};
 
@@ -79,6 +86,60 @@ const toastOk   = (m) => mostrarToast(m, 'sucesso');
 const toastErro = (m) => mostrarToast(m, 'erro', 6000);
 const toastInfo = (m) => mostrarToast(m, 'info');
 const toastAviso = (m) => mostrarToast(m, 'aviso', 5500);
+
+// ==========================================
+// MODAL DE CONFIRMAÇÃO (substitui o confirm() nativo)
+// Uso: if (await confirmarAcao("Excluir?", "Essa ação...")) { ... }
+// ==========================================
+function confirmarAcao(titulo, texto, textoBotao = 'Confirmar') {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('confirmModal');
+        document.getElementById('confirmTitulo').textContent = titulo;
+        document.getElementById('confirmTexto').textContent = texto || '';
+        const btnOk = document.getElementById('confirmOk');
+        const btnCancel = document.getElementById('confirmCancelar');
+        btnOk.textContent = textoBotao;
+
+        const fechar = (resultado) => {
+            modal.style.display = 'none';
+            btnOk.onclick = null;
+            btnCancel.onclick = null;
+            resolve(resultado);
+        };
+        btnOk.onclick = () => fechar(true);
+        btnCancel.onclick = () => fechar(false);
+        modal.style.display = 'flex';
+    });
+}
+
+// Modal de entrada de texto (substitui o prompt() nativo)
+function pedirTexto(titulo, label, valorInicial = '') {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('inputModal');
+        document.getElementById('inputTitulo').textContent = titulo;
+        document.getElementById('inputLabel').textContent = label;
+        const campo = document.getElementById('inputCampo');
+        campo.value = valorInicial;
+        const btnOk = document.getElementById('inputOk');
+        const btnCancel = document.getElementById('inputCancelar');
+
+        const fechar = (resultado) => {
+            modal.style.display = 'none';
+            btnOk.onclick = null;
+            btnCancel.onclick = null;
+            campo.onkeydown = null;
+            resolve(resultado);
+        };
+        btnOk.onclick = () => fechar(campo.value);
+        btnCancel.onclick = () => fechar(null);
+        campo.onkeydown = (e) => {
+            if (e.key === 'Enter') fechar(campo.value);
+            if (e.key === 'Escape') fechar(null);
+        };
+        modal.style.display = 'flex';
+        setTimeout(() => campo.focus(), 50);
+    });
+}
 
 const dicasUX = [
     "A IA faz buscas semânticas. Descreva o arquivo com linguagem natural.",
@@ -484,8 +545,14 @@ async function finalizarOnboarding() {
     if (document.getElementById('obBanner').value) currentConfig.perfil_banner = document.getElementById('obBanner').value;
 
     await fetch(`${API_BASE_URL}/api/config`, { method: 'POST', headers: fetchOptions.headers, body: JSON.stringify(currentConfig) });
+
+    // Só AGORA, na confirmação, dispara a análise das pastas (com o perfil
+    // deep/relâmpago que o usuário escolheu). Antes disso, nada é analisado.
+    await fetch(`${API_BASE_URL}/api/analyze_folders`, { method: 'POST', headers: fetchOptions.headers });
+
     await carregarConfiguracoesUX();
     document.getElementById('onboardingOverlay').style.display = 'none';
+    toastOk("Tudo pronto! A IA começou a analisar suas pastas.");
 
     btn.innerText = "Concluir "; btn.disabled = false;
 }
@@ -998,6 +1065,7 @@ const _CATEGORIA_LABEL = {
     comida:   { icone: '🍽️', nome: 'Comida' },
     natureza: { icone: '🌳', nome: 'Natureza' },
     urbano:   { icone: '🏙️', nome: 'Urbano' },
+    desenhos: { icone: '🎨', nome: 'Desenhos e Arte' },
 };
 
 async function carregarEstatisticas() {
@@ -1114,7 +1182,7 @@ async function salvarConfigGerais() {
 }
 
 async function limparHistoricoBusca() {
-    if (!confirm("Tem certeza que deseja limpar todo o histórico de busca?")) return;
+    if (!await confirmarAcao("Limpar histórico", "Tem certeza que deseja limpar todo o histórico de busca?", "Limpar")) return;
     try {
         const res = await fetch(`${API_BASE_URL}/api/clear_history`, { method: 'POST' });
         if (!res.ok) { toastErro("Não foi possível limpar o histórico."); return; }
@@ -1128,7 +1196,7 @@ async function limparHistoricoBusca() {
 }
 
 async function limparCacheIA() {
-    if (!confirm("ATENÇÃO: Isto vai apagar todas as descrições e vetores da IA gerados até agora. O motor precisará reanalisar todos os arquivos do zero. Deseja continuar?")) return;
+    if (!await confirmarAcao("Limpar banco da IA", "Isto vai apagar todas as descrições e vetores da IA gerados até agora. O motor precisará reanalisar todos os arquivos do zero. Deseja continuar?", "Limpar tudo")) return;
     try {
         const res = await fetch(`${API_BASE_URL}/api/clear_cache`, { method: 'POST' });
         if (!res.ok) { toastErro("Não foi possível limpar o cache da IA."); return; }
@@ -1263,7 +1331,7 @@ function esconderHistorico() {
 }
 
 function usarHistorico(query) {
-    document.getElementById('searchInput').value = query;
+    definirTextoBusca(query);
     esconderHistorico();
     realizarBusca();
 }
@@ -1300,11 +1368,16 @@ async function reAnalizarArquivos() {
     try {
         const res = await fetch(`${API_BASE_URL}/api/reanalyze`, { method: 'POST' });
         const data = await res.json();
+        // Imagens com descrição em formato antigo não vão pra fila: elas são
+        // redescritas sozinhas na próxima busca em que aparecerem.
+        const limpas = data.descricoes_limpas || 0;
+        const extra = limpas ? ` + ${limpas} imagem(ns) marcada(s) pra redescrever` : '';
         if (btn) {
             btn.innerText = `✅ ${data.reenfileirados} arquivo(s) na fila!`;
             setTimeout(() => { btn.innerText = 'Re-analisar Arquivos com Descrição Ruim'; btn.disabled = false; }, 3000);
+            if (limpas) toastOk(`${limpas} imagem(ns) serão redescritas na próxima busca.`);
         } else {
-            toastOk(`${data.reenfileirados} arquivo(s) na fila de reanálise.`);
+            toastOk(`${data.reenfileirados} arquivo(s) na fila de reanálise${extra}.`);
         }
     } catch(e) {
         if (btn) { btn.innerText = 'Re-analisar Arquivos com Descrição Ruim'; btn.disabled = false; }
@@ -1328,7 +1401,7 @@ async function abrirLocalDoArquivo() {
 // BUSCA E DASHBOARD (SOFT TRANSITIONS GLOBAIS)
 // ==========================================
 function voltarParaHomeSmooth() {
-    document.getElementById('searchInput').value = '';
+    definirTextoBusca('');
     document.getElementById('searchResultsView').classList.add('fade-out');
     document.getElementById('searchResultsView').style.opacity = '0';
     document.getElementById('filterBarContainer').style.opacity = '0';
@@ -1421,6 +1494,9 @@ function limparFiltrosAvancados() {
 async function realizarBusca() {
     const query = document.getElementById('searchInput').value;
     if (!query.trim()) return;
+
+    // Contexto novo: não faz sentido carregar a seleção da busca anterior
+    if (typeof limparSelecao === 'function') limparSelecao();
 
     searchHistoryExists = true;
 
@@ -1554,12 +1630,13 @@ async function adicionarPasta() {
         });
         const config = await updateRes.json();
         atualizarListaModalPastas(config.pastas);
+        toastInfo("Pasta adicionada. Clique em \"Analisar Pastas\" quando quiser iniciar a IA.");
     }
     btn.innerText = "+ Importar Nova Pasta";
 }
 
 async function removerPasta(p) {
-    if (!confirm("Remover pasta monitorada? A IA não buscará mais nela.")) return;
+    if (!await confirmarAcao("Remover pasta", "Remover pasta monitorada? A IA não buscará mais nela.", "Remover")) return;
     const res = await fetch(`${API_BASE_URL}/api/folders`, { method: 'DELETE', headers: fetchOptions.headers, body: JSON.stringify({ pasta: p }) });
     const config = await res.json();
     atualizarListaModalPastas(config.pastas);
@@ -1602,13 +1679,15 @@ function renderizarResultados() {
     });
 
     if (filtrados.length > 0) {
-        document.getElementById('tituloMelhores').style.display = 'block'; document.getElementById('tituloSemantica').style.display = 'block';
+        document.getElementById('tituloMelhores').style.display = 'block';
     } else {
-        document.getElementById('tituloMelhores').style.display = 'none'; document.getElementById('tituloSemantica').style.display = 'none';
+        document.getElementById('tituloMelhores').style.display = 'none';
         mGrid.innerHTML = '<p style="text-align:center; width:100%; color:var(--text-secondary);">Nada encontrado.</p>'; return;
     }
 
-    const melhores = filtrados.filter(r => r.score >= 0.60); const outras = filtrados.filter(r => r.score < 0.60);
+    // Lista única, ordenada do melhor pro pior. O Claude já garante que todos
+    // os resultados são relevantes, então não há mais divisão Exato/Semântico.
+    const ordenados = [...filtrados].sort((a, b) => b.score - a.score);
 
     const buildCard = (r) => {
         const ext = r.tipo.toLowerCase(); const link = formatImagePath(r.caminho);
@@ -1624,11 +1703,17 @@ function renderizarResultados() {
         const favIcon = r.favorito ? '' : '🤍';
         const favBtn = `<div class="btn-fav-abs ${favClass}" onclick="toggleFavorito(event, ${r.id}, this)">${favIcon}</div>`;
 
-        return `<div class="card" data-idx="${idx}" onclick="abrirPainelLateral(${idx})" onmouseenter="mostrarHoverPreview(event, ${idx})" onmousemove="moverHoverPreview(event)" onmouseleave="esconderHoverPreview()">${favBtn}<div class="media-container">${midia}</div><div class="card-content"><h3>${r.nome}</h3><div class="tags"><span class="badge type">${ext.toUpperCase()}</span><span class="badge score">SCORE: ${Math.round(r.score * 100)}%</span></div>${trecho}</div></div>`;
+        // Seleção ≠ favorito: caixa quadrada à esquerda, coração à direita.
+        // O estado vem do Set em memória, não do DOM — o grid é reconstruído
+        // inteiro a cada troca de filtro e levaria a marcação junto.
+        const sel = _selecionados.has(r.id);
+        const selBtn = `<button type="button" class="btn-sel-abs${sel ? ' is-sel' : ''}" role="checkbox" aria-checked="${sel}" aria-label="Selecionar para coleção" title="Selecionar para coleção" onclick="alternarSelecao(event, ${r.id}, this)">${sel ? '✓' : ''}</button>`;
+
+        return `<div class="card${sel ? ' card-selecionado' : ''}" data-file-id="${r.id}" data-idx="${idx}" onclick="abrirPainelLateral(${idx})" onmouseenter="mostrarHoverPreview(event, ${idx})" onmousemove="moverHoverPreview(event)" onmouseleave="esconderHoverPreview()">${selBtn}${favBtn}<div class="media-container">${midia}</div><div class="card-content"><h3>${r.nome}</h3><div class="tags"><span class="badge type">${ext.toUpperCase()}</span></div>${trecho}</div></div>`;
     };
 
-    melhores.forEach(r => mGrid.innerHTML += buildCard(r));
-    outras.forEach(r => oGrid.innerHTML += buildCard(r));
+    mGrid.innerHTML = ordenados.map(buildCard).join('');
+    oGrid.innerHTML = '';
 }
 
 // ==========================================
@@ -1695,7 +1780,9 @@ function abrirPainelLateral(id) {
 
     document.getElementById('sideTitle').innerText = res.nome;
     document.getElementById('sideBadgeType').innerText = res.tipo.toUpperCase();
-    document.getElementById('sideBadgeScore').innerText = `SCORE: ${Math.round(res.score * 100)}%`;
+    // Score escondido do usuário — informação técnica, não interessa pra quem busca.
+    const _sbScore = document.getElementById('sideBadgeScore');
+    if (_sbScore) _sbScore.style.display = 'none';
     document.getElementById('sideDownloadBtn').href = formatImagePath(res.caminho);
 
     const ext = res.tipo.toLowerCase(); const link = formatImagePath(res.caminho);
@@ -1891,6 +1978,7 @@ const _CAT_GALERIA = {
     comida:   { icone: '🍽️', nome: 'Comida' },
     natureza: { icone: '🌳', nome: 'Natureza' },
     urbano:   { icone: '🏙️', nome: 'Urbano' },
+    desenhos: { icone: '🎨', nome: 'Desenhos e Arte' },
     outras:   { icone: '📦', nome: 'Outras' },
 };
 
@@ -1967,9 +2055,42 @@ function verificarEnter(e) {
     if (e.key === "Enter") realizarBusca();
 }
 
+// ==========================================
+// LIMPAR O CAMPO DE BUSCA (botão ×)
+// ==========================================
+// O botão só existe enquanto há texto. Como atribuir .value por código não
+// dispara o evento 'input', todo ponto que mexe no campo precisa passar por
+// definirTextoBusca() — senão o botão dessincroniza do conteúdo.
+
+function atualizarBotaoLimpar() {
+    const campo = document.getElementById('searchInput');
+    const btn   = document.getElementById('btnLimparBusca');
+    if (!campo || !btn) return;
+    // .length, não .trim(): com o campo só de espaços o botão precisa aparecer,
+    // senão não há como apagá-los num clique.
+    btn.classList.toggle('visivel', campo.value.length > 0);
+}
+
+// Escreve no campo e mantém o botão em sincronia. Use sempre esta função.
+function definirTextoBusca(valor) {
+    const campo = document.getElementById('searchInput');
+    if (!campo) return;
+    campo.value = valor;
+    atualizarBotaoLimpar();
+}
+
+// Ação do botão ×: limpa o texto e devolve o foco. Não busca, não navega,
+// não mexe nos resultados já na tela.
+function limparCampoBusca() {
+    definirTextoBusca('');
+    const campo = document.getElementById('searchInput');
+    if (campo) campo.focus();
+}
+
 // Função placeholder para limpar busca (usada no logout)
 function limparBusca() {
-    document.getElementById('searchInput').value = '';
+    definirTextoBusca('');
+    if (typeof limparSelecao === 'function') limparSelecao();
     document.getElementById('searchResultsView').style.display = 'none';
     document.getElementById('filterBarContainer').style.display = 'none';
     document.getElementById('dashboardView').style.display = 'none';
@@ -2194,14 +2315,14 @@ async function buscarStatus() {
         // Detecta transição fila>0 -> fila=0: análise terminou.
         // Só notifica se as notificações estiverem ativadas nas configs.
         if (_ultimaFila > 0 && pend === 0 && currentConfig.notificacoes !== false) {
-            toastOk("Análise concluída! Os arquivos já podem ser buscados.");
+            toastOk("Indexação concluída! Os arquivos já podem ser buscados.");
         }
         _ultimaFila = pend;
 
         // Monta o texto do status
         let texto;
         if (pend > 0) {
-            texto = `🔍 Analisando arquivos — ${pend} na fila`;
+            texto = `🔍 Indexando arquivos — ${pend} na fila`;
         } else if (s.status && s.status.startsWith('Aguardando janela')) {
             texto = `🕐 ${s.status}`;
         } else if (s.status && s.status.startsWith('Escaneando')) {
@@ -2281,6 +2402,8 @@ document.addEventListener('keydown', (e) => {
         const ml = document.getElementById('menuLateral');
         if (ml && ml.classList.contains('aberto')) { fecharMenuLateral(); return; }
         const fechaveis = [
+            ['exportModal', () => { if (typeof fecharExportacao === 'function') fecharExportacao(); }],
+            ['escolherColecaoModal', () => { if (typeof fecharEscolherColecao === 'function') fecharEscolherColecao(); }],
             ['ajudaModal', fecharAjuda],
             ['cropperModal', () => { if (typeof fecharCropper === 'function') fecharCropper(); }],
             ['modalFavoritos', () => { if (typeof fecharFavoritos === 'function') fecharFavoritos(); }],
@@ -2310,6 +2433,60 @@ document.addEventListener('keydown', (e) => {
         }
     }
 });
+
+// ==========================================
+// SELEÇÃO DE IMAGENS (para adicionar em lote a uma coleção)
+// ==========================================
+// Selecionar NÃO é favoritar. Favoritar é um julgamento sobre a imagem e mora
+// no banco (files.favorito). Selecionar é um passo de fluxo de trabalho: vive
+// só aqui, em memória, e some ao recarregar a página.
+
+let _selecionados = new Set();   // file_id dos itens marcados
+
+function alternarSelecao(event, fileId, btn) {
+    event.stopPropagation();     // não abre o painel lateral
+    const card = btn.closest('.card');
+
+    if (_selecionados.has(fileId)) {
+        _selecionados.delete(fileId);
+        btn.classList.remove('is-sel');
+        btn.textContent = '';
+        btn.setAttribute('aria-checked', 'false');
+        if (card) card.classList.remove('card-selecionado');
+    } else {
+        _selecionados.add(fileId);
+        btn.classList.add('is-sel');
+        btn.textContent = '✓';
+        btn.setAttribute('aria-checked', 'true');
+        if (card) card.classList.add('card-selecionado');
+    }
+    atualizarBarraSelecao();
+}
+
+function atualizarBarraSelecao() {
+    const barra = document.getElementById('barraSelecao');
+    const cont  = document.getElementById('selecaoContador');
+    if (!barra || !cont) return;
+
+    const n = _selecionados.size;
+    if (n === 0) {
+        barra.classList.remove('visivel');
+        return;
+    }
+    cont.textContent = `${n} ${n === 1 ? 'imagem selecionada' : 'imagens selecionadas'}`;
+    barra.classList.add('visivel');
+}
+
+function limparSelecao() {
+    _selecionados.clear();
+    document.querySelectorAll('.btn-sel-abs.is-sel').forEach(b => {
+        b.classList.remove('is-sel');
+        b.textContent = '';
+        b.setAttribute('aria-checked', 'false');
+    });
+    document.querySelectorAll('.card-selecionado').forEach(c => c.classList.remove('card-selecionado'));
+    atualizarBarraSelecao();
+}
 
 // ==========================================
 // COLEÇÕES (playlists de arquivos)
@@ -2409,7 +2586,7 @@ async function criarColecao() {
 }
 
 async function excluirColecao(id, nome) {
-    if (!confirm(`Excluir a coleção "${nome}"? Os arquivos não são apagados, só a coleção.`)) return;
+    if (!await confirmarAcao("Excluir coleção", `Excluir a coleção "${nome}"? Os arquivos não são apagados, só a coleção.`, "Excluir")) return;
     try {
         await fetch(`${API_BASE_URL}/api/collections/${id}`, { method: 'DELETE' });
         toastInfo(`Coleção "${nome}" excluída.`);
@@ -2488,42 +2665,259 @@ async function removerDaColecao(fileId, nomeArquivo) {
     } catch (e) { console.error(e); toastErro("Erro de conexão."); }
 }
 
-// Adicionar o arquivo aberto no painel lateral a uma coleção
+// Adicionar o arquivo aberto no painel lateral a uma coleção.
+// Abre um modal com a lista de coleções clicáveis (sem prompt nativo).
 async function abrirSeletorColecao() {
-    if (!_fileIdAtual) { toastAviso("Abra um arquivo primeiro."); return; }
+    // Sem seleção múltipla ativa, opera sobre o arquivo aberto no painel.
+    if (_selecionados.size === 0 && !_fileIdAtual) {
+        toastAviso("Abra um arquivo ou selecione imagens primeiro.");
+        return;
+    }
+    const lista = document.getElementById('escolherColecaoLista');
+    lista.innerHTML = '<p style="color:var(--text-secondary);">Carregando...</p>';
+    document.getElementById('escolherColecaoModal').style.display = 'flex';
     try {
         const res = await fetch(`${API_BASE_URL}/api/collections`);
         const d = await res.json();
         const cols = d.colecoes || [];
+
         if (cols.length === 0) {
-            const nome = prompt("Você ainda não tem coleções. Nome da nova coleção:");
-            if (!nome || !nome.trim()) return;
-            const cr = await fetch(`${API_BASE_URL}/api/collections`, {
-                method: 'POST', headers: fetchOptions.headers,
-                body: JSON.stringify({ nome: nome.trim() })
-            });
-            const cd = await cr.json();
-            if (cr.ok) await adicionarAColecao(cd.id, nome.trim());
-            else toastErro(cd.error || "Erro ao criar coleção.");
+            lista.innerHTML = '<p style="color:var(--text-secondary);">Você ainda não tem coleções. Crie uma abaixo.</p>';
             return;
         }
-        const nomes = cols.map((c, i) => `${i + 1}. ${c.nome} (${c.total})`).join('\n');
-        const escolha = prompt(`Adicionar a qual coleção?\n\n${nomes}\n\nDigite o número:`);
-        const idx = parseInt(escolha, 10) - 1;
-        if (isNaN(idx) || idx < 0 || idx >= cols.length) return;
-        await adicionarAColecao(cols[idx].id, cols[idx].nome);
+        lista.innerHTML = '';
+        cols.forEach(c => {
+            const btn = document.createElement('button');
+            btn.className = 'escolher-colecao-item';
+            const nm = document.createElement('span');
+            nm.textContent = c.nome;
+            const cnt = document.createElement('span');
+            cnt.className = 'escolher-colecao-count';
+            cnt.textContent = `${c.total} ${c.total === 1 ? 'item' : 'itens'}`;
+            btn.append(nm, cnt);
+            btn.onclick = async () => {
+                fecharEscolherColecao();
+                await adicionarAColecao(c.id, c.nome);
+            };
+            lista.appendChild(btn);
+        });
+    } catch (e) {
+        console.error(e);
+        lista.innerHTML = '<p style="color:#f87171;">Erro ao carregar coleções.</p>';
+    }
+}
+
+function fecharEscolherColecao() {
+    document.getElementById('escolherColecaoModal').style.display = 'none';
+}
+
+// "+ Criar nova coleção" dentro do modal de escolha: pede o nome via
+// modal de input (pedirTexto) e já adiciona o arquivo atual nela.
+async function criarColecaoEAdicionar() {
+    const nome = await pedirTexto("Nova coleção", "Nome da coleção:");
+    if (!nome || !nome.trim()) return;
+    try {
+        const cr = await fetch(`${API_BASE_URL}/api/collections`, {
+            method: 'POST', headers: fetchOptions.headers,
+            body: JSON.stringify({ nome: nome.trim() })
+        });
+        const cd = await cr.json();
+        if (cr.ok) {
+            fecharEscolherColecao();
+            await adicionarAColecao(cd.id, nome.trim());
+        } else {
+            toastErro(cd.error || "Erro ao criar coleção.");
+        }
     } catch (e) { console.error(e); toastErro("Erro de conexão."); }
 }
 
 async function adicionarAColecao(colId, nome) {
+    // Lote quando há seleção; senão, o arquivo aberto no painel lateral.
+    const ids = _selecionados.size > 0 ? [..._selecionados] : [_fileIdAtual];
     try {
         const res = await fetch(`${API_BASE_URL}/api/collections/${colId}/files`, {
             method: 'POST', headers: fetchOptions.headers,
-            body: JSON.stringify({ file_id: _fileIdAtual })
+            body: JSON.stringify({ file_ids: ids })
         });
-        if (res.ok) toastOk(`Adicionado à coleção "${nome}".`);
-        else toastErro("Não foi possível adicionar.");
+        const d = await res.json().catch(() => ({}));
+        if (!res.ok) { toastErro(d.error || "Não foi possível adicionar."); return; }
+
+        const add = d.adicionados ?? ids.length;
+        const ja  = d.ja_existiam ?? 0;
+        if (add === 0)      toastInfo(`Já ${ja === 1 ? 'estava' : 'estavam'} na coleção "${nome}".`);
+        else if (ja > 0)    toastOk(`${add} adicionada(s) a "${nome}" — ${ja} já ${ja === 1 ? 'estava' : 'estavam'} lá.`);
+        else                toastOk(`${add === 1 ? 'Adicionado' : add + ' adicionadas'} à coleção "${nome}".`);
+
+        if (_selecionados.size > 0) limparSelecao();
     } catch (e) { console.error(e); toastErro("Erro de conexão."); }
+}
+
+// ==========================================
+// EXPORTAR COLEÇÃO PARA UMA PASTA LOCAL
+// ==========================================
+// Exportar aqui é copiar arquivo local → pasta local. O backend roda na
+// máquina do usuário, então quem cria a pasta e copia é o Python.
+
+let _exportJobId = null;
+let _exportTimer = null;
+
+async function exportarColecao() {
+    if (!_colecaoAtual.id) return;
+
+    // 1) Escolher o destino pelo diálogo nativo do Windows
+    let destino;
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/choose_folder`);
+        const d = await r.json();
+        if (d.status === 'cancelado') return;          // desistiu: sem erro
+        if (d.status !== 'sucesso' || !d.pasta) {
+            toastErro("Não foi possível abrir o seletor de pastas.");
+            return;
+        }
+        destino = d.pasta;
+    } catch (e) { console.error(e); toastErro("Erro de conexão."); return; }
+
+    // 2) Iniciar o job
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/collections/${_colecaoAtual.id}/export`, {
+            method: 'POST', headers: fetchOptions.headers,
+            body: JSON.stringify({ destino })
+        });
+        const d = await r.json();
+        if (!r.ok) { toastErro(d.error || "Não foi possível exportar."); return; }
+
+        _exportJobId = d.job_id;
+        abrirModalExportacao(d.total);
+        _exportTimer = setInterval(consultarExportacao, 400);
+    } catch (e) { console.error(e); toastErro("Erro de conexão."); }
+}
+
+function abrirModalExportacao(total) {
+    document.getElementById('exportModal').style.display = 'flex';
+    document.getElementById('exportProgressoBox').style.display = 'block';
+    document.getElementById('exportResultadoBox').style.display = 'none';
+    document.getElementById('exportTitulo').textContent = `Exportando "${_colecaoAtual.nome}"...`;
+    definirProgressoExport(0, total);
+}
+
+function definirProgressoExport(feitos, total) {
+    const barra = document.getElementById('exportBarra');
+    const txt   = document.getElementById('exportContagem');
+    const pct   = total > 0 ? Math.round((feitos / total) * 100) : 0;
+    barra.style.width = pct + '%';
+    barra.setAttribute('aria-valuenow', String(feitos));
+    barra.setAttribute('aria-valuemax', String(total));
+    txt.textContent = `${feitos} de ${total} imagens`;
+}
+
+async function consultarExportacao() {
+    if (!_exportJobId) return;
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/collections/export/${_exportJobId}`);
+        if (!r.ok) { pararPolling(); toastErro("Exportação não encontrada."); return; }
+        const d = await r.json();
+
+        definirProgressoExport(d.copiados, d.total);
+        if (d.estado === 'executando') return;
+
+        pararPolling();
+        mostrarResultadoExportacao(d);
+    } catch (e) {
+        // Backend caiu no meio: para de girar e avisa (RNF-026)
+        pararPolling();
+        console.error(e);
+        toastErro("A conexão com o Search+ foi perdida durante a exportação.");
+    }
+}
+
+function pararPolling() {
+    if (_exportTimer) { clearInterval(_exportTimer); _exportTimer = null; }
+}
+
+function mostrarResultadoExportacao(d) {
+    document.getElementById('exportProgressoBox').style.display = 'none';
+    const box = document.getElementById('exportResultadoBox');
+    box.style.display = 'block';
+    box.innerHTML = '';
+
+    const titulo = document.getElementById('exportTitulo');
+    const h = document.createElement('p');
+    h.className = 'export-resumo';
+
+    if (d.erro === 'disco_cheio') {
+        titulo.textContent = 'Exportação interrompida';
+        h.textContent = `O disco ficou sem espaço. ${d.copiados} imagens foram salvas antes de parar.`;
+    } else if (d.estado === 'cancelado') {
+        titulo.textContent = 'Exportação cancelada';
+        h.textContent = `${d.copiados} de ${d.total} imagens foram copiadas antes do cancelamento e permanecem na pasta.`;
+    } else if (d.falhas.length > 0) {
+        titulo.textContent = 'Coleção exportada — parcialmente';
+        h.textContent = `${d.copiados} de ${d.total} imagens salvas em ${d.pasta}`;
+    } else {
+        titulo.textContent = '✓ Coleção exportada';
+        h.textContent = `${d.copiados} ${d.copiados === 1 ? 'imagem salva' : 'imagens salvas'} em ${d.pasta}`;
+    }
+    box.appendChild(h);
+
+    // Lista nominal das falhas: um número solto não deixa o usuário
+    // reconciliar a coleção com o disco (RF-053).
+    if (d.falhas.length > 0) {
+        const MOTIVOS = {
+            nao_encontrado: 'não encontrada (movida ou apagada)',
+            sem_permissao: 'sem permissão de leitura',
+            fora_das_pastas: 'fora das pastas monitoradas',
+            erro_leitura: 'falha ao ler o arquivo',
+        };
+        const t = document.createElement('p');
+        t.className = 'export-falhas-titulo';
+        t.textContent = `${d.falhas.length} não ${d.falhas.length === 1 ? 'pôde' : 'puderam'} ser copiada(s):`;
+        box.appendChild(t);
+
+        const ul = document.createElement('ul');
+        ul.className = 'export-falhas';
+        d.falhas.forEach(f => {
+            const li = document.createElement('li');
+            li.textContent = `${f.nome} — ${MOTIVOS[f.motivo] || f.motivo}`;
+            ul.appendChild(li);
+        });
+        box.appendChild(ul);
+    }
+
+    const acoes = document.createElement('div');
+    acoes.className = 'export-acoes';
+    if (d.copiados > 0) {
+        const abrir = document.createElement('button');
+        abrir.className = 'action-btn gradient-btn';
+        abrir.textContent = 'Abrir pasta';
+        abrir.onclick = () => abrirPastaExportada(d.pasta);
+        acoes.appendChild(abrir);
+    }
+    const fechar = document.createElement('button');
+    fechar.className = 'action-btn';
+    fechar.textContent = 'Fechar';
+    fechar.onclick = fecharExportacao;
+    acoes.appendChild(fechar);
+    box.appendChild(acoes);
+}
+
+async function abrirPastaExportada(pasta) {
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/open_folder?path=${encodeURIComponent(pasta)}`);
+        if (!r.ok) toastErro("Não foi possível abrir a pasta.");
+    } catch (e) { console.error(e); toastErro("Erro de conexão."); }
+}
+
+async function cancelarExportacao() {
+    if (!_exportJobId) return;
+    try {
+        await fetch(`${API_BASE_URL}/api/collections/export/${_exportJobId}/cancel`, { method: 'POST' });
+    } catch (e) { console.error(e); }
+}
+
+function fecharExportacao() {
+    pararPolling();
+    _exportJobId = null;
+    document.getElementById('exportModal').style.display = 'none';
 }
 
 // ==========================================

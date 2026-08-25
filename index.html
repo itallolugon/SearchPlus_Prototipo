@@ -6,7 +6,7 @@
     <title>Search+</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=Inter:wght@400;600;700&family=Poppins:wght@400;600;700&family=Montserrat:wght@400;600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=2026_configs">
+    <link rel="stylesheet" href="style.css?v=2026_claude_ui">
 </head>
 <body>
     <div id="viewPerfilModal" class="modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(7, 10, 19, 0.95); backdrop-filter:blur(12px); align-items:center; justify-content:center;">
@@ -283,7 +283,10 @@
                 
                 <div class="search-box-wrapper">
                     <div class="search-box">
-                        <input type="text" id="searchInput" placeholder="Pesquise o que você lembra..." onkeypress="verificarEnter(event)" onfocus="mostrarHistorico()" onblur="setTimeout(esconderHistorico,150)">
+                        <div class="search-input-wrap">
+                            <input type="text" id="searchInput" placeholder="Pesquise o que você lembra..." oninput="atualizarBotaoLimpar()" onkeypress="verificarEnter(event)" onfocus="mostrarHistorico(); atualizarBotaoLimpar()" onblur="setTimeout(esconderHistorico,150)">
+                            <button type="button" id="btnLimparBusca" class="btn-limpar-busca" onclick="limparCampoBusca()" onmousedown="event.preventDefault()" aria-label="Limpar busca" title="Limpar busca">&times;</button>
+                        </div>
                         <button class="search-btn-img" onclick="abrirBuscaImagem()" title="Buscar por imagem">📷</button>
                         <button class="gradient-btn search-btn" onclick="realizarBusca()">Buscar</button>
                     </div>
@@ -350,11 +353,12 @@
             </div>
 
             <div id="searchResultsView" class="fade-transition" style="display: none; opacity: 0;">
-                <h2 class="section-title-white text-center" id="tituloMelhores" style="display: none;">Resultados Exatos</h2>
+                <h2 class="section-title-white text-center" id="tituloMelhores" style="display: none;">Resultados</h2>
                 <div class="results-grid" id="melhoresGrid"></div>
 
-                <h2 class="section-title-white text-center" id="tituloSemantica" style="display: none;">Busca Semântica (IA)</h2>
-                <div class="results-grid" id="outrasGrid"></div>
+                <!-- Grid secundário mantido (oculto) para compatibilidade — não é mais usado -->
+                <h2 class="section-title-white text-center" id="tituloSemantica" style="display: none;"></h2>
+                <div class="results-grid" id="outrasGrid" style="display: none;"></div>
             </div>
         </div>
 
@@ -739,6 +743,43 @@
     <!-- Container de notificações (toasts) -->
     <div id="toastContainer" class="toast-container"></div>
 
+    <!-- Modal de confirmação genérico (substitui o confirm() nativo) -->
+    <div id="confirmModal" class="modal" style="z-index: 10002;">
+        <div class="modal-content" style="max-width: 440px;">
+            <h3 id="confirmTitulo" style="margin:0 0 12px 0; color:var(--text-primary); font-size:1.3rem;">Confirmar</h3>
+            <p id="confirmTexto" style="color:var(--text-secondary); font-size:0.95rem; line-height:1.5; margin:0 0 24px 0;"></p>
+            <div style="display:flex; gap:10px; justify-content:flex-end;">
+                <button id="confirmCancelar" class="action-btn" style="background:transparent;">Cancelar</button>
+                <button id="confirmOk" class="action-btn gradient-btn">Confirmar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de entrada de texto (substitui o prompt() nativo) -->
+    <div id="inputModal" class="modal" style="z-index: 10003;">
+        <div class="modal-content" style="max-width: 420px;">
+            <h3 id="inputTitulo" style="margin:0 0 8px 0; color:var(--text-primary); font-size:1.3rem;">Digite</h3>
+            <label id="inputLabel" style="display:block; color:var(--text-secondary); font-size:0.9rem; margin-bottom:8px;"></label>
+            <input type="text" id="inputCampo" style="width:100%; padding:11px 14px; background:rgba(0,0,0,0.3); border:1px solid var(--border-light); border-radius:8px; color:var(--text-primary); margin-bottom:20px;">
+            <div style="display:flex; gap:10px; justify-content:flex-end;">
+                <button id="inputCancelar" class="action-btn" style="background:transparent;">Cancelar</button>
+                <button id="inputOk" class="action-btn gradient-btn">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de escolha de coleção (substitui o prompt() "digite o número") -->
+    <div id="escolherColecaoModal" class="modal" style="z-index: 10002;">
+        <div class="modal-content" style="max-width: 460px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+                <h3 class="gradient-text" style="margin:0; font-size:1.5rem; font-family:'Inter',sans-serif;">Adicionar à coleção</h3>
+                <span class="close-btn" onclick="fecharEscolherColecao()" style="position:static; cursor:pointer;">&times;</span>
+            </div>
+            <div id="escolherColecaoLista" style="display:flex; flex-direction:column; gap:8px; max-height:50vh; overflow-y:auto;"></div>
+            <button class="action-btn gradient-btn" onclick="criarColecaoEAdicionar()" style="width:100%; margin-top:14px; padding:12px;">+ Criar nova coleção</button>
+        </div>
+    </div>
+
     <!-- Modal: Busca por imagem -->
     <div id="buscaImagemModal" class="modal" style="z-index: 10001;">
         <div class="modal-content" style="max-width: 520px;">
@@ -788,9 +829,38 @@
             <!-- Lista de coleções OU conteúdo de uma coleção -->
             <div id="colecoesLista" class="recent-grid"></div>
             <div id="colecaoConteudo" style="display:none;">
-                <button class="action-btn" onclick="abrirColecoes()" style="margin-bottom:14px; padding:8px 14px;">← Voltar às coleções</button>
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px;">
+                    <button class="action-btn" onclick="abrirColecoes()" style="margin:0; padding:8px 14px;">← Voltar às coleções</button>
+                    <button class="action-btn gradient-btn" onclick="exportarColecao()" style="margin:0; padding:8px 16px;" title="Salvar as imagens desta coleção numa pasta do computador">⬇ Exportar coleção</button>
+                </div>
                 <div id="colecaoItens" class="recent-grid"></div>
             </div>
+        </div>
+    </div>
+
+    <!-- Modal: progresso e resultado da exportação -->
+    <div id="exportModal" class="modal" style="z-index: 10002;">
+        <div class="modal-content" style="max-width: 560px;">
+            <h3 id="exportTitulo" class="gradient-text" style="margin:0 0 20px; font-size:1.5rem; font-family:'Inter',sans-serif;">Exportando...</h3>
+
+            <div id="exportProgressoBox">
+                <div class="export-barra-trilha">
+                    <div id="exportBarra" class="export-barra-preenchida" role="progressbar" aria-valuemin="0" aria-valuenow="0" aria-valuemax="0" style="width:0%;"></div>
+                </div>
+                <p id="exportContagem" aria-live="polite" style="color:var(--text-secondary); margin:12px 0 20px;">0 de 0 imagens</p>
+                <button class="action-btn" onclick="cancelarExportacao()" style="margin:0;">Cancelar</button>
+            </div>
+
+            <div id="exportResultadoBox" style="display:none;"></div>
+        </div>
+    </div>
+
+    <!-- Barra flutuante: ações sobre as imagens selecionadas -->
+    <div id="barraSelecao" class="barra-selecao">
+        <span id="selecaoContador">0 imagens selecionadas</span>
+        <div class="barra-selecao-acoes">
+            <button class="action-btn gradient-btn" onclick="abrirSeletorColecao()" style="margin:0;">＋ Adicionar à coleção</button>
+            <button class="action-btn" onclick="limparSelecao()" style="margin:0;">Limpar seleção</button>
         </div>
     </div>
 
@@ -831,6 +901,6 @@
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
-    <script src="script.js?v=2026_toggles"></script>
+    <script src="script.js?v=2026_claude_ui"></script>
 </body>
 </html>

@@ -15,6 +15,23 @@ Abordagem da equipe: **SQL (PostgreSQL/Supabase)**.
 | [`06-dossie-tecnico-sprints.md`](06-dossie-tecnico-sprints.md) | ✅ Dossiê Técnico de Sprint (1 e 2) |
 | [`../backend/schema.sql`](../backend/schema.sql) | DDL real do banco (base do DER) |
 
+## Guias de desenvolvimento
+
+| Arquivo | Conteúdo |
+|---|---|
+| [`API.md`](API.md) | Contrato da API: payload, resposta e erros de cada endpoint |
+| [`FRONTEND.md`](FRONTEND.md) | Guia para substituir a camada visual (inclui o servidor mock) |
+| [`TESTING.md`](TESTING.md) | Suíte de testes, testes de carga e CI |
+
+## Notas técnicas e especificações
+
+Documentos fora do escopo da N2, produzidos ao longo do desenvolvimento.
+
+| Arquivo | Conteúdo |
+|---|---|
+| [`07-git-fluxo.md`](07-git-fluxo.md) | Convenção de branches (`main` / `develop` / `feature/*`) |
+| [`08-correcoes-conexao-e-busca.md`](08-correcoes-conexao-e-busca.md) | Correções: pooler do Supabase e busca visual (CLIP) |
+
 ## Como visualizar os diagramas (.puml)
 
 Os diagramas estão em **PlantUML** (texto → imagem; versiona bem no Git). Para ver:
