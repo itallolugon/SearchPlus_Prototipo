@@ -15,6 +15,29 @@ Abordagem da equipe: **SQL (PostgreSQL/Supabase)**.
 | [`06-dossie-tecnico-sprints.md`](06-dossie-tecnico-sprints.md) | ✅ Dossiê Técnico de Sprint (1 e 2) |
 | [`../backend/schema.sql`](../backend/schema.sql) | DDL real do banco (base do DER) |
 
+## Guias de desenvolvimento
+
+| Arquivo | Conteúdo |
+|---|---|
+| [`API.md`](API.md) | Contrato da API: payload, resposta e erros de cada endpoint |
+| [`FRONTEND.md`](FRONTEND.md) | Guia para substituir a camada visual (inclui o servidor mock) |
+| [`TESTING.md`](TESTING.md) | Suíte de testes, testes de carga e CI |
+
+## Notas técnicas e especificações
+
+Documentos fora do escopo da N2, produzidos ao longo do desenvolvimento.
+
+| Arquivo | Conteúdo |
+|---|---|
+| [`07-git-fluxo.md`](07-git-fluxo.md) | Convenção de branches (`main` / `develop` / `feature/*`) |
+| [`09-requisitos-funcionais.md`](09-requisitos-funcionais.md) | RF-001 … RF-064 e critérios de aceite CA-001 … CA-025 |
+| [`10-requisitos-nao-funcionais.md`](10-requisitos-nao-funcionais.md) | RNF-001 … RNF-058 + débitos técnicos preexistentes |
+| [`features/11-limpar-busca.md`](features/11-limpar-busca.md) | Especificação — botão `×` para limpar o campo de busca |
+| [`features/12-colecoes-exportacao.md`](features/12-colecoes-exportacao.md) | Especificação — seleção, coleções e exportação para pasta local |
+
+> Os documentos 09 a 12 são **especificações**, não relatos de implementação.
+> Descrevem features ainda não desenvolvidas e servem de base para elas.
+
 ## Como visualizar os diagramas (.puml)
 
 Os diagramas estão em **PlantUML** (texto → imagem; versiona bem no Git). Para ver:
