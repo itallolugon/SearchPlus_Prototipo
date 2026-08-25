@@ -2637,42 +2637,379 @@ def api_collection_files(col_id):
         return jsonify({"error": "Não autenticado."}), 401
 
     data = request.get_json(force=True) or {}
-    file_id = data.get("file_id")
-    if not file_id:
+    # Aceita "file_id" (um arquivo, formato original) ou "file_ids" (lote).
+    # O singular continua valendo para não quebrar quem já chama assim.
+    if data.get("file_ids") is not None:
+        brutos = data.get("file_ids")
+        if not isinstance(brutos, list):
+            return jsonify({"error": "file_ids deve ser uma lista."}), 400
+    else:
+        brutos = [data.get("file_id")] if data.get("file_id") else []
+
+    # Normaliza para inteiros únicos, preservando a ordem de chegada
+    file_ids, vistos = [], set()
+    for b in brutos:
+        try:
+            n = int(b)
+        except (TypeError, ValueError):
+            return jsonify({"error": "Identificador de arquivo inválido."}), 400
+        if n not in vistos:
+            vistos.add(n)
+            file_ids.append(n)
+
+    if not file_ids:
         return jsonify({"error": "file_id é obrigatório."}), 400
 
     conn = get_db()
-    # Confirma posse da coleção E do arquivo
-    dono = conn.execute(
-        "SELECT id FROM collections WHERE id = %s AND user_id = %s", (col_id, uid)
-    ).fetchone()
-    arq = conn.execute(
-        "SELECT id FROM files WHERE id = %s AND user_id = %s", (file_id, uid)
-    ).fetchone()
-    if not dono or not arq:
-        conn.close()
-        return jsonify({"error": "Coleção ou arquivo não encontrado."}), 404
-
-    if request.method == "DELETE":
-        conn.execute(
-            "DELETE FROM collection_files WHERE collection_id = %s AND file_id = %s",
-            (col_id, file_id)
-        )
-        conn.commit()
-        conn.close()
-        return jsonify({"status": "ok", "acao": "removido"})
-
-    # POST — adicionar (ignora se já existe)
     try:
-        conn.execute(
-            "INSERT INTO collection_files (collection_id, file_id) VALUES (%s, %s) "
-            "ON CONFLICT DO NOTHING",
-            (col_id, file_id)
-        )
+        # Confirma posse da coleção E de todos os arquivos
+        dono = conn.execute(
+            "SELECT id FROM collections WHERE id = %s AND user_id = %s", (col_id, uid)
+        ).fetchone()
+        if not dono:
+            return jsonify({"error": "Coleção ou arquivo não encontrado."}), 404
+
+        proprios = conn.execute(
+            "SELECT id FROM files WHERE id = ANY(%s) AND user_id = %s", (file_ids, uid)
+        ).fetchall()
+        ids_validos = [r["id"] for r in proprios]
+        if not ids_validos:
+            return jsonify({"error": "Coleção ou arquivo não encontrado."}), 404
+
+        if request.method == "DELETE":
+            conn.execute(
+                "DELETE FROM collection_files WHERE collection_id = %s AND file_id = ANY(%s)",
+                (col_id, ids_validos)
+            )
+            conn.commit()
+            return jsonify({"status": "ok", "acao": "removido",
+                            "removidos": len(ids_validos)})
+
+        # POST — adicionar. O ON CONFLICT deixa o banco garantir a ausência de
+        # duplicata; o RETURNING diz quantas linhas realmente entraram, para a
+        # interface poder dizer "3 adicionadas, 2 já estavam".
+        inseridos = conn.execute(
+            "INSERT INTO collection_files (collection_id, file_id) "
+            "SELECT %s, unnest(%s::int[]) "
+            "ON CONFLICT DO NOTHING RETURNING file_id",
+            (col_id, ids_validos)
+        ).fetchall()
         conn.commit()
-        return jsonify({"status": "ok", "acao": "adicionado"})
+        n_add = len(inseridos)
+        return jsonify({
+            "status": "ok",
+            "acao": "adicionado",
+            "adicionados": n_add,
+            "ja_existiam": len(ids_validos) - n_add,
+        })
     finally:
         conn.close()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Exportação de coleção para uma pasta local
+# ──────────────────────────────────────────────────────────────────────────────
+# Exportar aqui é COPIAR arquivo local → pasta local: as imagens indexadas já
+# estão no disco do usuário (files.caminho), e o backend roda na máquina dele.
+# Não há download, não há URL, não há rede envolvida na cópia.
+# Especificação: docs/features/12-colecoes-exportacao.md
+
+_export_jobs = {}                  # job_id → estado do job
+_export_lock = threading.Lock()
+
+# Windows: caracteres proibidos em nome de arquivo/pasta e nomes reservados.
+_CHARS_INVALIDOS = r'<>:"/\|?*'
+_NOMES_RESERVADOS = (
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
+
+
+def _sanitizar_nome(nome: str, padrao: str = "sem_nome", limite: int = 120) -> str:
+    """
+    Converte um texto qualquer num nome válido de arquivo/pasta no Windows.
+
+    Função pura: não toca o disco. As regras do Windows são as mais restritivas
+    entre os sistemas suportados, então o resultado também é válido em Linux e
+    macOS. Ver RF-038 a RF-040.
+    """
+    limpo = "".join(
+        "_" if (c in _CHARS_INVALIDOS or ord(c) < 32) else c
+        for c in (nome or "")
+    )
+    # Windows não aceita nome terminando em ponto ou espaço
+    limpo = limpo.strip().rstrip(". ")
+
+    # Nome reservado é inválido inclusive com extensão (CON.jpg)
+    if limpo.split(".")[0].upper() in _NOMES_RESERVADOS:
+        limpo = f"_{limpo}"
+
+    if len(limpo) > limite:
+        limpo = limpo[:limite].rstrip(". ")
+
+    return limpo or padrao
+
+
+def _nome_disponivel(pasta: str, nome_arquivo: str) -> str:
+    """
+    Devolve um nome livre dentro de `pasta`, sufixando _1, _2… se preciso.
+
+    Colisão é o caso comum, não a exceção: files tem UNIQUE(user_id, caminho),
+    não UNIQUE(user_id, nome) — duas pastas monitoradas podem ter IMG_0001.jpg.
+    Nunca sobrescreve (RF-042, RF-043).
+    """
+    base, ext = os.path.splitext(nome_arquivo)
+    base = _sanitizar_nome(base, padrao="arquivo")
+    ext = _sanitizar_nome(ext, padrao="")
+
+    candidato = f"{base}{ext}"
+    i = 1
+    while os.path.exists(os.path.join(pasta, candidato)):
+        candidato = f"{base}_{i}{ext}"
+        i += 1
+    return candidato
+
+
+def _pasta_disponivel(destino: str, nome_pasta: str) -> str:
+    """Caminho de pasta ainda inexistente: Nome, Nome (1), Nome (2)… (RF-041)."""
+    candidato = os.path.join(destino, nome_pasta)
+    i = 1
+    while os.path.exists(candidato):
+        candidato = os.path.join(destino, f"{nome_pasta} ({i})")
+        i += 1
+    return candidato
+
+
+def _dentro_das_pastas(caminho: str, pastas_monitoradas) -> bool:
+    """
+    Mesma regra anti-path-traversal de /api/file (RF-045, RNF-015).
+
+    Exige o separador no fim para 'C:\\foo' não casar com 'C:\\foobar'.
+    """
+    alvo = os.path.abspath(caminho).lower()
+    for p in pastas_monitoradas:
+        base = os.path.abspath(p).lower()
+        if alvo == base or alvo.startswith(base + os.sep):
+            return True
+    return False
+
+
+def _worker_exportacao(job_id: str, itens, destino_pasta: str):
+    """Copia os arquivos da coleção, um a um, atualizando o progresso."""
+    import shutil
+
+    for item in itens:
+        with _export_lock:
+            job = _export_jobs.get(job_id)
+            if not job or job["cancelar"]:
+                break
+
+        origem = item["caminho"]
+        motivo = None
+        try:
+            if not item["autorizado"]:
+                motivo = "fora_das_pastas"
+            elif not os.path.isfile(origem):
+                motivo = "nao_encontrado"
+            else:
+                alvo = os.path.join(destino_pasta, _nome_disponivel(destino_pasta, item["nome"]))
+                shutil.copy2(origem, alvo)      # copy2 preserva timestamps (RF-046)
+        except PermissionError:
+            motivo = "sem_permissao"
+        except OSError as exc:
+            # ENOSPC (disco cheio) é fatal: continuar só produz mais falhas.
+            if getattr(exc, "errno", None) == 28:
+                with _export_lock:
+                    j = _export_jobs.get(job_id)
+                    if j:
+                        j["estado"] = "erro"
+                        j["erro"] = "disco_cheio"
+                print(f"[EXPORT] disco cheio ao copiar '{origem}'")
+                return
+            motivo = "erro_leitura"
+            print(f"[EXPORT] falha em '{origem}': {type(exc).__name__}: {exc}")
+
+        with _export_lock:
+            job = _export_jobs.get(job_id)
+            if not job:
+                return
+            if motivo:
+                job["falhas"].append({"nome": item["nome"], "motivo": motivo})
+            else:
+                job["copiados"] += 1
+
+    with _export_lock:
+        job = _export_jobs.get(job_id)
+        if job and job["estado"] == "executando":
+            job["estado"] = "cancelado" if job["cancelar"] else "concluido"
+
+
+@app.route("/api/collections/<int:col_id>/export", methods=["POST"])
+def api_collection_export(col_id):
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    data = request.get_json(force=True) or {}
+    destino = (data.get("destino") or "").strip()
+    if not destino:
+        return jsonify({"error": "Escolha uma pasta de destino."}), 400
+
+    destino = os.path.normpath(destino)
+    if not os.path.isdir(destino):
+        return jsonify({"error": "A pasta escolhida não existe mais."}), 400
+
+    conn = get_db()
+    try:
+        col = conn.execute(
+            "SELECT id, nome FROM collections WHERE id = %s AND user_id = %s",
+            (col_id, uid)
+        ).fetchone()
+        if not col:
+            return jsonify({"error": "Coleção não encontrada."}), 404
+
+        arquivos = conn.execute(
+            """
+            SELECT f.nome, f.caminho
+            FROM collection_files cf
+            JOIN files f ON f.id = cf.file_id
+            WHERE cf.collection_id = %s AND f.user_id = %s
+            ORDER BY cf.adicionado_em DESC
+            """,
+            (col_id, uid)
+        ).fetchall()
+
+        pastas = [r["path"] for r in conn.execute(
+            "SELECT path FROM folders WHERE user_id = %s", (uid,)
+        ).fetchall()]
+    finally:
+        conn.close()
+
+    if not arquivos:
+        return jsonify({"error": "Esta coleção está vazia. "
+                                 "Adicione imagens antes de exportar."}), 400
+
+    # Uma exportação por coleção de cada vez (RF-057)
+    with _export_lock:
+        for j in _export_jobs.values():
+            if (j["user_id"] == uid and j["collection_id"] == col_id
+                    and j["estado"] == "executando"):
+                return jsonify({"error": "Esta coleção já está sendo exportada."}), 409
+
+    # Cria a pasta ANTES de começar: se não der, nada é copiado (RF-054)
+    nome_pasta = _sanitizar_nome(col["nome"], padrao=f"colecao_{col_id}")
+    pasta_final = _pasta_disponivel(destino, nome_pasta)
+    try:
+        os.makedirs(pasta_final)
+    except PermissionError:
+        return jsonify({"error": f"Não foi possível gravar em {destino}. "
+                                 "Escolha outra pasta ou verifique as permissões."}), 403
+    except OSError as exc:
+        print(f"[EXPORT] erro ao criar '{pasta_final}': {type(exc).__name__}: {exc}")
+        return jsonify({"error": f"Não foi possível criar a pasta da coleção em "
+                                 f"{destino}. Escolha outra pasta."}), 400
+
+    itens = [
+        {"nome": a["nome"], "caminho": a["caminho"],
+         "autorizado": _dentro_das_pastas(a["caminho"], pastas)}
+        for a in arquivos
+    ]
+
+    import uuid
+    job_id = uuid.uuid4().hex
+    with _export_lock:
+        _export_jobs[job_id] = {
+            "user_id": uid, "collection_id": col_id, "colecao": col["nome"],
+            "pasta": pasta_final, "total": len(itens), "copiados": 0,
+            "falhas": [], "estado": "executando", "cancelar": False, "erro": None,
+            "criado_em": time.time(),
+        }
+
+    threading.Thread(
+        target=_worker_exportacao, args=(job_id, itens, pasta_final), daemon=True
+    ).start()
+
+    return jsonify({"status": "ok", "job_id": job_id,
+                    "total": len(itens), "pasta": pasta_final})
+
+
+def _job_do_usuario(job_id, uid):
+    """Devolve o job se ele existir E pertencer ao usuário; senão None."""
+    job = _export_jobs.get(job_id)
+    return job if job and job["user_id"] == uid else None
+
+
+@app.route("/api/collections/export/<job_id>")
+def api_collection_export_status(job_id):
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    with _export_lock:
+        job = _job_do_usuario(job_id, uid)
+        if not job:
+            return jsonify({"error": "Exportação não encontrada."}), 404
+        # Descarta jobs terminados há mais de 5 min, para o dict não crescer
+        # indefinidamente (RNF do risco R-05).
+        agora = time.time()
+        for jid, j in list(_export_jobs.items()):
+            if j["estado"] != "executando" and agora - j["criado_em"] > 300:
+                _export_jobs.pop(jid, None)
+        return jsonify({
+            "estado": job["estado"], "copiados": job["copiados"],
+            "total": job["total"], "falhas": job["falhas"],
+            "pasta": job["pasta"], "colecao": job["colecao"], "erro": job["erro"],
+        })
+
+
+@app.route("/api/collections/export/<job_id>/cancel", methods=["POST"])
+def api_collection_export_cancel(job_id):
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    with _export_lock:
+        job = _job_do_usuario(job_id, uid)
+        if not job:
+            return jsonify({"error": "Exportação não encontrada."}), 404
+        # Cooperativo: o worker checa a flag entre arquivos. A cópia em
+        # andamento termina — interromper no meio deixaria arquivo truncado.
+        job["cancelar"] = True
+        return jsonify({"status": "ok", "copiados": job["copiados"]})
+
+
+@app.route("/api/open_folder")
+def api_open_folder():
+    """
+    Abre no Explorer uma pasta criada por exportação desta sessão.
+
+    Diferente de /api/open_location, valida o caminho: só abre pasta que consta
+    em _export_jobs para este usuário. Sem isso, a rota viraria um "abra
+    qualquer caminho do disco" (RF-059).
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    caminho = os.path.normpath(unquote(request.args.get("path", "")).strip())
+
+    with _export_lock:
+        autorizado = any(
+            j["user_id"] == uid and os.path.normpath(j["pasta"]) == caminho
+            for j in _export_jobs.values()
+        )
+    if not autorizado:
+        return jsonify({"error": "Pasta não autorizada."}), 403
+
+    if not os.path.isdir(caminho):
+        return jsonify({"error": "Pasta não encontrada."}), 404
+
+    if os.name != "nt":
+        return jsonify({"error": "Disponível apenas no Windows."}), 501
+
+    subprocess.Popen(["explorer", caminho])
+    return jsonify({"status": "ok"})
 
 
 # ──────────────────────────────────────────────────────────────────────────────

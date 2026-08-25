@@ -28,6 +28,7 @@ Diferenças propositais em relação ao backend real:
 import base64
 import os
 import time
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -619,23 +620,152 @@ def collection_files(col_id):
         return _nao_autenticado()
 
     data = request.get_json(force=True, silent=True) or {}
-    file_id = data.get("file_id")
-    if not file_id:
+    # Aceita "file_id" (um) ou "file_ids" (lote) — mesma regra do app.py
+    if data.get("file_ids") is not None:
+        brutos = data.get("file_ids")
+        if not isinstance(brutos, list):
+            return jsonify({"error": "file_ids deve ser uma lista."}), 400
+    else:
+        brutos = [data.get("file_id")] if data.get("file_id") else []
+
+    file_ids, vistos = [], set()
+    for b in brutos:
+        try:
+            n = int(b)
+        except (TypeError, ValueError):
+            return jsonify({"error": "Identificador de arquivo inválido."}), 400
+        if n not in vistos:
+            vistos.add(n)
+            file_ids.append(n)
+
+    if not file_ids:
         return jsonify({"error": "file_id é obrigatório."}), 400
 
     col = next((c for c in _COLECOES if c["id"] == col_id), None)
-    if not col or not _por_id(file_id):
+    validos = [n for n in file_ids if _por_id(n)]
+    if not col or not validos:
         return jsonify({"error": "Coleção ou arquivo não encontrado."}), 404
 
-    file_id = int(file_id)
     if request.method == "DELETE":
-        if file_id in col["files"]:
-            col["files"].remove(file_id)
-        return jsonify({"status": "ok", "acao": "removido"})
+        for n in validos:
+            if n in col["files"]:
+                col["files"].remove(n)
+        return jsonify({"status": "ok", "acao": "removido",
+                        "removidos": len(validos)})
 
-    if file_id not in col["files"]:
-        col["files"].append(file_id)
-    return jsonify({"status": "ok", "acao": "adicionado"})
+    n_add = 0
+    for n in validos:
+        if n not in col["files"]:
+            col["files"].append(n)
+            n_add += 1
+    return jsonify({"status": "ok", "acao": "adicionado",
+                    "adicionados": n_add, "ja_existiam": len(validos) - n_add})
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Exportação de coleção (simulada)
+# ──────────────────────────────────────────────────────────────────────────────
+# NÃO cria pasta nem copia arquivo: o mock existe para desenvolver a interface,
+# e um mock que escreve no disco de quem programa é uma armadilha. O progresso
+# avança com o tempo e a última imagem "falha", para o caminho de exportação
+# parcial ser exercitável sem precisar preparar um cenário.
+
+_EXPORTS = {}
+
+
+@app.route("/api/collections/<int:col_id>/export", methods=["POST"])
+def collection_export(col_id):
+    if not _logado():
+        return _nao_autenticado()
+
+    data = request.get_json(force=True, silent=True) or {}
+    destino = (data.get("destino") or "").strip()
+    if not destino:
+        return jsonify({"error": "Escolha uma pasta de destino."}), 400
+
+    col = next((c for c in _COLECOES if c["id"] == col_id), None)
+    if not col:
+        return jsonify({"error": "Coleção não encontrada."}), 404
+    if not col["files"]:
+        return jsonify({"error": "Esta coleção está vazia. "
+                                 "Adicione imagens antes de exportar."}), 400
+
+    for j in _EXPORTS.values():
+        if j["collection_id"] == col_id and _estado_simulado(j) == "executando":
+            return jsonify({"error": "Esta coleção já está sendo exportada."}), 409
+
+    job_id = uuid.uuid4().hex
+    pasta = os.path.join(destino, col["nome"])
+    _EXPORTS[job_id] = {
+        "collection_id": col_id, "colecao": col["nome"], "pasta": pasta,
+        "total": len(col["files"]), "inicio": time.time(),
+        "cancelado": False, "cancelado_em": 0,
+    }
+    return jsonify({"status": "ok", "job_id": job_id,
+                    "total": len(col["files"]), "pasta": pasta})
+
+
+def _progresso_simulado(job):
+    """Copiados em função do tempo: ~4 arquivos por segundo."""
+    if job["cancelado"]:
+        return job["cancelado_em"]
+    return min(job["total"], int((time.time() - job["inicio"]) * 4))
+
+
+def _estado_simulado(job):
+    """Estado derivado do tempo. Não fica guardado no dict — só é calculado."""
+    if job["cancelado"]:
+        return "cancelado"
+    return "concluido" if _progresso_simulado(job) >= job["total"] else "executando"
+
+
+@app.route("/api/collections/export/<job_id>")
+def collection_export_status(job_id):
+    if not _logado():
+        return _nao_autenticado()
+
+    job = _EXPORTS.get(job_id)
+    if not job:
+        return jsonify({"error": "Exportação não encontrada."}), 404
+
+    feitos = _progresso_simulado(job)
+    estado = _estado_simulado(job)
+
+    # A última imagem falha, para exercitar a exportação parcial na interface
+    falhas = []
+    copiados = feitos
+    if estado == "concluido" and job["total"] > 1:
+        copiados = job["total"] - 1
+        falhas = [{"nome": "imagem_exemplo.jpg", "motivo": "nao_encontrado"}]
+
+    return jsonify({
+        "estado": estado, "copiados": copiados, "total": job["total"],
+        "falhas": falhas, "pasta": job["pasta"], "colecao": job["colecao"],
+        "erro": None,
+    })
+
+
+@app.route("/api/collections/export/<job_id>/cancel", methods=["POST"])
+def collection_export_cancel(job_id):
+    if not _logado():
+        return _nao_autenticado()
+
+    job = _EXPORTS.get(job_id)
+    if not job:
+        return jsonify({"error": "Exportação não encontrada."}), 404
+
+    if not job["cancelado"]:
+        job["cancelado_em"] = _progresso_simulado(job)
+        job["cancelado"] = True
+    return jsonify({"status": "ok", "copiados": job["cancelado_em"]})
+
+
+@app.route("/api/open_folder")
+def open_folder():
+    """No mock não abre nada — só confirma, para o botão ser testável."""
+    if not _logado():
+        return _nao_autenticado()
+    return jsonify({"status": "ok"})
 
 
 # ──────────────────────────────────────────────────────────────────────────────

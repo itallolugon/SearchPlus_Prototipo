@@ -283,7 +283,10 @@
                 
                 <div class="search-box-wrapper">
                     <div class="search-box">
-                        <input type="text" id="searchInput" placeholder="Pesquise o que você lembra..." onkeypress="verificarEnter(event)" onfocus="mostrarHistorico()" onblur="setTimeout(esconderHistorico,150)">
+                        <div class="search-input-wrap">
+                            <input type="text" id="searchInput" placeholder="Pesquise o que você lembra..." oninput="atualizarBotaoLimpar()" onkeypress="verificarEnter(event)" onfocus="mostrarHistorico(); atualizarBotaoLimpar()" onblur="setTimeout(esconderHistorico,150)">
+                            <button type="button" id="btnLimparBusca" class="btn-limpar-busca" onclick="limparCampoBusca()" onmousedown="event.preventDefault()" aria-label="Limpar busca" title="Limpar busca">&times;</button>
+                        </div>
                         <button class="search-btn-img" onclick="abrirBuscaImagem()" title="Buscar por imagem">📷</button>
                         <button class="gradient-btn search-btn" onclick="realizarBusca()">Buscar</button>
                     </div>
@@ -826,9 +829,38 @@
             <!-- Lista de coleções OU conteúdo de uma coleção -->
             <div id="colecoesLista" class="recent-grid"></div>
             <div id="colecaoConteudo" style="display:none;">
-                <button class="action-btn" onclick="abrirColecoes()" style="margin-bottom:14px; padding:8px 14px;">← Voltar às coleções</button>
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px;">
+                    <button class="action-btn" onclick="abrirColecoes()" style="margin:0; padding:8px 14px;">← Voltar às coleções</button>
+                    <button class="action-btn gradient-btn" onclick="exportarColecao()" style="margin:0; padding:8px 16px;" title="Salvar as imagens desta coleção numa pasta do computador">⬇ Exportar coleção</button>
+                </div>
                 <div id="colecaoItens" class="recent-grid"></div>
             </div>
+        </div>
+    </div>
+
+    <!-- Modal: progresso e resultado da exportação -->
+    <div id="exportModal" class="modal" style="z-index: 10002;">
+        <div class="modal-content" style="max-width: 560px;">
+            <h3 id="exportTitulo" class="gradient-text" style="margin:0 0 20px; font-size:1.5rem; font-family:'Inter',sans-serif;">Exportando...</h3>
+
+            <div id="exportProgressoBox">
+                <div class="export-barra-trilha">
+                    <div id="exportBarra" class="export-barra-preenchida" role="progressbar" aria-valuemin="0" aria-valuenow="0" aria-valuemax="0" style="width:0%;"></div>
+                </div>
+                <p id="exportContagem" aria-live="polite" style="color:var(--text-secondary); margin:12px 0 20px;">0 de 0 imagens</p>
+                <button class="action-btn" onclick="cancelarExportacao()" style="margin:0;">Cancelar</button>
+            </div>
+
+            <div id="exportResultadoBox" style="display:none;"></div>
+        </div>
+    </div>
+
+    <!-- Barra flutuante: ações sobre as imagens selecionadas -->
+    <div id="barraSelecao" class="barra-selecao">
+        <span id="selecaoContador">0 imagens selecionadas</span>
+        <div class="barra-selecao-acoes">
+            <button class="action-btn gradient-btn" onclick="abrirSeletorColecao()" style="margin:0;">＋ Adicionar à coleção</button>
+            <button class="action-btn" onclick="limparSelecao()" style="margin:0;">Limpar seleção</button>
         </div>
     </div>
 

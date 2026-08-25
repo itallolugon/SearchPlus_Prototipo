@@ -436,6 +436,75 @@ Sem sessão devolve `200` com lista vazia (não 401).
 
 Adicionar duas vezes é idempotente (não duplica, não dá erro).
 
+Aceita também **lote**, com `file_ids` no lugar de `file_id`:
+
+```json
+{ "file_ids": [42, 43, 44] }
+```
+
+→ `{"status": "ok", "acao": "adicionado", "adicionados": 2, "ja_existiam": 1}`
+
+No `DELETE` em lote a resposta traz `"removidos": N`. O formato singular
+continua válido — as duas chaves são aceitas.
+
+#### `POST /api/collections/<id>/export`
+
+Copia os arquivos da coleção para uma **pasta local**, criando dentro do
+destino uma subpasta com o nome da coleção. O `destino` deve vir de
+[`GET /api/choose_folder`](#pastas-monitoradas) — não digite caminho à mão.
+
+```json
+{ "destino": "D:\\Fotos" }
+```
+
+→ `{"status": "ok", "job_id": "a1b2…", "total": 12, "pasta": "D:\\Fotos\\Natureza"}`
+
+A cópia roda em segundo plano: a resposta volta na hora e o progresso é lido
+pelo endpoint de status. Erros **fatais** (nada é copiado) vêm aqui:
+
+- `400` coleção vazia, destino ausente ou pasta inexistente
+- `403` sem permissão de escrita no destino
+- `404` coleção não encontrada
+- `409` já existe uma exportação em andamento para essa coleção
+
+Nunca sobrescreve: se a pasta já existir, cria `Nome (1)`; se um arquivo
+colidir, salva como `foto_1.jpg`.
+
+#### `GET /api/collections/export/<job_id>`
+
+```json
+{
+  "estado": "executando",
+  "copiados": 8,
+  "total": 12,
+  "falhas": [{ "nome": "praia.jpg", "motivo": "nao_encontrado" }],
+  "pasta": "D:\\Fotos\\Natureza",
+  "colecao": "Natureza",
+  "erro": null
+}
+```
+
+`estado`: `executando` · `concluido` · `cancelado` · `erro`.
+Consulte a cada 300–500 ms e **pare o polling** ao sair de `executando`.
+
+Falha em um arquivo não interrompe a exportação — o item entra em `falhas` com
+o motivo (`nao_encontrado`, `sem_permissao`, `fora_das_pastas`,
+`erro_leitura`) e a cópia segue. `erro` só é preenchido em falha fatal, como
+`disco_cheio`.
+
+#### `POST /api/collections/export/<job_id>/cancel`
+
+→ `{"status": "ok", "copiados": 5}`
+
+Cancelamento cooperativo: para entre um arquivo e outro. Os já copiados
+**permanecem** no destino — não há rollback de cópia.
+
+#### `GET /api/open_folder?path=<caminho>`
+
+Abre no Explorer uma pasta criada por exportação. Só aceita caminho que conste
+numa exportação do próprio usuário — `403` caso contrário. Windows apenas
+(`501` em outros sistemas).
+
 ---
 
 ### Histórico de buscas
