@@ -1,4 +1,11 @@
-const API_BASE_URL = 'http://127.0.0.1:5000';
+// Deriva a URL da API da própria página, em vez de fixar uma porta: o mesmo
+// arquivo serve tanto o backend real (5000) quanto o servidor mock (5001), sem
+// editar nada. Só cai no valor fixo quando a página é aberta pelo file://,
+// onde não há origem HTTP para herdar.
+const API_BASE_URL =
+    window.location.protocol.startsWith("http")
+        ? window.location.origin
+        : "http://127.0.0.1:5000";
 let currentConfig = {};
 let tempConfig = {};
 
@@ -79,6 +86,60 @@ const toastOk   = (m) => mostrarToast(m, 'sucesso');
 const toastErro = (m) => mostrarToast(m, 'erro', 6000);
 const toastInfo = (m) => mostrarToast(m, 'info');
 const toastAviso = (m) => mostrarToast(m, 'aviso', 5500);
+
+// ==========================================
+// MODAL DE CONFIRMAÇÃO (substitui o confirm() nativo)
+// Uso: if (await confirmarAcao("Excluir?", "Essa ação...")) { ... }
+// ==========================================
+function confirmarAcao(titulo, texto, textoBotao = 'Confirmar') {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('confirmModal');
+        document.getElementById('confirmTitulo').textContent = titulo;
+        document.getElementById('confirmTexto').textContent = texto || '';
+        const btnOk = document.getElementById('confirmOk');
+        const btnCancel = document.getElementById('confirmCancelar');
+        btnOk.textContent = textoBotao;
+
+        const fechar = (resultado) => {
+            modal.style.display = 'none';
+            btnOk.onclick = null;
+            btnCancel.onclick = null;
+            resolve(resultado);
+        };
+        btnOk.onclick = () => fechar(true);
+        btnCancel.onclick = () => fechar(false);
+        modal.style.display = 'flex';
+    });
+}
+
+// Modal de entrada de texto (substitui o prompt() nativo)
+function pedirTexto(titulo, label, valorInicial = '') {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('inputModal');
+        document.getElementById('inputTitulo').textContent = titulo;
+        document.getElementById('inputLabel').textContent = label;
+        const campo = document.getElementById('inputCampo');
+        campo.value = valorInicial;
+        const btnOk = document.getElementById('inputOk');
+        const btnCancel = document.getElementById('inputCancelar');
+
+        const fechar = (resultado) => {
+            modal.style.display = 'none';
+            btnOk.onclick = null;
+            btnCancel.onclick = null;
+            campo.onkeydown = null;
+            resolve(resultado);
+        };
+        btnOk.onclick = () => fechar(campo.value);
+        btnCancel.onclick = () => fechar(null);
+        campo.onkeydown = (e) => {
+            if (e.key === 'Enter') fechar(campo.value);
+            if (e.key === 'Escape') fechar(null);
+        };
+        modal.style.display = 'flex';
+        setTimeout(() => campo.focus(), 50);
+    });
+}
 
 const dicasUX = [
     "A IA faz buscas semânticas. Descreva o arquivo com linguagem natural.",
@@ -484,8 +545,14 @@ async function finalizarOnboarding() {
     if (document.getElementById('obBanner').value) currentConfig.perfil_banner = document.getElementById('obBanner').value;
 
     await fetch(`${API_BASE_URL}/api/config`, { method: 'POST', headers: fetchOptions.headers, body: JSON.stringify(currentConfig) });
+
+    // Só AGORA, na confirmação, dispara a análise das pastas (com o perfil
+    // deep/relâmpago que o usuário escolheu). Antes disso, nada é analisado.
+    await fetch(`${API_BASE_URL}/api/analyze_folders`, { method: 'POST', headers: fetchOptions.headers });
+
     await carregarConfiguracoesUX();
     document.getElementById('onboardingOverlay').style.display = 'none';
+    toastOk("Tudo pronto! A IA começou a analisar suas pastas.");
 
     btn.innerText = "Concluir "; btn.disabled = false;
 }
@@ -998,6 +1065,7 @@ const _CATEGORIA_LABEL = {
     comida:   { icone: '🍽️', nome: 'Comida' },
     natureza: { icone: '🌳', nome: 'Natureza' },
     urbano:   { icone: '🏙️', nome: 'Urbano' },
+    desenhos: { icone: '🎨', nome: 'Desenhos e Arte' },
 };
 
 async function carregarEstatisticas() {
@@ -1114,7 +1182,7 @@ async function salvarConfigGerais() {
 }
 
 async function limparHistoricoBusca() {
-    if (!confirm("Tem certeza que deseja limpar todo o histórico de busca?")) return;
+    if (!await confirmarAcao("Limpar histórico", "Tem certeza que deseja limpar todo o histórico de busca?", "Limpar")) return;
     try {
         const res = await fetch(`${API_BASE_URL}/api/clear_history`, { method: 'POST' });
         if (!res.ok) { toastErro("Não foi possível limpar o histórico."); return; }
@@ -1128,7 +1196,7 @@ async function limparHistoricoBusca() {
 }
 
 async function limparCacheIA() {
-    if (!confirm("ATENÇÃO: Isto vai apagar todas as descrições e vetores da IA gerados até agora. O motor precisará reanalisar todos os arquivos do zero. Deseja continuar?")) return;
+    if (!await confirmarAcao("Limpar banco da IA", "Isto vai apagar todas as descrições e vetores da IA gerados até agora. O motor precisará reanalisar todos os arquivos do zero. Deseja continuar?", "Limpar tudo")) return;
     try {
         const res = await fetch(`${API_BASE_URL}/api/clear_cache`, { method: 'POST' });
         if (!res.ok) { toastErro("Não foi possível limpar o cache da IA."); return; }
@@ -1300,11 +1368,16 @@ async function reAnalizarArquivos() {
     try {
         const res = await fetch(`${API_BASE_URL}/api/reanalyze`, { method: 'POST' });
         const data = await res.json();
+        // Imagens com descrição em formato antigo não vão pra fila: elas são
+        // redescritas sozinhas na próxima busca em que aparecerem.
+        const limpas = data.descricoes_limpas || 0;
+        const extra = limpas ? ` + ${limpas} imagem(ns) marcada(s) pra redescrever` : '';
         if (btn) {
             btn.innerText = `✅ ${data.reenfileirados} arquivo(s) na fila!`;
             setTimeout(() => { btn.innerText = 'Re-analisar Arquivos com Descrição Ruim'; btn.disabled = false; }, 3000);
+            if (limpas) toastOk(`${limpas} imagem(ns) serão redescritas na próxima busca.`);
         } else {
-            toastOk(`${data.reenfileirados} arquivo(s) na fila de reanálise.`);
+            toastOk(`${data.reenfileirados} arquivo(s) na fila de reanálise${extra}.`);
         }
     } catch(e) {
         if (btn) { btn.innerText = 'Re-analisar Arquivos com Descrição Ruim'; btn.disabled = false; }
@@ -1554,12 +1627,13 @@ async function adicionarPasta() {
         });
         const config = await updateRes.json();
         atualizarListaModalPastas(config.pastas);
+        toastInfo("Pasta adicionada. Clique em \"Analisar Pastas\" quando quiser iniciar a IA.");
     }
     btn.innerText = "+ Importar Nova Pasta";
 }
 
 async function removerPasta(p) {
-    if (!confirm("Remover pasta monitorada? A IA não buscará mais nela.")) return;
+    if (!await confirmarAcao("Remover pasta", "Remover pasta monitorada? A IA não buscará mais nela.", "Remover")) return;
     const res = await fetch(`${API_BASE_URL}/api/folders`, { method: 'DELETE', headers: fetchOptions.headers, body: JSON.stringify({ pasta: p }) });
     const config = await res.json();
     atualizarListaModalPastas(config.pastas);
@@ -1602,13 +1676,15 @@ function renderizarResultados() {
     });
 
     if (filtrados.length > 0) {
-        document.getElementById('tituloMelhores').style.display = 'block'; document.getElementById('tituloSemantica').style.display = 'block';
+        document.getElementById('tituloMelhores').style.display = 'block';
     } else {
-        document.getElementById('tituloMelhores').style.display = 'none'; document.getElementById('tituloSemantica').style.display = 'none';
+        document.getElementById('tituloMelhores').style.display = 'none';
         mGrid.innerHTML = '<p style="text-align:center; width:100%; color:var(--text-secondary);">Nada encontrado.</p>'; return;
     }
 
-    const melhores = filtrados.filter(r => r.score >= 0.60); const outras = filtrados.filter(r => r.score < 0.60);
+    // Lista única, ordenada do melhor pro pior. O Claude já garante que todos
+    // os resultados são relevantes, então não há mais divisão Exato/Semântico.
+    const ordenados = [...filtrados].sort((a, b) => b.score - a.score);
 
     const buildCard = (r) => {
         const ext = r.tipo.toLowerCase(); const link = formatImagePath(r.caminho);
@@ -1624,11 +1700,11 @@ function renderizarResultados() {
         const favIcon = r.favorito ? '' : '🤍';
         const favBtn = `<div class="btn-fav-abs ${favClass}" onclick="toggleFavorito(event, ${r.id}, this)">${favIcon}</div>`;
 
-        return `<div class="card" data-idx="${idx}" onclick="abrirPainelLateral(${idx})" onmouseenter="mostrarHoverPreview(event, ${idx})" onmousemove="moverHoverPreview(event)" onmouseleave="esconderHoverPreview()">${favBtn}<div class="media-container">${midia}</div><div class="card-content"><h3>${r.nome}</h3><div class="tags"><span class="badge type">${ext.toUpperCase()}</span><span class="badge score">SCORE: ${Math.round(r.score * 100)}%</span></div>${trecho}</div></div>`;
+        return `<div class="card" data-idx="${idx}" onclick="abrirPainelLateral(${idx})" onmouseenter="mostrarHoverPreview(event, ${idx})" onmousemove="moverHoverPreview(event)" onmouseleave="esconderHoverPreview()">${favBtn}<div class="media-container">${midia}</div><div class="card-content"><h3>${r.nome}</h3><div class="tags"><span class="badge type">${ext.toUpperCase()}</span></div>${trecho}</div></div>`;
     };
 
-    melhores.forEach(r => mGrid.innerHTML += buildCard(r));
-    outras.forEach(r => oGrid.innerHTML += buildCard(r));
+    mGrid.innerHTML = ordenados.map(buildCard).join('');
+    oGrid.innerHTML = '';
 }
 
 // ==========================================
@@ -1695,7 +1771,9 @@ function abrirPainelLateral(id) {
 
     document.getElementById('sideTitle').innerText = res.nome;
     document.getElementById('sideBadgeType').innerText = res.tipo.toUpperCase();
-    document.getElementById('sideBadgeScore').innerText = `SCORE: ${Math.round(res.score * 100)}%`;
+    // Score escondido do usuário — informação técnica, não interessa pra quem busca.
+    const _sbScore = document.getElementById('sideBadgeScore');
+    if (_sbScore) _sbScore.style.display = 'none';
     document.getElementById('sideDownloadBtn').href = formatImagePath(res.caminho);
 
     const ext = res.tipo.toLowerCase(); const link = formatImagePath(res.caminho);
@@ -1891,6 +1969,7 @@ const _CAT_GALERIA = {
     comida:   { icone: '🍽️', nome: 'Comida' },
     natureza: { icone: '🌳', nome: 'Natureza' },
     urbano:   { icone: '🏙️', nome: 'Urbano' },
+    desenhos: { icone: '🎨', nome: 'Desenhos e Arte' },
     outras:   { icone: '📦', nome: 'Outras' },
 };
 
@@ -2194,14 +2273,14 @@ async function buscarStatus() {
         // Detecta transição fila>0 -> fila=0: análise terminou.
         // Só notifica se as notificações estiverem ativadas nas configs.
         if (_ultimaFila > 0 && pend === 0 && currentConfig.notificacoes !== false) {
-            toastOk("Análise concluída! Os arquivos já podem ser buscados.");
+            toastOk("Indexação concluída! Os arquivos já podem ser buscados.");
         }
         _ultimaFila = pend;
 
         // Monta o texto do status
         let texto;
         if (pend > 0) {
-            texto = `🔍 Analisando arquivos — ${pend} na fila`;
+            texto = `🔍 Indexando arquivos — ${pend} na fila`;
         } else if (s.status && s.status.startsWith('Aguardando janela')) {
             texto = `🕐 ${s.status}`;
         } else if (s.status && s.status.startsWith('Escaneando')) {
@@ -2281,6 +2360,7 @@ document.addEventListener('keydown', (e) => {
         const ml = document.getElementById('menuLateral');
         if (ml && ml.classList.contains('aberto')) { fecharMenuLateral(); return; }
         const fechaveis = [
+            ['escolherColecaoModal', () => { if (typeof fecharEscolherColecao === 'function') fecharEscolherColecao(); }],
             ['ajudaModal', fecharAjuda],
             ['cropperModal', () => { if (typeof fecharCropper === 'function') fecharCropper(); }],
             ['modalFavoritos', () => { if (typeof fecharFavoritos === 'function') fecharFavoritos(); }],
@@ -2409,7 +2489,7 @@ async function criarColecao() {
 }
 
 async function excluirColecao(id, nome) {
-    if (!confirm(`Excluir a coleção "${nome}"? Os arquivos não são apagados, só a coleção.`)) return;
+    if (!await confirmarAcao("Excluir coleção", `Excluir a coleção "${nome}"? Os arquivos não são apagados, só a coleção.`, "Excluir")) return;
     try {
         await fetch(`${API_BASE_URL}/api/collections/${id}`, { method: 'DELETE' });
         toastInfo(`Coleção "${nome}" excluída.`);
@@ -2488,30 +2568,65 @@ async function removerDaColecao(fileId, nomeArquivo) {
     } catch (e) { console.error(e); toastErro("Erro de conexão."); }
 }
 
-// Adicionar o arquivo aberto no painel lateral a uma coleção
+// Adicionar o arquivo aberto no painel lateral a uma coleção.
+// Abre um modal com a lista de coleções clicáveis (sem prompt nativo).
 async function abrirSeletorColecao() {
     if (!_fileIdAtual) { toastAviso("Abra um arquivo primeiro."); return; }
+    const lista = document.getElementById('escolherColecaoLista');
+    lista.innerHTML = '<p style="color:var(--text-secondary);">Carregando...</p>';
+    document.getElementById('escolherColecaoModal').style.display = 'flex';
     try {
         const res = await fetch(`${API_BASE_URL}/api/collections`);
         const d = await res.json();
         const cols = d.colecoes || [];
+
         if (cols.length === 0) {
-            const nome = prompt("Você ainda não tem coleções. Nome da nova coleção:");
-            if (!nome || !nome.trim()) return;
-            const cr = await fetch(`${API_BASE_URL}/api/collections`, {
-                method: 'POST', headers: fetchOptions.headers,
-                body: JSON.stringify({ nome: nome.trim() })
-            });
-            const cd = await cr.json();
-            if (cr.ok) await adicionarAColecao(cd.id, nome.trim());
-            else toastErro(cd.error || "Erro ao criar coleção.");
+            lista.innerHTML = '<p style="color:var(--text-secondary);">Você ainda não tem coleções. Crie uma abaixo.</p>';
             return;
         }
-        const nomes = cols.map((c, i) => `${i + 1}. ${c.nome} (${c.total})`).join('\n');
-        const escolha = prompt(`Adicionar a qual coleção?\n\n${nomes}\n\nDigite o número:`);
-        const idx = parseInt(escolha, 10) - 1;
-        if (isNaN(idx) || idx < 0 || idx >= cols.length) return;
-        await adicionarAColecao(cols[idx].id, cols[idx].nome);
+        lista.innerHTML = '';
+        cols.forEach(c => {
+            const btn = document.createElement('button');
+            btn.className = 'escolher-colecao-item';
+            const nm = document.createElement('span');
+            nm.textContent = c.nome;
+            const cnt = document.createElement('span');
+            cnt.className = 'escolher-colecao-count';
+            cnt.textContent = `${c.total} ${c.total === 1 ? 'item' : 'itens'}`;
+            btn.append(nm, cnt);
+            btn.onclick = async () => {
+                fecharEscolherColecao();
+                await adicionarAColecao(c.id, c.nome);
+            };
+            lista.appendChild(btn);
+        });
+    } catch (e) {
+        console.error(e);
+        lista.innerHTML = '<p style="color:#f87171;">Erro ao carregar coleções.</p>';
+    }
+}
+
+function fecharEscolherColecao() {
+    document.getElementById('escolherColecaoModal').style.display = 'none';
+}
+
+// "+ Criar nova coleção" dentro do modal de escolha: pede o nome via
+// modal de input (pedirTexto) e já adiciona o arquivo atual nela.
+async function criarColecaoEAdicionar() {
+    const nome = await pedirTexto("Nova coleção", "Nome da coleção:");
+    if (!nome || !nome.trim()) return;
+    try {
+        const cr = await fetch(`${API_BASE_URL}/api/collections`, {
+            method: 'POST', headers: fetchOptions.headers,
+            body: JSON.stringify({ nome: nome.trim() })
+        });
+        const cd = await cr.json();
+        if (cr.ok) {
+            fecharEscolherColecao();
+            await adicionarAColecao(cd.id, nome.trim());
+        } else {
+            toastErro(cd.error || "Erro ao criar coleção.");
+        }
     } catch (e) { console.error(e); toastErro("Erro de conexão."); }
 }
 
