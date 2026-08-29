@@ -471,6 +471,55 @@ body {
 .barra-selecao #selecaoContador { color: var(--text-primary); font-weight: 600; white-space: nowrap; }
 .barra-selecao-acoes { display: flex; gap: 10px; }
 
+/* Modal de vínculo coleção → pasta */
+.vincular-ilustracao {
+    background: rgba(0,0,0,0.25); border: 1px solid var(--border-light);
+    border-radius: 12px; padding: 8px; margin-bottom: 20px;
+}
+.vincular-ilustracao svg { width: 100%; height: auto; display: block; }
+.vi-caixa { fill: none; stroke: var(--text-secondary); stroke-width: 2.5; stroke-linejoin: round; }
+.vi-rotulo { fill: var(--text-primary); font-size: 13px; font-weight: 600; text-anchor: middle; }
+.vi-trilha { stroke: var(--border-light); stroke-width: 2; stroke-dasharray: 5 5; }
+.vi-seta { fill: var(--text-secondary); }
+.vi-ponto { fill: var(--accent-primary); }
+
+/* Os pontos saem da coleção e entram na pasta, em cascata. É a única
+   animação decorativa do app — daí o respeito explícito a prefers-reduced-motion. */
+@keyframes vi-viajar {
+    0%        { cx: 96px;  opacity: 0; }
+    12%       { opacity: 1; }
+    78%       { opacity: 1; }
+    100%      { cx: 246px; opacity: 0; }
+}
+.vi-ponto-1 { animation: vi-viajar 2.4s linear infinite; }
+.vi-ponto-2 { animation: vi-viajar 2.4s linear infinite 0.5s; }
+.vi-ponto-3 { animation: vi-viajar 2.4s linear infinite 1s; }
+
+@media (prefers-reduced-motion: reduce) {
+    .vi-ponto-1, .vi-ponto-2, .vi-ponto-3 { animation: none; }
+    /* Sem movimento, os pontos viram três marcas fixas na trilha */
+    .vi-ponto-1 { cx: 120px; } .vi-ponto-2 { cx: 156px; } .vi-ponto-3 { cx: 192px; }
+}
+
+.vincular-opcoes { display: flex; flex-direction: column; gap: 10px; }
+.vincular-opcao {
+    display: flex; flex-direction: column; gap: 4px; text-align: left;
+    padding: 14px 16px; border-radius: 12px; cursor: pointer;
+    background: rgba(0,0,0,0.2); border: 1px solid var(--border-light);
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+.vincular-opcao:hover { border-color: var(--accent-primary); background: rgba(168,85,247,0.08); }
+.vincular-opcao:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.vincular-opcao-titulo { color: var(--text-primary); font-weight: 600; font-size: 0.95rem; }
+.vincular-opcao-desc { color: var(--text-secondary); font-size: 0.83rem; line-height: 1.4; }
+
+/* Selo de pasta vinculada no card da coleção */
+.colecao-vinculo {
+    display: inline-flex; align-items: center; gap: 5px; margin-top: 4px;
+    font-size: 0.72rem; color: var(--text-secondary);
+}
+.colecao-vinculo-auto { color: var(--accent-primary); }
+
 /* Barra de ações acima do grid: contagem + selecionar tudo */
 .resultados-acoes {
     display: flex; align-items: center; justify-content: center;

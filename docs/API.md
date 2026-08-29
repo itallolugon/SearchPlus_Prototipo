@@ -428,6 +428,50 @@ Sem sessão devolve `200` com lista vazia (não 401).
 #### `DELETE /api/collections/<id>`
 → `{"status": "ok"}`
 
+#### `PATCH /api/collections/<id>`
+
+Atualiza nome, pasta vinculada e modo de sincronia. Só toca os campos
+presentes no corpo — mandar só `modo_sync` não desvincula a pasta.
+
+```json
+{ "nome": "Arquitetura Moderna",
+  "pasta_vinculada": "D:\\Fotos\\Arquitetura Moderna",
+  "modo_sync": "auto" }
+```
+
+→ `{"status": "ok", "id": 1, "nome": "…", "pasta_vinculada": "…", "modo_sync": "auto"}`
+· `400` nome vazio, modo inválido, pasta inexistente ou corpo sem campos
+· `404` · `409` nome duplicado
+
+`modo_sync` aceita:
+
+| Valor | O que acontece ao adicionar imagens à coleção |
+|---|---|
+| `auto` | Copia para a pasta vinculada na hora, sem perguntar |
+| `perguntar` | Pergunta a cada adição |
+| `manual` | Nunca copia sozinho; só pelo botão Exportar (padrão) |
+
+Enviar `"pasta_vinculada": null` desvincula e devolve a coleção a `manual`.
+
+#### `POST /api/collections/<id>/sync`
+
+Copia arquivos da coleção para a pasta **já vinculada**. Difere de `/export`:
+escreve dentro da pasta existente (não cria `Nome (1)`) e aceita `file_ids`
+para copiar só o que acabou de entrar.
+
+```json
+{ "file_ids": [42, 43] }
+```
+
+Sem `file_ids`, sincroniza a coleção inteira.
+
+→ `{"status": "ok", "copiados": 2, "ja_existiam": 0, "falhas": [], "pasta": "D:\\Fotos\\…"}`
+· `400` sem pasta vinculada · `404` · `409` a pasta vinculada sumiu do disco
+
+Arquivo que já existe no destino é contado em `ja_existiam` e **não** é
+duplicado com sufixo — aqui a intenção é espelhar a coleção, não acumular
+versões. `falhas` segue o mesmo formato de `/export`.
+
 #### `POST` / `DELETE /api/collections/<id>/files`
 ```json
 { "file_id": 42 }
@@ -442,7 +486,12 @@ Aceita também **lote**, com `file_ids` no lugar de `file_id`:
 { "file_ids": [42, 43, 44] }
 ```
 
-→ `{"status": "ok", "acao": "adicionado", "adicionados": 2, "ja_existiam": 1}`
+→ `{"status": "ok", "acao": "adicionado", "adicionados": 2, "ja_existiam": 1,
+"ids_adicionados": [43, 44], "pasta_vinculada": null, "modo_sync": "manual"}`
+
+`pasta_vinculada` e `modo_sync` vêm na resposta para o frontend decidir se
+deve sincronizar sem precisar de um `GET` extra. `ids_adicionados` traz só o
+que realmente entrou — é o que se manda para `/sync`.
 
 No `DELETE` em lote a resposta traz `"removidos": N`. O formato singular
 continua válido — as duas chaves são aceitas.

@@ -224,15 +224,56 @@ implementação em [`features/13-selecao-em-massa.md`](features/13-selecao-em-ma
 
 ### Exportação imediata
 
+> **Substituído por RF-080 … RF-092.** A primeira versão perguntava "quer
+> exportar?" a **cada** adição. Na prática virou interrupção: quem monta uma
+> coleção aos poucos respondia a mesma pergunta dezenas de vezes. Os requisitos
+> abaixo ficam registrados como histórico da decisão; o comportamento vigente é
+> o da pasta vinculada.
+
 | ID | Requisito | Situação |
 |---|---|---|
-| **RF-073** | Concluída a adição de imagens a uma coleção — nova ou existente — a interface deve oferecer a exportação daquela coleção, sem exigir navegação até a área de Coleções. | Implementado |
-| **RF-074** | A oferta é **opcional**: recusar mantém o usuário exatamente onde estava, com a coleção já atualizada. | Implementado |
-| **RF-075** | A exportação imediata deve reutilizar `exportarColecao()`, o mesmo caminho do modal de Coleções. É proibido um segundo mecanismo de exportação. | Implementado |
-| **RF-076** | A exportação deve usar o estado **atual** da coleção: adicionar 5 a uma coleção de 10 e exportar deve produzir 15 arquivos. | Implementado |
-| **RF-077** | A confirmação deve informar o total de itens da coleção após a atualização. Falha ao obter esse total não pode bloquear a oferta. | Implementado |
-| **RF-078** | Recusar, cancelar ou falhar a exportação **não** pode desfazer a adição. As associações em `collection_files` permanecem íntegras. | Implementado |
-| **RF-079** | Coleção que fique vazia após a operação não deve receber oferta de exportação. | Implementado |
+| **RF-073** | Concluída a adição de imagens a uma coleção, a interface deve oferecer a exportação daquela coleção. | ~~Implementado~~ → substituído por RF-084 |
+| **RF-074** | A oferta é **opcional**: recusar mantém o usuário onde estava. | Preservado em RF-086 |
+| **RF-075** | A exportação imediata deve reutilizar `exportarColecao()`. É proibido um segundo mecanismo de exportação. | Vigente — vale para toda a feature |
+| **RF-076** | A exportação deve usar o estado **atual** da coleção. | Vigente |
+| **RF-077** | A confirmação deve informar o total de itens. Falha ao obter o total não bloqueia a oferta. | ~~Implementado~~ → substituído |
+| **RF-078** | Recusar, cancelar ou falhar **não** pode desfazer a adição. | Vigente — RF-092 |
+| **RF-079** | Coleção vazia não recebe oferta de exportação. | Vigente |
+
+---
+
+## 4-B. Pasta vinculada à coleção
+
+Uma coleção pode ter uma **pasta espelho** no computador. A decisão é tomada
+**uma única vez**, na criação da coleção, e vale para todas as adições
+seguintes. Detalhes em
+[`features/14-pasta-vinculada.md`](features/14-pasta-vinculada.md).
+
+### Vínculo
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-080** | Uma coleção pode ter, opcionalmente, uma pasta vinculada no computador do usuário, persistida em `collections.pasta_vinculada`. | Implementado |
+| **RF-081** | O vínculo deve ser oferecido **uma única vez**, no momento da criação da coleção. O app não pode voltar a perguntar espontaneamente. | Implementado |
+| **RF-082** | A oferta deve apresentar três escolhas: enviar sempre sem perguntar (`auto`), perguntar antes de cada envio (`perguntar`), ou não vincular (`manual`). | Implementado |
+| **RF-083** | A oferta deve incluir uma ilustração animada do fluxo coleção → pasta, para tornar o conceito compreensível sem leitura. | Implementado |
+| **RF-084** | Recusar o vínculo, cancelar o seletor de pastas ou fechar o modal deixa a coleção em `manual` — o comportamento anterior à feature. | Implementado |
+| **RF-085** | A pasta vinculada deve ser criada dentro da pasta-mãe escolhida, com o nome sanitizado da coleção, reutilizando a mesma lógica da exportação. | Implementado |
+| **RF-086** | O usuário deve poder alterar o modo e a pasta depois, e desvincular. Desvincular devolve a coleção a `manual`. | Implementado |
+| **RF-087** | A interface deve mostrar, no card da coleção, que ela tem pasta vinculada e em que modo. | Implementado |
+
+### Sincronia
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-088** | Em `auto`, imagens adicionadas à coleção são copiadas para a pasta vinculada imediatamente, sem confirmação. | Implementado |
+| **RF-089** | Em `perguntar`, cada adição pede confirmação antes de copiar. Recusar não desfaz a adição à coleção. | Implementado |
+| **RF-090** | Em `manual`, nada é copiado automaticamente; a exportação continua disponível pelo botão. | Implementado |
+| **RF-091** | A sincronia deve copiar **apenas os itens recém-adicionados**, não a coleção inteira. Adicionar 1 imagem a uma coleção de 300 copia 1 arquivo. | Implementado |
+| **RF-092** | A sincronia escreve **dentro** da pasta vinculada. Arquivo já presente no destino é contado como existente e **pulado** — não duplicado com sufixo. A pasta é um espelho, não um acumulador de versões. | Implementado |
+| **RF-093** | Falha na sincronia não pode desfazer a adição à coleção. As duas operações são independentes. | Implementado |
+| **RF-094** | Se a pasta vinculada não existir mais, a sincronia deve falhar com mensagem que oriente a revincular — e **não** desvincular sozinha. | Implementado |
+| **RF-095** | A sincronia deve validar a origem com a mesma regra anti-*path traversal* da exportação (RF-045). | Implementado |
 
 ---
 
@@ -470,6 +511,57 @@ Quando o usuário escolher continuar pesquisando;
 Então nenhuma exportação deve ser iniciada;
 E a coleção deve manter todas as imagens adicionadas.
 *Cobre RF-074, RF-078.*
+
+### Pasta vinculada
+
+**CA-032 — Pergunta uma vez só**
+Dado que o usuário criou uma coleção e escolheu "enviar sempre, sem perguntar";
+Quando adicionar imagens a essa coleção três vezes seguidas;
+Então nenhuma confirmação deve ser exibida em nenhuma das três;
+E as imagens devem estar na pasta vinculada.
+*Cobre RF-081, RF-088.*
+
+**CA-033 — Modo perguntar**
+Dado que a coleção está no modo "perguntar antes";
+Quando o usuário adicionar imagens;
+Então deve ser exibida uma confirmação por adição;
+E recusar não pode remover as imagens da coleção.
+*Cobre RF-089, RF-093.*
+
+**CA-034 — Modo manual não envia nada**
+Dado que a coleção não tem pasta vinculada;
+Quando o usuário adicionar imagens;
+Então nada deve ser copiado e nada deve ser perguntado;
+E o botão Exportar deve continuar funcionando.
+*Cobre RF-084, RF-090.*
+
+**CA-035 — Espelho, não acumulador**
+Dado que a imagem `a.jpg` já está na pasta vinculada;
+Quando a sincronia rodar novamente para essa imagem;
+Então nenhum arquivo `a_1.jpg` deve ser criado;
+E o resultado deve contá-la como já existente.
+*Cobre RF-092.*
+
+**CA-036 — Só o que é novo**
+Dado uma coleção de 300 imagens com pasta vinculada em modo `auto`;
+Quando o usuário adicionar 1 imagem;
+Então a sincronia deve copiar 1 arquivo, não 301.
+*Cobre RF-091.*
+
+**CA-037 — Pasta sumiu do disco**
+Dado que a pasta vinculada foi apagada ou movida;
+Quando uma sincronia for disparada;
+Então deve ser exibida mensagem orientando a vincular outra pasta;
+E a coleção deve continuar vinculada — o sistema não desvincula sozinho;
+E as imagens devem permanecer na coleção.
+*Cobre RF-094.*
+
+**CA-038 — Vínculo alterável**
+Dado uma coleção vinculada em modo `auto`;
+Quando o usuário desvincular a pasta;
+Então a coleção deve voltar ao modo `manual`;
+E adições seguintes não devem copiar nada.
+*Cobre RF-086.*
 
 **CA-025 — Mock não escreve em disco**
 Dado o servidor mock rodando (`py backend/mock_server.py`);

@@ -762,6 +762,50 @@
         </div>
     </div>
 
+    <!-- Modal: vincular coleção a uma pasta do computador -->
+    <div id="vincularPastaModal" class="modal" style="z-index: 10004;">
+        <div class="modal-content" style="max-width: 520px;">
+            <h3 id="vincularTitulo" style="margin:0 0 10px 0; color:var(--text-primary); font-size:1.35rem;">
+                Enviar esta coleção para uma pasta?
+            </h3>
+            <p id="vincularTexto" style="color:var(--text-secondary); font-size:0.95rem; line-height:1.5; margin:0 0 18px 0;"></p>
+
+            <!-- Ilustração: a coleção alimentando uma pasta no computador.
+                 aria-hidden porque é decorativa — o texto acima já explica. -->
+            <div class="vincular-ilustracao" aria-hidden="true">
+                <svg viewBox="0 0 320 110" role="img">
+                    <rect class="vi-caixa" x="14" y="34" width="72" height="60" rx="6"/>
+                    <text class="vi-rotulo" x="50" y="24">Coleção</text>
+
+                    <line class="vi-trilha" x1="98" y1="64" x2="214" y2="64"/>
+                    <polygon class="vi-seta" points="214,58 228,64 214,70"/>
+
+                    <circle class="vi-ponto vi-ponto-1" cy="64" r="4"/>
+                    <circle class="vi-ponto vi-ponto-2" cy="64" r="4"/>
+                    <circle class="vi-ponto vi-ponto-3" cy="64" r="4"/>
+
+                    <path class="vi-caixa" d="M238 40 h26 l7 9 h35 a4 4 0 0 1 4 4 v41 a4 4 0 0 1 -4 4 h-68 a4 4 0 0 1 -4 -4 v-50 a4 4 0 0 1 4 -4 z"/>
+                    <text class="vi-rotulo" x="272" y="24">Pasta</text>
+                </svg>
+            </div>
+
+            <div class="vincular-opcoes">
+                <button type="button" class="vincular-opcao" onclick="responderVinculo('auto')">
+                    <span class="vincular-opcao-titulo">Sim — enviar sempre, sem perguntar</span>
+                    <span class="vincular-opcao-desc">Toda imagem que entrar na coleção vai para a pasta automaticamente.</span>
+                </button>
+                <button type="button" class="vincular-opcao" onclick="responderVinculo('perguntar')">
+                    <span class="vincular-opcao-titulo">Sim — mas perguntar antes de cada envio</span>
+                    <span class="vincular-opcao-desc">Você confirma a cada adição.</span>
+                </button>
+                <button type="button" class="vincular-opcao" onclick="responderVinculo('manual')">
+                    <span class="vincular-opcao-titulo">Não — eu exporto quando quiser</span>
+                    <span class="vincular-opcao-desc">A coleção fica só no Search+ até você clicar em Exportar.</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal de entrada de texto (substitui o prompt() nativo) -->
     <div id="inputModal" class="modal" style="z-index: 10003;">
         <div class="modal-content" style="max-width: 420px;">

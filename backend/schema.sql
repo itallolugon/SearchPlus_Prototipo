@@ -65,6 +65,17 @@ CREATE TABLE IF NOT EXISTS collections (
     UNIQUE (user_id, nome)
 );
 
+-- Vínculo opcional entre uma coleção e uma pasta do computador.
+-- Quando preenchido, a coleção deixa de ser só um agrupamento interno e passa
+-- a ter um espelho no disco. `modo_sync` decide o que acontece quando novas
+-- imagens entram na coleção:
+--   'auto'      → copia para a pasta na hora, sem perguntar
+--   'perguntar' → pergunta a cada adição
+--   'manual'    → nunca copia sozinho; só pelo botão Exportar
+-- Coleção sem pasta vinculada fica em 'manual' e se comporta como antes.
+ALTER TABLE collections ADD COLUMN IF NOT EXISTS pasta_vinculada TEXT;
+ALTER TABLE collections ADD COLUMN IF NOT EXISTS modo_sync TEXT NOT NULL DEFAULT 'manual';
+
 -- Relação N:N entre coleções e arquivos
 CREATE TABLE IF NOT EXISTS collection_files (
     collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,

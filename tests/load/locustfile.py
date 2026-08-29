@@ -38,6 +38,11 @@ USUARIO = os.environ.get("SEARCHPLUS_LOAD_USER", "carga_teste")
 SENHA = os.environ.get("SEARCHPLUS_LOAD_PASSWORD", "carga_teste")
 PERMITE_REMOTO = os.environ.get("SEARCHPLUS_LOAD_ALLOW_REMOTE") == "1"
 
+# Pasta-mãe usada pela tarefa de coleção vinculada. Contra o MOCK nada é escrito
+# em disco, então o valor é só um caminho de fachada. Contra o backend REAL, o
+# Python cria subpastas de verdade aqui — aponte para um diretório descartável.
+DESTINO_SYNC = os.environ.get("SEARCHPLUS_LOAD_SYNC_DIR", r"C:\Temp\searchplus-carga")
+
 # Limites de aceitação. São referências iniciais: ajuste conforme a máquina e o
 # ambiente, documentando a mudança.
 MAX_TAXA_ERRO = float(os.environ.get("SEARCHPLUS_LOAD_MAX_ERROR_RATE", "0.01"))  # 1%
@@ -197,6 +202,72 @@ class UsuarioDoSearchPlus(HttpUser):
 
         # Não deixa lixo acumulando no banco entre execuções.
         self.client.delete(f"/api/collections/{col_id}", name="/api/collections/[id] (excluir)")
+
+    @task(2)
+    def colecao_com_pasta_vinculada(self):
+        """
+        Fluxo da coleção espelhada: vincula uma pasta e adiciona em lote.
+
+        No modo 'auto' cada adição dispara um /sync logo depois do POST em
+        /files — é o par de requisições que o usuário passa a fazer o tempo
+        todo, então é o que precisa ser medido junto.
+        """
+        col = self.client.post(
+            "/api/collections",
+            json={"nome": f"carga-sync-{UsuarioDoSearchPlus._contador}-{time.time_ns()}"},
+            name="/api/collections (criar)",
+        )
+        if col.status_code != 200:
+            return
+        col_id = (col.json() or {}).get("id")
+        if not col_id:
+            return
+
+        with self.client.patch(
+            f"/api/collections/{col_id}",
+            json={"criar_pasta_em": DESTINO_SYNC, "modo_sync": "auto"},
+            catch_response=True,
+            name="/api/collections/[id] (vincular pasta)",
+        ) as vinc:
+            if vinc.status_code != 200:
+                # Sem a pasta de destino no alvo, o resto da tarefa não se aplica.
+                vinc.success()
+                self.client.delete(f"/api/collections/{col_id}",
+                                   name="/api/collections/[id] (excluir)")
+                return
+            vinc.success()
+
+        consulta = CONSULTAS[UsuarioDoSearchPlus._contador % len(CONSULTAS)]
+        r = self.client.post(
+            "/api/search", json={"query": consulta, "filtro": "all"}, name="/api/search"
+        )
+        ids = ([item["id"] for item in (r.json() or {}).get("resultados", []) if item.get("id")]
+               if r.status_code == 200 else [])
+        if not ids:
+            self.client.delete(f"/api/collections/{col_id}",
+                               name="/api/collections/[id] (excluir)")
+            return
+
+        add = self.client.post(f"/api/collections/{col_id}/files", json={"file_ids": ids},
+                               name="/api/collections/[id]/files (lote)")
+        novos = (add.json() or {}).get("ids_adicionados", ids) if add.status_code == 200 else []
+
+        if novos:
+            with self.client.post(
+                f"/api/collections/{col_id}/sync",
+                json={"file_ids": novos},
+                catch_response=True,
+                name="/api/collections/[id]/sync",
+            ) as sync:
+                if sync.status_code != 200:
+                    sync.failure(f"HTTP {sync.status_code}")
+                elif "copiados" not in (sync.json() or {}):
+                    sync.failure("resposta sem o campo 'copiados'")
+                else:
+                    sync.success()
+
+        self.client.delete(f"/api/collections/{col_id}",
+                           name="/api/collections/[id] (excluir)")
 
     @task(2)
     def readicionar_lote_ja_existente(self):

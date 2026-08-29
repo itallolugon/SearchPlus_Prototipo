@@ -10,6 +10,7 @@ import hashlib
 import bcrypt
 import mimetypes
 import queue
+import shutil
 import subprocess
 import threading
 import time
@@ -2529,12 +2530,12 @@ def api_collections():
         conn = get_db()
         rows = conn.execute(
             """
-            SELECT c.id, c.nome, c.criado_em,
+            SELECT c.id, c.nome, c.criado_em, c.pasta_vinculada, c.modo_sync,
                    COUNT(cf.file_id) AS total
             FROM collections c
             LEFT JOIN collection_files cf ON cf.collection_id = c.id
             WHERE c.user_id = %s
-            GROUP BY c.id, c.nome, c.criado_em
+            GROUP BY c.id, c.nome, c.criado_em, c.pasta_vinculada, c.modo_sync
             ORDER BY c.criado_em DESC
             """,
             (uid,)
@@ -2558,6 +2559,8 @@ def api_collections():
                 "id": r["id"], "nome": r["nome"], "total": r["total"],
                 "criado_em": r["criado_em"].isoformat() if r["criado_em"] else "",
                 "capas": [c["caminho"] for c in capas],
+                "pasta_vinculada": r["pasta_vinculada"],
+                "modo_sync": r["modo_sync"] or "manual",
             })
         conn.close()
         return jsonify({"colecoes": colecoes})
@@ -2575,7 +2578,8 @@ def api_collections():
             (uid, nome)
         ).fetchone()
         conn.commit()
-        return jsonify({"status": "ok", "id": row["id"], "nome": nome})
+        return jsonify({"status": "ok", "id": row["id"], "nome": nome,
+                        "pasta_vinculada": None, "modo_sync": "manual"})
     except psycopg2.errors.UniqueViolation:
         conn.rollback()
         return jsonify({"error": "Você já tem uma coleção com esse nome."}), 409
@@ -2583,11 +2587,131 @@ def api_collections():
         conn.close()
 
 
-@app.route("/api/collections/<int:col_id>", methods=["GET", "DELETE"])
+_MODOS_SYNC = {"auto", "perguntar", "manual"}
+
+
+def _atualizar_colecao(col_id: int, uid: int):
+    """
+    PATCH da coleção: nome, pasta vinculada e modo de sincronia.
+
+    Só toca os campos presentes no corpo — mandar `{"modo_sync": "auto"}` não
+    apaga a pasta já vinculada. Enviar `pasta_vinculada: null` desvincula de
+    propósito e devolve a coleção ao modo manual.
+    """
+    data = request.get_json(force=True) or {}
+    campos, valores = [], []
+
+    if "nome" in data:
+        nome = (data.get("nome") or "").strip()
+        if not nome:
+            return jsonify({"error": "Nome da coleção é obrigatório."}), 400
+        campos.append("nome = %s")
+        valores.append(nome)
+
+    # `criar_pasta_em` é o caminho normal: o usuário escolhe a pasta-mãe e o
+    # backend cria a subpasta da coleção dentro dela — mesma sanitização e
+    # mesma resolução de colisão da exportação, para não haver duas lógicas.
+    pasta_criada = None
+    if data.get("criar_pasta_em"):
+        destino = os.path.normpath(str(data["criar_pasta_em"]).strip())
+        if not os.path.isdir(destino):
+            return jsonify({"error": "A pasta escolhida não existe mais."}), 400
+
+        conn_nome = get_db()
+        try:
+            row = conn_nome.execute(
+                "SELECT nome FROM collections WHERE id = %s AND user_id = %s",
+                (col_id, uid),
+            ).fetchone()
+        finally:
+            conn_nome.close()
+        if not row:
+            return jsonify({"error": "Coleção não encontrada."}), 404
+
+        alvo = _pasta_disponivel(destino, _sanitizar_nome(row["nome"],
+                                                          padrao=f"colecao_{col_id}"))
+        try:
+            os.makedirs(alvo)
+        except PermissionError:
+            return jsonify({"error": f"Não foi possível gravar em {destino}. "
+                                     "Escolha outra pasta ou verifique as permissões."}), 403
+        except OSError as exc:
+            print(f"[VINCULO] erro ao criar '{alvo}': {type(exc).__name__}: {exc}")
+            return jsonify({"error": f"Não foi possível criar a pasta em {destino}. "
+                                     "Escolha outra pasta."}), 400
+
+        pasta_criada = alvo
+        campos.append("pasta_vinculada = %s")
+        valores.append(alvo)
+
+    elif "pasta_vinculada" in data:
+        pasta = data.get("pasta_vinculada")
+        if pasta is None or not str(pasta).strip():
+            # Desvincular: sem pasta, sincronizar automaticamente não faz sentido
+            campos.append("pasta_vinculada = NULL")
+            campos.append("modo_sync = 'manual'")
+        else:
+            pasta = os.path.normpath(str(pasta).strip())
+            if not os.path.isdir(pasta):
+                return jsonify({"error": "A pasta escolhida não existe mais."}), 400
+            campos.append("pasta_vinculada = %s")
+            valores.append(pasta)
+
+    if "modo_sync" in data:
+        modo = (data.get("modo_sync") or "").strip()
+        if modo not in _MODOS_SYNC:
+            return jsonify({"error": "Modo de sincronia inválido."}), 400
+        campos.append("modo_sync = %s")
+        valores.append(modo)
+
+    if not campos:
+        return jsonify({"error": "Nada para atualizar."}), 400
+
+    conn = get_db()
+    try:
+        dono = conn.execute(
+            "SELECT id FROM collections WHERE id = %s AND user_id = %s", (col_id, uid)
+        ).fetchone()
+        if not dono:
+            return jsonify({"error": "Coleção não encontrada."}), 404
+
+        valores.extend([col_id, uid])
+        try:
+            conn.execute(
+                f"UPDATE collections SET {', '.join(campos)} "
+                "WHERE id = %s AND user_id = %s",
+                tuple(valores),
+            )
+            conn.commit()
+        except psycopg2.errors.UniqueViolation:
+            conn.rollback()
+            return jsonify({"error": "Você já tem uma coleção com esse nome."}), 409
+
+        atual = conn.execute(
+            "SELECT id, nome, pasta_vinculada, modo_sync FROM collections "
+            "WHERE id = %s AND user_id = %s",
+            (col_id, uid),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    return jsonify({
+        "status": "ok",
+        "id": atual["id"],
+        "nome": atual["nome"],
+        "pasta_vinculada": atual["pasta_vinculada"],
+        "modo_sync": atual["modo_sync"],
+    })
+
+
+@app.route("/api/collections/<int:col_id>", methods=["GET", "DELETE", "PATCH"])
 def api_collection_detail(col_id):
     uid = _uid()
     if not uid:
         return jsonify({"error": "Não autenticado."}), 401
+
+    if request.method == "PATCH":
+        return _atualizar_colecao(col_id, uid)
 
     conn = get_db()
     # Confirma que a coleção é do usuário
@@ -2696,11 +2820,27 @@ def api_collection_files(col_id):
         ).fetchall()
         conn.commit()
         n_add = len(inseridos)
+
+        # Devolve o estado de sincronia junto: sem isto o frontend precisaria
+        # de um GET extra a cada adição só para saber se deve copiar.
+        vinculo = conn.execute(
+            "SELECT pasta_vinculada, modo_sync FROM collections WHERE id = %s",
+            (col_id,)
+        ).fetchone()
+
+        # Acesso tolerante de propósito: init_db() apenas registra falhas de DDL
+        # em vez de abortar, então o app pode estar rodando sem as colunas de
+        # vínculo. Sem isto, uma migração falha derrubaria TODA adição a
+        # coleção com HTTP 500 — em vez de só desativar a sincronia.
+        vinc = dict(vinculo) if vinculo else {}
         return jsonify({
             "status": "ok",
             "acao": "adicionado",
             "adicionados": n_add,
             "ja_existiam": len(ids_validos) - n_add,
+            "ids_adicionados": [r["file_id"] for r in inseridos],
+            "pasta_vinculada": vinc.get("pasta_vinculada"),
+            "modo_sync": vinc.get("modo_sync") or "manual",
         })
     finally:
         conn.close()
@@ -2803,7 +2943,6 @@ def _dentro_das_pastas(caminho: str, pastas_monitoradas) -> bool:
 
 def _worker_exportacao(job_id: str, itens, destino_pasta: str):
     """Copia os arquivos da coleção, um a um, atualizando o progresso."""
-    import shutil
 
     for item in itens:
         with _export_lock:
@@ -2938,6 +3077,109 @@ def api_collection_export(col_id):
 
     return jsonify({"status": "ok", "job_id": job_id,
                     "total": len(itens), "pasta": pasta_final})
+
+
+@app.route("/api/collections/<int:col_id>/sync", methods=["POST"])
+def api_collection_sync(col_id):
+    """
+    Copia arquivos da coleção para a pasta JÁ vinculada.
+
+    Diferente de /export em dois pontos que importam:
+
+    1. Escreve dentro da pasta existente — não cria `Nome (1)`. A pasta
+       vinculada é um espelho estável da coleção; criar outra a cada adição
+       derrotaria o propósito.
+    2. Aceita `file_ids` para copiar só o que acabou de entrar. Sem isso,
+       adicionar uma foto a uma coleção de 300 recopiaria as 300.
+
+    Arquivo que já existe no destino é pulado (`ja_existiam`), não duplicado
+    com sufixo: aqui a intenção é espelhar, não acumular versões.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    data = request.get_json(force=True) or {}
+    brutos = data.get("file_ids")
+
+    conn = get_db()
+    try:
+        col = conn.execute(
+            "SELECT id, nome, pasta_vinculada, modo_sync FROM collections "
+            "WHERE id = %s AND user_id = %s",
+            (col_id, uid),
+        ).fetchone()
+        if not col:
+            return jsonify({"error": "Coleção não encontrada."}), 404
+
+        pasta = col["pasta_vinculada"]
+        if not pasta:
+            return jsonify({"error": "Esta coleção não tem pasta vinculada."}), 400
+        if not os.path.isdir(pasta):
+            return jsonify({
+                "error": f'A pasta "{os.path.basename(pasta)}" não está mais no lugar. '
+                         "Vincule a coleção a outra pasta para continuar."
+            }), 409
+
+        if brutos is None:
+            sql = """
+                SELECT f.nome, f.caminho
+                FROM collection_files cf
+                JOIN files f ON f.id = cf.file_id
+                WHERE cf.collection_id = %s AND f.user_id = %s
+                ORDER BY cf.adicionado_em DESC
+            """
+            params = (col_id, uid)
+        else:
+            if not isinstance(brutos, list):
+                return jsonify({"error": "file_ids deve ser uma lista."}), 400
+            try:
+                ids = [int(b) for b in brutos]
+            except (TypeError, ValueError):
+                return jsonify({"error": "Identificador de arquivo inválido."}), 400
+            if not ids:
+                return jsonify({"status": "ok", "copiados": 0, "ja_existiam": 0,
+                                "falhas": [], "pasta": pasta})
+            sql = """
+                SELECT f.nome, f.caminho
+                FROM collection_files cf
+                JOIN files f ON f.id = cf.file_id
+                WHERE cf.collection_id = %s AND f.user_id = %s AND f.id = ANY(%s)
+            """
+            params = (col_id, uid, ids)
+
+        arquivos = conn.execute(sql, params).fetchall()
+        pastas = [r["path"] for r in conn.execute(
+            "SELECT path FROM folders WHERE user_id = %s", (uid,)
+        ).fetchall()]
+    finally:
+        conn.close()
+
+    copiados, ja_existiam, falhas = 0, 0, []
+    for a in arquivos:
+        origem = a["caminho"]
+        if not _dentro_das_pastas(origem, pastas):
+            falhas.append({"nome": a["nome"], "motivo": "fora_das_pastas"})
+            continue
+        if not os.path.isfile(origem):
+            falhas.append({"nome": a["nome"], "motivo": "nao_encontrado"})
+            continue
+
+        alvo = os.path.join(pasta, _sanitizar_nome(a["nome"], padrao="arquivo"))
+        if os.path.exists(alvo):
+            ja_existiam += 1
+            continue
+        try:
+            shutil.copy2(origem, alvo)
+            copiados += 1
+        except PermissionError:
+            falhas.append({"nome": a["nome"], "motivo": "sem_permissao"})
+        except OSError as exc:
+            print(f"[SYNC] '{origem}' → '{alvo}': {type(exc).__name__}: {exc}")
+            falhas.append({"nome": a["nome"], "motivo": "erro_escrita"})
+
+    return jsonify({"status": "ok", "copiados": copiados,
+                    "ja_existiam": ja_existiam, "falhas": falhas, "pasta": pasta})
 
 
 def _job_do_usuario(job_id, uid):

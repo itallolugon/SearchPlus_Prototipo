@@ -582,7 +582,9 @@ def collections():
             capas = [a["caminho"] for a in (_por_id(i) for i in c["files"])
                      if a and a["tipo"] in _EXT_IMG][:4]
             saida.append({"id": c["id"], "nome": c["nome"], "total": len(c["files"]),
-                          "criado_em": c["criado_em"], "capas": capas})
+                          "criado_em": c["criado_em"], "capas": capas,
+                          "pasta_vinculada": c.get("pasta_vinculada"),
+                          "modo_sync": c.get("modo_sync", "manual")})
         return jsonify({"colecoes": saida})
 
     data = request.get_json(force=True, silent=True) or {}
@@ -594,11 +596,13 @@ def collections():
 
     novo_id = max((c["id"] for c in _COLECOES), default=0) + 1
     _COLECOES.append({"id": novo_id, "nome": nome,
-                      "criado_em": datetime.now().isoformat(), "files": []})
-    return jsonify({"status": "ok", "id": novo_id, "nome": nome})
+                      "criado_em": datetime.now().isoformat(), "files": [],
+                      "pasta_vinculada": None, "modo_sync": "manual"})
+    return jsonify({"status": "ok", "id": novo_id, "nome": nome,
+                    "pasta_vinculada": None, "modo_sync": "manual"})
 
 
-@app.route("/api/collections/<int:col_id>", methods=["GET", "DELETE"])
+@app.route("/api/collections/<int:col_id>", methods=["GET", "DELETE", "PATCH"])
 def collection_detail(col_id):
     if not _logado():
         return _nao_autenticado()
@@ -609,6 +613,46 @@ def collection_detail(col_id):
     if request.method == "DELETE":
         _COLECOES.remove(col)
         return jsonify({"status": "ok"})
+
+    if request.method == "PATCH":
+        data = request.get_json(force=True, silent=True) or {}
+        campos = 0
+        if "nome" in data:
+            nome = (data.get("nome") or "").strip()
+            if not nome:
+                return jsonify({"error": "Nome da coleção é obrigatório."}), 400
+            if any(c["nome"].lower() == nome.lower() and c["id"] != col_id
+                   for c in _COLECOES):
+                return jsonify({"error": "Você já tem uma coleção com esse nome."}), 409
+            col["nome"] = nome
+            campos += 1
+        if data.get("criar_pasta_em"):
+            # Simulado: NÃO cria pasta no disco de quem desenvolve.
+            # Devolve o caminho que o backend real criaria.
+            base = str(data["criar_pasta_em"]).rstrip("\\/")
+            col["pasta_vinculada"] = base + "\\" + col["nome"]
+            campos += 1
+        elif "pasta_vinculada" in data:
+            pasta = data.get("pasta_vinculada")
+            # O mock aceita qualquer caminho: não toca o disco, então não
+            # há o que validar. O backend real exige que a pasta exista.
+            if pasta is None or not str(pasta).strip():
+                col["pasta_vinculada"] = None
+                col["modo_sync"] = "manual"
+            else:
+                col["pasta_vinculada"] = str(pasta).strip()
+            campos += 1
+        if "modo_sync" in data:
+            modo = (data.get("modo_sync") or "").strip()
+            if modo not in {"auto", "perguntar", "manual"}:
+                return jsonify({"error": "Modo de sincronia inválido."}), 400
+            col["modo_sync"] = modo
+            campos += 1
+        if not campos:
+            return jsonify({"error": "Nada para atualizar."}), 400
+        return jsonify({"status": "ok", "id": col["id"], "nome": col["nome"],
+                        "pasta_vinculada": col.get("pasta_vinculada"),
+                        "modo_sync": col.get("modo_sync", "manual")})
 
     itens = [_item(a) for a in (_por_id(i) for i in col["files"]) if a]
     return jsonify({"resultados": itens})
@@ -653,13 +697,63 @@ def collection_files(col_id):
         return jsonify({"status": "ok", "acao": "removido",
                         "removidos": len(validos)})
 
-    n_add = 0
+    n_add, adicionados_ids = 0, []
     for n in validos:
         if n not in col["files"]:
             col["files"].append(n)
+            adicionados_ids.append(n)
             n_add += 1
     return jsonify({"status": "ok", "acao": "adicionado",
-                    "adicionados": n_add, "ja_existiam": len(validos) - n_add})
+                    "adicionados": n_add, "ja_existiam": len(validos) - n_add,
+                    "ids_adicionados": adicionados_ids,
+                    "pasta_vinculada": col.get("pasta_vinculada"),
+                    "modo_sync": col.get("modo_sync", "manual")})
+
+
+@app.route("/api/collections/<int:col_id>/sync", methods=["POST"])
+def collection_sync(col_id):
+    """
+    Sincronia com a pasta vinculada — SIMULADA.
+
+    Nenhuma pasta é criada e nenhum arquivo é copiado: o mock existe para
+    desenvolver a interface. Devolve contagens plausíveis para o frontend
+    exercitar os três modos e a mensagem de resultado.
+    """
+    if not _logado():
+        return _nao_autenticado()
+
+    col = next((c for c in _COLECOES if c["id"] == col_id), None)
+    if not col:
+        return jsonify({"error": "Coleção não encontrada."}), 404
+
+    pasta = col.get("pasta_vinculada")
+    if not pasta:
+        return jsonify({"error": "Esta coleção não tem pasta vinculada."}), 400
+
+    data = request.get_json(force=True, silent=True) or {}
+    brutos = data.get("file_ids")
+    if brutos is None:
+        alvos = list(col["files"])
+    else:
+        if not isinstance(brutos, list):
+            return jsonify({"error": "file_ids deve ser uma lista."}), 400
+        try:
+            alvos = [int(b) for b in brutos]
+        except (TypeError, ValueError):
+            return jsonify({"error": "Identificador de arquivo inválido."}), 400
+
+    copiados = [n for n in alvos if _por_id(n)]
+    # Um item "some do disco" quando há mais de 2, para o caminho de falha
+    # parcial ser exercitável sem precisar montar cenário.
+    falhas = []
+    if len(copiados) > 2:
+        sumido = _por_id(copiados[-1])
+        copiados = copiados[:-1]
+        if sumido:
+            falhas.append({"nome": sumido["nome"], "motivo": "nao_encontrado"})
+
+    return jsonify({"status": "ok", "copiados": len(copiados),
+                    "ja_existiam": 0, "falhas": falhas, "pasta": pasta})
 
 
 # ──────────────────────────────────────────────────────────────────────────────

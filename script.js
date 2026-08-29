@@ -2416,6 +2416,7 @@ document.addEventListener('keydown', (e) => {
         const ml = document.getElementById('menuLateral');
         if (ml && ml.classList.contains('aberto')) { fecharMenuLateral(); return; }
         const fechaveis = [
+            ['vincularPastaModal', () => { if (typeof fecharVincularPasta === 'function') fecharVincularPasta(); }],
             ['exportModal', () => { if (typeof fecharExportacao === 'function') fecharExportacao(); }],
             ['escolherColecaoModal', () => { if (typeof fecharEscolherColecao === 'function') fecharEscolherColecao(); }],
             ['ajudaModal', fecharAjuda],
@@ -2638,6 +2639,18 @@ async function carregarColecoes() {
             delBtn.onclick = (e) => { e.stopPropagation(); excluirColecao(c.id, c.nome); };
 
             info.append(titulo, meta);
+
+            // Selo da pasta vinculada: o usuário precisa ver que a coleção
+            // espelha algo no disco, e em que modo.
+            if (c.pasta_vinculada) {
+                const auto = c.modo_sync === 'auto';
+                const selo = document.createElement('div');
+                selo.className = 'colecao-vinculo' + (auto ? ' colecao-vinculo-auto' : '');
+                selo.textContent = auto ? `↳ envia para ${_nomeDaPasta(c.pasta_vinculada)}`
+                                        : `↳ pasta: ${_nomeDaPasta(c.pasta_vinculada)}`;
+                selo.title = c.pasta_vinculada;
+                info.appendChild(selo);
+            }
             card.append(capa, info, delBtn);
             lista.appendChild(card);
         });
@@ -2660,6 +2673,8 @@ async function criarColecao() {
         if (res.ok) {
             input.value = '';
             toastOk(`Coleção "${nome}" criada.`);
+            // Único momento em que se pergunta sobre pasta: na criação.
+            await configurarPastaDaColecao(d.id, nome);
             carregarColecoes();
         } else {
             toastErro(d.error || "Não foi possível criar a coleção.");
@@ -2806,7 +2821,10 @@ async function criarColecaoEAdicionar() {
         const cd = await cr.json();
         if (cr.ok) {
             fecharEscolherColecao();
+            // Adiciona primeiro, pergunta da pasta depois: assim a pergunta
+            // vem com a coleção já povoada, e o vínculo copia tudo de uma vez.
             await adicionarAColecao(cd.id, nome.trim());
+            await configurarPastaDaColecao(cd.id, nome.trim());
         } else {
             toastErro(cd.error || "Erro ao criar coleção.");
         }
@@ -2832,38 +2850,144 @@ async function adicionarAColecao(colId, nome) {
 
         if (_selecionados.size > 0) limparSelecao();
 
-        // Atalho: exportar sem ter que navegar até Coleções e achar a coleção.
-        // Só oferece — quem quiser continuar pesquisando é só recusar.
-        await oferecerExportacaoImediata(colId, nome);
+        // Sincronia com a pasta vinculada, se houver. A decisão foi tomada uma
+        // vez, na criação da coleção — aqui só se obedece ao que ficou salvo.
+        await sincronizarSePreciso({
+            id: colId, nome,
+            pasta: d.pasta_vinculada,
+            modo: d.modo_sync || 'manual',
+            ids: d.ids_adicionados || [],
+        });
     } catch (e) { console.error(e); toastErro("Erro de conexão."); }
 }
 
-// Pergunta se quer exportar agora e, se sim, delega para exportarColecao() —
-// o MESMO caminho usado dentro do modal de Coleções. Não há segundo mecanismo
-// de exportação: isto só aponta _colecaoAtual para a coleção recém-atualizada.
-async function oferecerExportacaoImediata(colId, nome) {
-    let total = null;
+// ==========================================
+// PASTA VINCULADA (coleção espelhada no disco)
+// ==========================================
+// O usuário decide UMA vez, ao criar a coleção, se ela tem uma pasta no
+// computador e o que acontece quando novas imagens entram. Depois disso o app
+// não pergunta mais nada — exceto no modo 'perguntar', que é escolha dele.
+
+// Executa a sincronia conforme o modo salvo na coleção.
+async function sincronizarSePreciso({ id, nome, pasta, modo, ids }) {
+    if (!pasta || modo === 'manual') return;   // nada vinculado: fluxo segue igual
+    if (!ids || ids.length === 0) return;      // nada novo entrou: nada a copiar
+
+    if (modo === 'perguntar') {
+        const n = ids.length;
+        const ok = await confirmarAcao(
+            'Enviar para a pasta?',
+            `${n === 1 ? 'A imagem adicionada' : `As ${n} imagens adicionadas`} ` +
+            `${n === 1 ? 'vai' : 'vão'} para "${_nomeDaPasta(pasta)}"?`,
+            'Enviar agora', 'Agora não');
+        if (!ok) return;
+    }
+
+    await enviarParaPastaVinculada(id, nome, ids);
+}
+
+function _nomeDaPasta(caminho) {
+    return (caminho || '').split(/[\\/]/).filter(Boolean).pop() || caminho;
+}
+
+// Chama /sync e traduz o resultado numa frase. Sem barra de progresso: a
+// sincronia é de poucos arquivos e termina antes de valer a pena mostrar uma.
+async function enviarParaPastaVinculada(colId, nome, ids) {
     try {
-        const r = await fetch(`${API_BASE_URL}/api/collections/${colId}`);
-        if (r.ok) {
-            const d = await r.json();
-            total = (d.resultados || []).length;
+        const r = await fetch(`${API_BASE_URL}/api/collections/${colId}/sync`, {
+            method: 'POST', headers: fetchOptions.headers,
+            body: JSON.stringify(ids ? { file_ids: ids } : {})
+        });
+        const d = await r.json().catch(() => ({}));
+
+        if (r.status === 409) {
+            // A pasta sumiu do disco. Não insiste nem desvincula sozinho —
+            // o usuário decide se quer apontar para outro lugar.
+            toastErro(d.error || 'A pasta vinculada não está mais no lugar.');
+            return;
         }
-    } catch (e) { console.error(e); }   // contagem é enfeite: sem ela, segue
+        if (!r.ok) { toastErro(d.error || 'Não foi possível enviar para a pasta.'); return; }
 
-    if (total === 0) return;            // coleção vazia não tem o que exportar
+        const falhas = (d.falhas || []).length;
+        const alvo = _nomeDaPasta(d.pasta);
+        if (d.copiados > 0 && falhas === 0) {
+            toastOk(`${d.copiados} ${d.copiados === 1 ? 'imagem enviada' : 'imagens enviadas'} para "${alvo}".`);
+        } else if (d.copiados > 0) {
+            toastAviso(`${d.copiados} ${d.copiados === 1 ? 'enviada' : 'enviadas'} para "${alvo}" — ${falhas} não ${falhas === 1 ? 'pôde' : 'puderam'} ser copiada(s).`);
+        } else if (falhas > 0) {
+            toastErro(`Nenhuma imagem foi enviada para "${alvo}": ${falhas} ${falhas === 1 ? 'falhou' : 'falharam'}.`);
+        } else if (d.ja_existiam > 0) {
+            toastInfo(`Já ${d.ja_existiam === 1 ? 'estava' : 'estavam'} na pasta "${alvo}".`);
+        }
+    } catch (e) { console.error(e); toastErro('Erro de conexão ao enviar para a pasta.'); }
+}
 
-    const texto = total === null
-        ? `Quer exportar "${nome}" para uma pasta no seu computador agora?`
-        : `${total} ${total === 1 ? 'imagem está' : 'imagens estão'} em "${nome}". ` +
-          `Quer exportar para uma pasta no seu computador agora?`;
+// ── Modal de vínculo (mostrado UMA vez, ao criar a coleção) ─────────────────
+let _vinculoResolver = null;
 
-    const querExportar = await confirmarAcao(
-        'Coleção atualizada', texto, 'Exportar coleção', 'Continuar pesquisando');
-    if (!querExportar) return;          // "Continuar" — fluxo segue intacto
+function perguntarVinculoDePasta(nomeColecao) {
+    return new Promise((resolve) => {
+        _vinculoResolver = resolve;
+        document.getElementById('vincularTexto').textContent =
+            `A coleção "${nomeColecao}" pode ter uma pasta no seu computador. ` +
+            `As imagens que você adicionar a ela são copiadas para lá — os ` +
+            `originais continuam onde estão.`;
+        document.getElementById('vincularPastaModal').style.display = 'flex';
+    });
+}
 
-    _colecaoAtual = { id: colId, nome };
-    await exportarColecao();
+function responderVinculo(modo) {
+    document.getElementById('vincularPastaModal').style.display = 'none';
+    const resolver = _vinculoResolver;
+    _vinculoResolver = null;
+    if (resolver) resolver(modo);
+}
+
+function fecharVincularPasta() {
+    // Fechar sem escolher equivale a "não vincular" — nunca deixa a promise pendurada.
+    if (_vinculoResolver) responderVinculo('manual');
+    else document.getElementById('vincularPastaModal').style.display = 'none';
+}
+
+// Fluxo completo do vínculo, chamado logo após criar uma coleção.
+// É o ÚNICO momento em que o app pergunta sobre pasta.
+async function configurarPastaDaColecao(colId, nome) {
+    const modo = await perguntarVinculoDePasta(nome);
+    if (modo === 'manual') return 'manual';
+
+    let destino;
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/choose_folder`);
+        const d = await r.json();
+        if (d.status === 'cancelado') return 'manual';   // desistiu: sem pasta
+        if (d.status !== 'sucesso' || !d.pasta) {
+            toastErro('Não foi possível abrir o seletor de pastas.');
+            return 'manual';
+        }
+        destino = d.pasta;
+    } catch (e) { console.error(e); toastErro('Erro de conexão.'); return 'manual'; }
+
+    // Cria a pasta E grava o vínculo numa chamada só. O backend reaproveita a
+    // sanitização e a resolução de colisão da exportação — uma lógica só.
+    let pastaCriada;
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/collections/${colId}`, {
+            method: 'PATCH', headers: fetchOptions.headers,
+            body: JSON.stringify({ criar_pasta_em: destino, modo_sync: modo })
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { toastErro(d.error || 'Não foi possível criar a pasta.'); return 'manual'; }
+        pastaCriada = d.pasta_vinculada;
+    } catch (e) { console.error(e); toastErro('Erro de conexão.'); return 'manual'; }
+
+    // Coleção que já tenha itens (o caso de vincular depois) sai daqui com a
+    // pasta em dia; a recém-criada está vazia e este passo não faz nada.
+    await enviarParaPastaVinculada(colId, nome, null);
+
+    toastOk(modo === 'auto'
+        ? `"${nome}" está vinculada a "${_nomeDaPasta(pastaCriada)}". Novas imagens vão sozinhas.`
+        : `"${nome}" está vinculada a "${_nomeDaPasta(pastaCriada)}".`);
+    return modo;
 }
 
 // ==========================================

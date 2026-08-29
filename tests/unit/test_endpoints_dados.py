@@ -120,7 +120,8 @@ class TestColecoes:
         db_roteado(
             {
                 "FROM collections": {
-                    "fetchall": [{"id": 1, "nome": "Viagem", "total": 3, "criado_em": None}]
+                    "fetchall": [{"id": 1, "nome": "Viagem", "total": 3, "criado_em": None,
+                                  "pasta_vinculada": None, "modo_sync": "manual"}]
                 }
             }
         )
@@ -133,7 +134,8 @@ class TestColecoes:
         db_roteado(
             {
                 "FROM collections": {
-                    "fetchall": [{"id": 1, "nome": "Viagem", "total": 2, "criado_em": None}]
+                    "fetchall": [{"id": 1, "nome": "Viagem", "total": 2, "criado_em": None,
+                                  "pasta_vinculada": None, "modo_sync": "manual"}]
                 },
                 "JOIN files f ON f.id = cf.file_id": {
                     "fetchall": [{"caminho": r"C:\Fotos\a.jpg"}, {"caminho": r"C:\Fotos\b.jpg"}]

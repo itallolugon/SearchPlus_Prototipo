@@ -31,11 +31,12 @@ Documentos fora do escopo da N2, produzidos ao longo do desenvolvimento.
 |---|---|
 | [`07-git-fluxo.md`](07-git-fluxo.md) | Convenção de branches (`main` / `develop` / `feature/*`) |
 | [`08-correcoes-conexao-e-busca.md`](08-correcoes-conexao-e-busca.md) | Correções: pooler do Supabase e busca visual (CLIP) |
-| [`09-requisitos-funcionais.md`](09-requisitos-funcionais.md) | RF-001 … RF-072 e critérios de aceite CA-001 … CA-031 |
+| [`09-requisitos-funcionais.md`](09-requisitos-funcionais.md) | RF-001 … RF-095 e critérios de aceite CA-001 … CA-038 |
 | [`10-requisitos-nao-funcionais.md`](10-requisitos-nao-funcionais.md) | RNF-001 … RNF-058 + débitos técnicos preexistentes |
 | [`features/11-limpar-busca.md`](features/11-limpar-busca.md) | Botão `×` para limpar o campo de busca |
 | [`features/12-colecoes-exportacao.md`](features/12-colecoes-exportacao.md) | Seleção, coleções e exportação para pasta local |
 | [`features/13-selecao-em-massa.md`](features/13-selecao-em-massa.md) | Selecionar tudo e exportação imediata da coleção |
+| [`features/14-pasta-vinculada.md`](features/14-pasta-vinculada.md) | Coleção espelhada numa pasta do computador |
 
 ## Como visualizar os diagramas (.puml)
 
