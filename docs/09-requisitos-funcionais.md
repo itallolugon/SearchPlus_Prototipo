@@ -3,7 +3,7 @@
 **Data:** 25/08/2026
 **Escopo:** duas funcionalidades novas — (1) botão de limpar o campo de busca;
 (2) seleção de imagens, coleções e exportação para uma pasta local.
-**Status:** **implementado** (RF-001 … RF-064). Escrito como especificação,
+**Status:** **implementado** (RF-001 … RF-111). Escrito como especificação,
 antes do código: as colunas "Novo/Existente" e o tempo verbal refletem o
 estado de 25/08/2026, quando o documento foi redigido.
 
@@ -274,6 +274,32 @@ seguintes. Detalhes em
 | **RF-093** | Falha na sincronia não pode desfazer a adição à coleção. As duas operações são independentes. | Implementado |
 | **RF-094** | Se a pasta vinculada não existir mais, a sincronia deve falhar com mensagem que oriente a revincular — e **não** desvincular sozinha. | Implementado |
 | **RF-095** | A sincronia deve validar a origem com a mesma regra anti-*path traversal* da exportação (RF-045). | Implementado |
+
+### Pastas geradas
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-096** | Toda pasta criada pelo app para uma coleção deve ser registrada em `collection_folders`, com o caminho absoluto. | Implementado |
+| **RF-097** | Exportar uma coleção deve **vincular** a pasta criada, para que imagens adicionadas depois tenham destino. Uma coleção sem vínculo prévio assume `modo_sync: 'perguntar'`; uma já configurada mantém o modo escolhido. | Implementado |
+| **RF-098** | A tela da coleção deve oferecer **"Abrir pasta exportada"**, que abre a pasta no Explorer. Havendo mais de uma, abre a que recebe novas imagens. | Implementado |
+| **RF-099** | O botão de abrir só aparece quando existe pasta de fato no disco. Um botão que falha ao ser clicado é pior que nenhum botão. | Implementado |
+| **RF-100** | `GET /api/open_folder` deve autorizar apenas caminhos registrados para o usuário — nunca um caminho arbitrário. | Implementado |
+
+### Excluir coleção e pastas
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-101** | Ao excluir uma coleção que gerou pastas, o sistema deve perguntar o que fazer com elas **antes** de excluir. | Implementado |
+| **RF-102** | O diálogo deve listar **todas** as pastas existentes, com nome, caminho completo e quantidade de arquivos, e marcar qual recebe novas imagens. | Implementado |
+| **RF-103** | A escolha é **por pasta**: o usuário marca o que apagar. Apagar uma e manter outra deve ser possível. | Implementado |
+| **RF-104** | Manter as pastas deve ser uma opção de primeira classe — excluir a coleção e preservar os arquivos no disco é uso legítimo. | Implementado |
+| **RF-105** | A exclusão de pastas exige **duas etapas**: o primeiro acionamento apresenta o que será apagado; só o segundo executa. | Implementado |
+| **RF-106** | O aviso da segunda etapa deve informar quantas pastas e quantos arquivos serão apagados, e que **não vão para a Lixeira**. | Implementado |
+| **RF-107** | O backend deve recusar apagar caminho não registrado para aquela coleção e usuário, mesmo que exista no disco. | Implementado |
+| **RF-108** | O backend deve exigir `confirmar: true` e uma lista explícita de caminhos. Não existe "apagar todas" implícito. | Implementado |
+| **RF-109** | Apagar a pasta vinculada deve desvincular a coleção e devolvê-la a `manual`, para a próxima adição não tentar copiar para um caminho morto. | Implementado |
+| **RF-110** | Cancelar o diálogo cancela também a exclusão da coleção. | Implementado |
+| **RF-111** | Excluir pastas e excluir a coleção são operações independentes: uma pode acontecer sem a outra. | Implementado |
 
 ---
 
@@ -555,6 +581,48 @@ Então deve ser exibida mensagem orientando a vincular outra pasta;
 E a coleção deve continuar vinculada — o sistema não desvincula sozinho;
 E as imagens devem permanecer na coleção.
 *Cobre RF-094.*
+
+**CA-039 — Exportar dá memória à coleção**
+Dado uma coleção com 2 imagens exportada para uma pasta;
+Quando o usuário adicionar uma terceira imagem;
+Então a coleção deve continuar apontando para a pasta exportada;
+E a terceira imagem deve poder ir para lá — sozinha ou após confirmação, conforme o modo.
+*Cobre RF-097.*
+
+**CA-040 — Abrir pasta exportada**
+Dado uma coleção com pasta no disco;
+Quando o usuário abrir a coleção;
+Então deve haver um botão "Abrir pasta exportada";
+E acioná-lo deve abrir a pasta no Explorer.
+*Cobre RF-098, RF-099.*
+
+**CA-041 — Excluir coleção mantendo a pasta**
+Dado uma coleção que gerou uma pasta com arquivos;
+Quando o usuário excluir a coleção e escolher manter as pastas;
+Então a coleção deve ser excluída;
+E a pasta e seus arquivos devem permanecer no disco.
+*Cobre RF-101, RF-104.*
+
+**CA-042 — Apagar somente uma pasta**
+Dado uma coleção que gerou duas pastas;
+Quando o usuário marcar apenas a segunda e confirmar as duas etapas;
+Então somente a segunda deve ser apagada;
+E a primeira deve permanecer intacta com seus arquivos.
+*Cobre RF-103, RF-105.*
+
+**CA-043 — Segunda etapa é obrigatória**
+Dado que o usuário marcou uma pasta e acionou apagar;
+Então nada deve ser apagado no primeiro acionamento;
+E deve ser exibido o aviso com a contagem de pastas e arquivos;
+E só o segundo acionamento executa.
+*Cobre RF-105, RF-106.*
+
+**CA-044 — Caminho não registrado é recusado**
+Dado um caminho que existe no disco mas não foi gerado pelo app;
+Quando ele for enviado para exclusão;
+Então nada deve ser apagado;
+E a resposta deve marcá-lo como não autorizado.
+*Cobre RF-107.*
 
 **CA-038 — Vínculo alterável**
 Dado uma coleção vinculada em modo `auto`;

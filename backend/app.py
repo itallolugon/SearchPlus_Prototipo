@@ -2590,6 +2590,31 @@ def api_collections():
 _MODOS_SYNC = {"auto", "perguntar", "manual"}
 
 
+def _registrar_pasta(conn, col_id: int, uid: int, caminho: str) -> None:
+    """
+    Guarda uma pasta gerada para a coleção, sem duplicar.
+
+    Toda pasta que o app cria passa por aqui. É esse registro que sustenta três
+    coisas: abrir a pasta depois, sincronizar novas imagens nela, e — ao
+    excluir a coleção — listar o que existe no disco para o usuário decidir.
+    Sem ele, uma exportação vira um retrato órfão (era o caso antes).
+    """
+    conn.execute(
+        "INSERT INTO collection_folders (collection_id, user_id, caminho) "
+        "VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+        (col_id, uid, os.path.normpath(caminho)),
+    )
+
+
+def _pastas_da_colecao(conn, col_id: int, uid: int):
+    """Caminhos já gerados para a coleção, do mais recente para o mais antigo."""
+    return [r["caminho"] for r in conn.execute(
+        "SELECT caminho FROM collection_folders "
+        "WHERE collection_id = %s AND user_id = %s ORDER BY criado_em DESC",
+        (col_id, uid),
+    ).fetchall()]
+
+
 def _atualizar_colecao(col_id: int, uid: int):
     """
     PATCH da coleção: nome, pasta vinculada e modo de sincronia.
@@ -2643,6 +2668,13 @@ def _atualizar_colecao(col_id: int, uid: int):
         pasta_criada = alvo
         campos.append("pasta_vinculada = %s")
         valores.append(alvo)
+
+        conn_reg = get_db()
+        try:
+            _registrar_pasta(conn_reg, col_id, uid, alvo)
+            conn_reg.commit()
+        finally:
+            conn_reg.close()
 
     elif "pasta_vinculada" in data:
         pasta = data.get("pasta_vinculada")
@@ -3055,6 +3087,25 @@ def api_collection_export(col_id):
         return jsonify({"error": f"Não foi possível criar a pasta da coleção em "
                                  f"{destino}. Escolha outra pasta."}), 400
 
+    # Registra a pasta e passa a apontar para ela. Sem isto, exportar era um
+    # retrato sem memória: as imagens adicionadas DEPOIS não tinham para onde
+    # ir, e o usuário só descobria ao abrir a pasta e não achar as novas.
+    conn = get_db()
+    try:
+        _registrar_pasta(conn, col_id, uid, pasta_final)
+        # Só define o modo se a coleção ainda não tinha vínculo — uma coleção
+        # já configurada mantém a escolha que o usuário fez na criação.
+        conn.execute(
+            "UPDATE collections SET pasta_vinculada = %s, "
+            "modo_sync = CASE WHEN pasta_vinculada IS NULL THEN 'perguntar' "
+            "                 ELSE modo_sync END "
+            "WHERE id = %s AND user_id = %s",
+            (pasta_final, col_id, uid),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
     itens = [
         {"nome": a["nome"], "caminho": a["caminho"],
          "autorizado": _dentro_das_pastas(a["caminho"], pastas)}
@@ -3077,6 +3128,136 @@ def api_collection_export(col_id):
 
     return jsonify({"status": "ok", "job_id": job_id,
                     "total": len(itens), "pasta": pasta_final})
+
+
+@app.route("/api/collections/<int:col_id>/folders", methods=["GET"])
+def api_collection_folders(col_id):
+    """
+    Pastas que o app gerou para esta coleção, com o estado de cada uma.
+
+    Alimenta o diálogo de exclusão: o usuário precisa VER o que existe no disco
+    antes de decidir o que apagar. `existe` distingue a pasta que ainda está lá
+    daquela que o usuário já removeu por fora — apagar já não se aplica.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    conn = get_db()
+    try:
+        col = conn.execute(
+            "SELECT id, pasta_vinculada FROM collections WHERE id = %s AND user_id = %s",
+            (col_id, uid),
+        ).fetchone()
+        if not col:
+            return jsonify({"error": "Coleção não encontrada."}), 404
+        caminhos = _pastas_da_colecao(conn, col_id, uid)
+    finally:
+        conn.close()
+
+    vinculada = os.path.normpath(col["pasta_vinculada"]) if col["pasta_vinculada"] else None
+    pastas = []
+    for c in caminhos:
+        existe = os.path.isdir(c)
+        pastas.append({
+            "caminho": c,
+            "nome": os.path.basename(c),
+            "existe": existe,
+            "vinculada": vinculada == os.path.normpath(c),
+            "arquivos": len(os.listdir(c)) if existe else 0,
+        })
+    return jsonify({"pastas": pastas})
+
+
+@app.route("/api/collections/<int:col_id>/folders", methods=["DELETE"])
+def api_collection_folders_delete(col_id):
+    """
+    Apaga do disco pastas geradas para esta coleção — as que o usuário escolher.
+
+    Operação destrutiva e irreversível: não há lixeira. Por isso três travas:
+
+    1. **Lista fechada.** Só apaga caminho registrado em `collection_folders`
+       para ESTE usuário e ESTA coleção. Um caminho arbitrário no corpo é
+       recusado, mesmo que exista no disco.
+    2. **Escolha explícita.** Exige `caminhos` no corpo. Não existe "apagar
+       todas" implícito — quem quer todas manda todas.
+    3. **Confirmação obrigatória.** Exige `confirmar: true`. O frontend só
+       manda isso depois da segunda etapa do diálogo.
+
+    A coleção NÃO é excluída aqui. São operações separadas de propósito: dá
+    para apagar a pasta e manter a coleção, e vice-versa.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    data = request.get_json(force=True) or {}
+    if data.get("confirmar") is not True:
+        return jsonify({"error": "Confirmação obrigatória para apagar pastas."}), 400
+
+    pedidos = data.get("caminhos")
+    if not isinstance(pedidos, list) or not pedidos:
+        return jsonify({"error": "Escolha ao menos uma pasta."}), 400
+
+    conn = get_db()
+    try:
+        col = conn.execute(
+            "SELECT id FROM collections WHERE id = %s AND user_id = %s", (col_id, uid)
+        ).fetchone()
+        if not col:
+            return jsonify({"error": "Coleção não encontrada."}), 404
+        registradas = {os.path.normpath(c) for c in _pastas_da_colecao(conn, col_id, uid)}
+    finally:
+        conn.close()
+
+    apagadas, falhas = [], []
+    for bruto in pedidos:
+        alvo = os.path.normpath(str(bruto).strip())
+
+        # Trava 1: o caminho tem de ter sido gerado pelo app, para esta coleção.
+        if alvo not in registradas:
+            falhas.append({"caminho": alvo, "motivo": "nao_autorizada"})
+            continue
+
+        if not os.path.isdir(alvo):
+            # Já não está lá: some do registro, sem alarde.
+            conn = get_db()
+            try:
+                conn.execute(
+                    "DELETE FROM collection_folders WHERE collection_id = %s "
+                    "AND user_id = %s AND caminho = %s", (col_id, uid, alvo))
+                conn.commit()
+            finally:
+                conn.close()
+            continue
+
+        try:
+            shutil.rmtree(alvo)
+        except PermissionError:
+            falhas.append({"caminho": alvo, "motivo": "sem_permissao"})
+            continue
+        except OSError as exc:
+            print(f"[PASTAS] erro ao apagar '{alvo}': {type(exc).__name__}: {exc}")
+            falhas.append({"caminho": alvo, "motivo": "erro_ao_apagar"})
+            continue
+
+        apagadas.append(alvo)
+        conn = get_db()
+        try:
+            conn.execute(
+                "DELETE FROM collection_folders WHERE collection_id = %s "
+                "AND user_id = %s AND caminho = %s", (col_id, uid, alvo))
+            # A pasta apagada era o destino da sincronia? Desvincula, senão a
+            # próxima adição tentaria copiar para um caminho que não existe.
+            conn.execute(
+                "UPDATE collections SET pasta_vinculada = NULL, modo_sync = 'manual' "
+                "WHERE id = %s AND user_id = %s AND pasta_vinculada = %s",
+                (col_id, uid, alvo))
+            conn.commit()
+        finally:
+            conn.close()
+
+    return jsonify({"status": "ok", "apagadas": apagadas, "falhas": falhas})
 
 
 @app.route("/api/collections/<int:col_id>/sync", methods=["POST"])
@@ -3232,9 +3413,16 @@ def api_open_folder():
     """
     Abre no Explorer uma pasta criada por exportação desta sessão.
 
-    Diferente de /api/open_location, valida o caminho: só abre pasta que consta
-    em _export_jobs para este usuário. Sem isso, a rota viraria um "abra
-    qualquer caminho do disco" (RF-059).
+    Diferente de /api/open_location, valida o caminho. São autorizadas duas
+    origens, ambas criadas pelo próprio app a pedido do usuário:
+
+    1. pasta de uma exportação desta sessão (`_export_jobs`, em memória);
+    2. qualquer pasta já gerada para o usuário (`collection_folders`, no banco).
+
+    A segunda é o caso do botão "Abrir pasta exportada" — e precisa vir do
+    banco porque o registro sobrevive a reinícios, ao contrário dos jobs.
+    Sem essa lista fechada, a rota viraria um "abra qualquer caminho do
+    disco" (RF-059).
     """
     uid = _uid()
     if not uid:
@@ -3247,6 +3435,19 @@ def api_open_folder():
             j["user_id"] == uid and os.path.normpath(j["pasta"]) == caminho
             for j in _export_jobs.values()
         )
+
+    if not autorizado:
+        conn = get_db()
+        try:
+            registradas = conn.execute(
+                "SELECT caminho FROM collection_folders WHERE user_id = %s", (uid,)
+            ).fetchall()
+        finally:
+            conn.close()
+        autorizado = any(
+            os.path.normpath(r["caminho"]) == caminho for r in registradas
+        )
+
     if not autorizado:
         return jsonify({"error": "Pasta não autorizada."}), 403
 

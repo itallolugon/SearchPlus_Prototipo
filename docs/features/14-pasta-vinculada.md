@@ -2,7 +2,7 @@
 
 **Data:** 29/08/2026
 **Branch:** `feature/selecionar-todas-e-exportacao-imediata`
-**Requisitos:** RF-080 … RF-095 · CA-032 … CA-038 ·
+**Requisitos:** RF-080 … RF-111 · CA-032 … CA-044 ·
 [`../09-requisitos-funcionais.md`](../09-requisitos-funcionais.md)
 **Status:** implementado.
 
@@ -270,6 +270,86 @@ O import subiu para o topo do módulo.
 | `tests/unit/test_pasta_vinculada.py` | Novo — 26 testes |
 | `tests/unit/test_endpoints_dados.py` | Mocks com as colunas novas |
 | `tests/load/locustfile.py` | Tarefa do fluxo vinculado |
+
+---
+
+## 7-A. Pastas geradas, abrir e excluir
+
+Adicionado depois, ao aparecer um caso concreto: uma coleção exportada, uma
+imagem adicionada em seguida — e a imagem não apareceu na pasta.
+
+### O bug
+
+`/export` criava a pasta e **não guardava o caminho em lugar nenhum**. A
+exportação era um retrato sem memória: as imagens adicionadas depois não
+tinham destino, e o usuário só descobria ao abrir a pasta e não achar as novas.
+
+**Correção:** exportar agora registra a pasta e passa a apontar para ela. Uma
+coleção sem vínculo prévio assume `perguntar`; uma já configurada mantém o
+modo que o usuário escolheu.
+
+### Tabela `collection_folders`
+
+Uma coleção pode ter **várias** pastas: exportar duas vezes cria `Natureza` e
+`Natureza (1)`. `collections.pasta_vinculada` aponta para a que recebe novas
+imagens; a tabela guarda o conjunto completo.
+
+Ela sustenta três coisas que antes eram impossíveis:
+
+1. **Abrir a pasta** — o app precisa saber onde ela está.
+2. **Autorizar a abertura** — `/api/open_folder` só aceita caminho registrado.
+3. **Excluir com escolha** — listar o que existe no disco.
+
+### Abrir pasta exportada
+
+Botão na tela da coleção. Só aparece quando há pasta de fato no disco: um botão
+que dá erro ao ser clicado é pior que nenhum botão. Com mais de uma pasta,
+abre a que recebe novas imagens e mostra a contagem no rótulo.
+
+### Excluir coleção → escolher o que fazer com as pastas
+
+```
+┌────────────────────────────────────────────────────┐
+│ Excluir também as pastas?                          │
+│                                                    │
+│ A coleção "animes03" gerou estas 2 pastas no seu   │
+│ computador. Marque o que quiser apagar — o que     │
+│ ficar desmarcado permanece no disco.               │
+│                                                    │
+│  ☐ animes03  [recebe novas]                        │
+│     D:\Fotosnimes03                              │
+│     3 arquivos                                     │
+│  ☑ animes03                                        │
+│     E:\Backupnimes03                             │
+│     3 arquivos                                     │
+│                                                    │
+│  [Cancelar]  [Manter as pastas]  [Apagar marcadas] │
+└────────────────────────────────────────────────────┘
+```
+
+**Duas etapas.** O primeiro acionamento de "Apagar" só mostra o aviso — quantas
+pastas, quantos arquivos, e que **não vão para a Lixeira**. O botão vira
+"Confirmar exclusão". Só o segundo executa.
+
+**Manter as pastas é opção de primeira classe**, não um cancelamento
+disfarçado: excluir a coleção e preservar os arquivos é uso legítimo — foi
+justamente o pedido.
+
+### Travas do backend
+
+`DELETE /folders` apaga arquivo sem lixeira. Três travas, todas obrigatórias:
+
+| Trava | Efeito |
+|---|---|
+| Lista fechada | Só apaga caminho registrado para **esta** coleção e **este** usuário. Caminho arbitrário existente no disco → `nao_autorizada` |
+| Escolha explícita | `caminhos` obrigatório; não existe "apagar todas" implícito |
+| Confirmação | `confirmar: true` obrigatório, e precisa ser booleano — a string `"true"` é recusada |
+
+Apagar a pasta vinculada desvincula a coleção e a devolve a `manual`, senão a
+próxima adição tentaria copiar para um caminho morto.
+
+Excluir pastas e excluir a coleção são **operações separadas**: uma acontece
+sem a outra, nos dois sentidos.
 
 ---
 

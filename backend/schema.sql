@@ -76,6 +76,24 @@ CREATE TABLE IF NOT EXISTS collections (
 ALTER TABLE collections ADD COLUMN IF NOT EXISTS pasta_vinculada TEXT;
 ALTER TABLE collections ADD COLUMN IF NOT EXISTS modo_sync TEXT NOT NULL DEFAULT 'manual';
 
+-- Histórico de TODAS as pastas que o app gerou para uma coleção.
+-- Exportar duas vezes cria "Natureza" e "Natureza (1)": as duas ficam aqui.
+-- `collections.pasta_vinculada` aponta para a que recebe novas imagens; esta
+-- tabela é o conjunto completo, usado ao excluir a coleção para o usuário
+-- escolher, pasta a pasta, o que apagar do disco e o que preservar.
+-- É também a lista de caminhos que /api/open_folder aceita abrir.
+CREATE TABLE IF NOT EXISTS collection_folders (
+    id            SERIAL PRIMARY KEY,
+    collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    caminho       TEXT NOT NULL,
+    criado_em     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (collection_id, caminho)
+);
+
+CREATE INDEX IF NOT EXISTS collection_folders_col_idx ON collection_folders (collection_id);
+CREATE INDEX IF NOT EXISTS collection_folders_user_idx ON collection_folders (user_id);
+
 -- Relação N:N entre coleções e arquivos
 CREATE TABLE IF NOT EXISTS collection_files (
     collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,

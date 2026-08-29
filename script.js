@@ -2416,6 +2416,7 @@ document.addEventListener('keydown', (e) => {
         const ml = document.getElementById('menuLateral');
         if (ml && ml.classList.contains('aberto')) { fecharMenuLateral(); return; }
         const fechaveis = [
+            ['pastasColecaoModal', () => { if (typeof fecharPastasColecao === 'function') fecharPastasColecao(); }],
             ['vincularPastaModal', () => { if (typeof fecharVincularPasta === 'function') fecharVincularPasta(); }],
             ['exportModal', () => { if (typeof fecharExportacao === 'function') fecharExportacao(); }],
             ['escolherColecaoModal', () => { if (typeof fecharEscolherColecao === 'function') fecharEscolherColecao(); }],
@@ -2683,12 +2684,193 @@ async function criarColecao() {
 }
 
 async function excluirColecao(id, nome) {
-    if (!await confirmarAcao("Excluir coleção", `Excluir a coleção "${nome}"? Os arquivos não são apagados, só a coleção.`, "Excluir")) return;
+    if (!await confirmarAcao("Excluir coleção",
+        `Excluir a coleção "${nome}"? As imagens originais não são apagadas.`,
+        "Excluir")) return;
+
+    // Etapa 2: se a coleção gerou pastas no disco, o usuário precisa VER quais
+    // são e decidir uma a uma. Excluir a coleção não pode apagar pasta em
+    // silêncio — e manter a pasta é uma escolha legítima, não um resto.
+    let pastas = [];
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/collections/${id}/folders`);
+        if (r.ok) pastas = ((await r.json()).pastas || []).filter(p => p.existe);
+    } catch (e) { console.error(e); }   // sem a lista, segue como antes
+
+    if (pastas.length > 0) {
+        const decisao = await perguntarSobrePastas(id, nome, pastas);
+        if (decisao === 'cancelado') return;   // desistiu: coleção continua
+    }
+
     try {
         await fetch(`${API_BASE_URL}/api/collections/${id}`, { method: 'DELETE' });
         toastInfo(`Coleção "${nome}" excluída.`);
         carregarColecoes();
     } catch (e) { console.error(e); toastErro("Não foi possível excluir."); }
+}
+
+// ── Diálogo de pastas geradas ──────────────────────────────────────────────
+// Duas etapas: a primeira lista o que existe no disco e deixa marcar; a
+// segunda cobra uma confirmação explícita, porque apagar não tem volta.
+let _pastasCtx = null;
+
+function perguntarSobrePastas(colId, nomeColecao, pastas) {
+    return new Promise((resolve) => {
+        _pastasCtx = { colId, nome: nomeColecao, pastas, resolve, confirmando: false };
+
+        document.getElementById('pastasTitulo').textContent =
+            pastas.length === 1 ? 'Excluir também a pasta?' : 'Excluir também as pastas?';
+        document.getElementById('pastasTexto').textContent =
+            `A coleção "${nomeColecao}" gerou ${pastas.length === 1 ? 'esta pasta' : `estas ${pastas.length} pastas`} ` +
+            `no seu computador. Marque o que quiser apagar — o que ficar desmarcado permanece no disco.`;
+
+        const lista = document.getElementById('pastasLista');
+        lista.innerHTML = '';
+        pastas.forEach((p, i) => {
+            const item = document.createElement('label');
+            item.className = 'pasta-item';
+
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.dataset.idx = i;
+            cb.setAttribute('aria-label', `Apagar a pasta ${p.nome}`);
+
+            const info = document.createElement('div');
+            info.className = 'pasta-item-info';
+
+            const nome = document.createElement('span');
+            nome.className = 'pasta-item-nome';
+            nome.textContent = p.nome;
+            if (p.vinculada) {
+                const selo = document.createElement('span');
+                selo.className = 'pasta-item-selo';
+                selo.textContent = 'recebe novas';
+                nome.appendChild(selo);
+            }
+
+            const caminho = document.createElement('span');
+            caminho.className = 'pasta-item-caminho';
+            caminho.textContent = p.caminho;
+
+            const meta = document.createElement('span');
+            meta.className = 'pasta-item-meta';
+            meta.textContent = `${p.arquivos} ${p.arquivos === 1 ? 'arquivo' : 'arquivos'}`;
+
+            info.append(nome, caminho, meta);
+            item.append(cb, info);
+            lista.appendChild(item);
+        });
+
+        document.getElementById('pastasAviso').style.display = 'none';
+        document.getElementById('pastasApagar').textContent = 'Apagar selecionadas';
+        document.getElementById('pastasColecaoModal').style.display = 'flex';
+    });
+}
+
+function _pastasMarcadas() {
+    return [...document.querySelectorAll('#pastasLista input[type="checkbox"]:checked')]
+        .map(cb => _pastasCtx.pastas[Number(cb.dataset.idx)]);
+}
+
+async function confirmarExclusaoPastas(apagar) {
+    if (!_pastasCtx) return;
+
+    if (!apagar) {                       // "Manter as pastas"
+        _fecharPastas('manteve');
+        return;
+    }
+
+    const escolhidas = _pastasMarcadas();
+    if (escolhidas.length === 0) {
+        toastAviso('Marque ao menos uma pasta, ou escolha "Manter as pastas".');
+        return;
+    }
+
+    // ETAPA 2 — o primeiro clique só avisa; o segundo executa.
+    if (!_pastasCtx.confirmando) {
+        _pastasCtx.confirmando = true;
+        const aviso = document.getElementById('pastasAviso');
+        const total = escolhidas.reduce((s, p) => s + p.arquivos, 0);
+        aviso.textContent =
+            `Isto apaga ${escolhidas.length === 1 ? 'a pasta' : `${escolhidas.length} pastas`} ` +
+            `e ${total} ${total === 1 ? 'arquivo' : 'arquivos'} do seu computador, sem ir para a ` +
+            `Lixeira. Os originais nas pastas monitoradas não são tocados. ` +
+            `Clique novamente para confirmar.`;
+        aviso.style.display = 'block';
+        document.getElementById('pastasApagar').textContent = 'Confirmar exclusão';
+        return;
+    }
+
+    const { colId, nome } = _pastasCtx;
+    const caminhos = escolhidas.map(p => p.caminho);
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/collections/${colId}/folders`, {
+            method: 'DELETE', headers: fetchOptions.headers,
+            body: JSON.stringify({ caminhos, confirmar: true })
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { toastErro(d.error || 'Não foi possível apagar as pastas.'); return; }
+
+        const n = (d.apagadas || []).length;
+        const falhas = (d.falhas || []).length;
+        if (n > 0 && falhas === 0)      toastOk(`${n} ${n === 1 ? 'pasta apagada' : 'pastas apagadas'}.`);
+        else if (n > 0)                 toastAviso(`${n} ${n === 1 ? 'apagada' : 'apagadas'} — ${falhas} não ${falhas === 1 ? 'pôde' : 'puderam'} ser apagada(s).`);
+        else                            toastErro('Nenhuma pasta pôde ser apagada.');
+    } catch (e) { console.error(e); toastErro('Erro de conexão.'); return; }
+
+    _fecharPastas('apagou');
+}
+
+function _fecharPastas(resultado) {
+    document.getElementById('pastasColecaoModal').style.display = 'none';
+    const ctx = _pastasCtx;
+    _pastasCtx = null;
+    if (ctx) ctx.resolve(resultado);
+}
+
+function fecharPastasColecao() {
+    // Cancelar aqui cancela a exclusão da COLEÇÃO também: o usuário voltou
+    // atrás no meio de uma operação destrutiva.
+    if (_pastasCtx) _fecharPastas('cancelado');
+    else document.getElementById('pastasColecaoModal').style.display = 'none';
+}
+
+// O botão só existe se houver pasta de verdade no disco. Mostrar um "abrir
+// pasta" que dá erro ao clicar é pior do que não mostrar nada.
+async function atualizarBotaoAbrirPasta(colId) {
+    const btn = document.getElementById('btnAbrirPastaColecao');
+    if (!btn) return;
+    btn.style.display = 'none';
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/collections/${colId}/folders`);
+        if (!r.ok) return;
+        const pastas = ((await r.json()).pastas || []).filter(p => p.existe);
+        if (pastas.length === 0) return;
+
+        const alvo = pastas.find(p => p.vinculada) || pastas[0];
+        btn.style.display = 'inline-block';
+        btn.textContent = pastas.length > 1
+            ? `📂 Abrir pasta exportada (${pastas.length})`
+            : '📂 Abrir pasta exportada';
+        btn.title = `Abrir no Explorer: ${alvo.caminho}`;
+    } catch (e) { console.error(e); }
+}
+
+// Abre no Explorer a pasta desta coleção. Com mais de uma, abre a que recebe
+// novas imagens; sem vínculo, a mais recente.
+async function abrirPastaDaColecao() {
+    if (!_colecaoAtual.id) return;
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/collections/${_colecaoAtual.id}/folders`);
+        if (!r.ok) { toastErro('Não foi possível localizar a pasta.'); return; }
+        const pastas = ((await r.json()).pastas || []).filter(p => p.existe);
+        if (pastas.length === 0) {
+            toastAviso('Esta coleção ainda não tem pasta no computador. Use "Exportar coleção".');
+            return;
+        }
+        const alvo = pastas.find(p => p.vinculada) || pastas[0];
+        await abrirPastaExportada(alvo.caminho);
+    } catch (e) { console.error(e); toastErro('Erro de conexão.'); }
 }
 
 let _colecaoAtual = { id: null, nome: '' };
@@ -2699,6 +2881,7 @@ async function verColecao(id, nome) {
     document.getElementById('colecoesLista').style.display = 'none';
     document.getElementById('colecoesCriar').style.display = 'none';
     document.getElementById('colecaoConteudo').style.display = 'block';
+    atualizarBotaoAbrirPasta(id);
     const grid = document.getElementById('colecaoItens');
     grid.innerHTML = '<p style="color:var(--text-secondary);">Carregando...</p>';
     try {

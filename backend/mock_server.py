@@ -631,6 +631,9 @@ def collection_detail(col_id):
             # Devolve o caminho que o backend real criaria.
             base = str(data["criar_pasta_em"]).rstrip("\\/")
             col["pasta_vinculada"] = base + "\\" + col["nome"]
+            col.setdefault("pastas_geradas", [])
+            if col["pasta_vinculada"] not in col["pastas_geradas"]:
+                col["pastas_geradas"].append(col["pasta_vinculada"])
             campos += 1
         elif "pasta_vinculada" in data:
             pasta = data.get("pasta_vinculada")
@@ -708,6 +711,65 @@ def collection_files(col_id):
                     "ids_adicionados": adicionados_ids,
                     "pasta_vinculada": col.get("pasta_vinculada"),
                     "modo_sync": col.get("modo_sync", "manual")})
+
+
+@app.route("/api/collections/<int:col_id>/folders", methods=["GET"])
+def collection_folders(col_id):
+    """Pastas geradas — SIMULADAS. Nada é lido do disco de quem desenvolve."""
+    if not _logado():
+        return _nao_autenticado()
+    col = next((c for c in _COLECOES if c["id"] == col_id), None)
+    if not col:
+        return jsonify({"error": "Coleção não encontrada."}), 404
+
+    geradas = col.get("pastas_geradas") or []
+    vinc = col.get("pasta_vinculada")
+    return jsonify({"pastas": [
+        {"caminho": c, "nome": c.rstrip("\\/").split("\\")[-1],
+         "existe": True, "vinculada": c == vinc,
+         "arquivos": len(col["files"])}
+        for c in geradas
+    ]})
+
+
+@app.route("/api/collections/<int:col_id>/folders", methods=["DELETE"])
+def collection_folders_delete(col_id):
+    """
+    Exclusão de pastas — SIMULADA. NENHUM diretório é removido do disco.
+
+    O mock existe para desenvolver a interface; um mock que apaga pasta de
+    verdade na máquina de quem programa seria a pior armadilha possível.
+    As travas de contrato (confirmação e lista fechada) são reproduzidas,
+    para o frontend exercitar os caminhos de recusa.
+    """
+    if not _logado():
+        return _nao_autenticado()
+
+    data = request.get_json(force=True, silent=True) or {}
+    if data.get("confirmar") is not True:
+        return jsonify({"error": "Confirmação obrigatória para apagar pastas."}), 400
+
+    pedidos = data.get("caminhos")
+    if not isinstance(pedidos, list) or not pedidos:
+        return jsonify({"error": "Escolha ao menos uma pasta."}), 400
+
+    col = next((c for c in _COLECOES if c["id"] == col_id), None)
+    if not col:
+        return jsonify({"error": "Coleção não encontrada."}), 404
+
+    geradas = col.get("pastas_geradas") or []
+    apagadas, falhas = [], []
+    for c in pedidos:
+        if c in geradas:
+            geradas.remove(c)
+            apagadas.append(c)
+            if col.get("pasta_vinculada") == c:
+                col["pasta_vinculada"] = None
+                col["modo_sync"] = "manual"
+        else:
+            falhas.append({"caminho": c, "motivo": "nao_autorizada"})
+    col["pastas_geradas"] = geradas
+    return jsonify({"status": "ok", "apagadas": apagadas, "falhas": falhas})
 
 
 @app.route("/api/collections/<int:col_id>/sync", methods=["POST"])
@@ -795,6 +857,17 @@ def collection_export(col_id):
         "total": len(col["files"]), "inicio": time.time(),
         "cancelado": False, "cancelado_em": 0,
     }
+
+    # Registra e vincula, como o backend real. Sem isto o mock reproduziria o
+    # bug que a feature corrige: exportar sem memória, e as imagens
+    # adicionadas depois não teriam para onde ir.
+    col.setdefault("pastas_geradas", [])
+    if pasta not in col["pastas_geradas"]:
+        col["pastas_geradas"].append(pasta)
+    if not col.get("pasta_vinculada"):
+        col["pasta_vinculada"] = pasta
+        col["modo_sync"] = "perguntar"
+
     return jsonify({"status": "ok", "job_id": job_id,
                     "total": len(col["files"]), "pasta": pasta})
 

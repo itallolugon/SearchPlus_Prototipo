@@ -453,6 +453,44 @@ presentes no corpo — mandar só `modo_sync` não desvincula a pasta.
 
 Enviar `"pasta_vinculada": null` desvincula e devolve a coleção a `manual`.
 
+#### `GET /api/collections/<id>/folders`
+
+Pastas que o app gerou para esta coleção. Alimenta o botão "Abrir pasta
+exportada" e o diálogo de exclusão.
+
+```json
+{ "pastas": [
+    { "caminho": "D:\\Fotos\\Natureza", "nome": "Natureza",
+      "existe": true, "vinculada": true, "arquivos": 12 }
+] }
+```
+
+`vinculada` marca a pasta que recebe novas imagens. `existe` é `false` quando
+o usuário apagou a pasta por fora — o registro fica, mas não há o que abrir.
+
+#### `DELETE /api/collections/<id>/folders`
+
+Apaga do disco as pastas escolhidas. **Irreversível — não há lixeira.**
+
+```json
+{ "caminhos": ["D:\\Fotos\\Natureza (1)"], "confirmar": true }
+```
+
+→ `{"status": "ok", "apagadas": ["…"], "falhas": []}`
+· `400` sem `confirmar: true` ou sem `caminhos` · `404`
+
+Três travas, todas obrigatórias:
+
+| Trava | Efeito |
+|---|---|
+| Lista fechada | Só apaga caminho registrado para **esta** coleção e **este** usuário. Caminho arbitrário → `nao_autorizada` |
+| Escolha explícita | `caminhos` é obrigatório; não existe "apagar todas" implícito |
+| Confirmação | `confirmar: true` é obrigatório |
+
+A coleção **não** é excluída por esta rota. São operações separadas: dá para
+apagar a pasta e manter a coleção, e vice-versa. Apagar a pasta vinculada
+desvincula a coleção e a devolve a `modo_sync: "manual"`.
+
 #### `POST /api/collections/<id>/sync`
 
 Copia arquivos da coleção para a pasta **já vinculada**. Difere de `/export`:

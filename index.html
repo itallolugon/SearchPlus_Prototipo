@@ -762,6 +762,29 @@
         </div>
     </div>
 
+    <!-- Modal: o que fazer com as pastas ao excluir a coleção -->
+    <div id="pastasColecaoModal" class="modal" style="z-index: 10005;">
+        <div class="modal-content" style="max-width: 560px;">
+            <h3 id="pastasTitulo" style="margin:0 0 10px 0; color:var(--text-primary); font-size:1.3rem;">
+                Excluir também as pastas?
+            </h3>
+            <p id="pastasTexto" style="color:var(--text-secondary); font-size:0.95rem; line-height:1.5; margin:0 0 16px 0;"></p>
+
+            <div id="pastasLista" class="pastas-lista"></div>
+
+            <p id="pastasAviso" class="pastas-aviso" style="display:none;"></p>
+
+            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:18px; flex-wrap:wrap;">
+                <button id="pastasCancelar" class="action-btn" style="background:transparent;"
+                        onclick="fecharPastasColecao()">Cancelar</button>
+                <button id="pastasManter" class="action-btn"
+                        onclick="confirmarExclusaoPastas(false)">Manter as pastas</button>
+                <button id="pastasApagar" class="action-btn" onclick="confirmarExclusaoPastas(true)"
+                        style="background:#ef4444; border-color:#ef4444; color:#fff;">Apagar selecionadas</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal: vincular coleção a uma pasta do computador -->
     <div id="vincularPastaModal" class="modal" style="z-index: 10004;">
         <div class="modal-content" style="max-width: 520px;">
@@ -882,7 +905,12 @@
             <div id="colecaoConteudo" style="display:none;">
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px;">
                     <button class="action-btn" onclick="abrirColecoes()" style="margin:0; padding:8px 14px;">← Voltar às coleções</button>
-                    <button class="action-btn gradient-btn" onclick="exportarColecao()" style="margin:0; padding:8px 16px;" title="Salvar as imagens desta coleção numa pasta do computador">⬇ Exportar coleção</button>
+                    <div style="display:flex; gap:8px;">
+                        <button id="btnAbrirPastaColecao" class="action-btn" onclick="abrirPastaDaColecao()"
+                                style="margin:0; padding:8px 14px; background:transparent; display:none;"
+                                title="Abrir no Explorer a pasta exportada desta coleção">📂 Abrir pasta exportada</button>
+                        <button class="action-btn gradient-btn" onclick="exportarColecao()" style="margin:0; padding:8px 16px;" title="Salvar as imagens desta coleção numa pasta do computador">⬇ Exportar coleção</button>
+                    </div>
                 </div>
                 <div id="colecaoItens" class="recent-grid"></div>
             </div>
