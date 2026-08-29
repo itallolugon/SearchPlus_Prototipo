@@ -471,6 +471,19 @@ body {
 .barra-selecao #selecaoContador { color: var(--text-primary); font-weight: 600; white-space: nowrap; }
 .barra-selecao-acoes { display: flex; gap: 10px; }
 
+/* Barra de ações acima do grid: contagem + selecionar tudo */
+.resultados-acoes {
+    display: flex; align-items: center; justify-content: center;
+    gap: 16px; flex-wrap: wrap;
+    max-width: 1400px; margin: 0 auto; padding: 0 40px 4px;
+}
+.resultados-resumo { color: var(--text-secondary); font-size: 0.95rem; white-space: nowrap; }
+.btn-selecionar-todos { padding: 8px 18px; font-size: 0.9rem; background: transparent; white-space: nowrap; }
+.btn-selecionar-todos.is-ativo {
+    background: var(--accent-primary); color: var(--btn-text-color); border-color: var(--accent-primary);
+}
+.btn-selecionar-todos:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+
 /* Progresso e resultado da exportação */
 .export-barra-trilha { width: 100%; height: 12px; background: rgba(0,0,0,0.35); border-radius: 8px; overflow: hidden; border: 1px solid var(--border-light); }
 .export-barra-preenchida { height: 100%; width: 0; border-radius: 8px; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); transition: width 0.3s ease; }
@@ -484,6 +497,8 @@ body {
     .barra-selecao { flex-direction: column; gap: 12px; border-radius: 20px; width: calc(100% - 32px); bottom: 70px; }
     .barra-selecao-acoes { width: 100%; flex-direction: column; }
     .barra-selecao-acoes .action-btn { width: 100%; }
+    .resultados-acoes { padding: 0 16px 4px; gap: 10px; }
+    .btn-selecionar-todos { min-height: 44px; }   /* alvo de toque */
 }
 
 /* ==========================================

@@ -201,6 +201,38 @@ de testes. Valem para **todo** endpoint novo proposto na seção 4.
 
 ---
 
+## 4-A. Seleção em massa e exportação imediata
+
+Evolução de fluxo sobre o que as seções 2 a 4 já definem. Detalhes de
+implementação em [`features/13-selecao-em-massa.md`](features/13-selecao-em-massa.md).
+
+### Selecionar tudo
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-065** | A tela de resultados deve oferecer uma ação para selecionar de uma vez **todas as imagens elegíveis atualmente exibidas**. | Implementado |
+| **RF-066** | "Tudo" é o conjunto dos resultados da busca atual que passam pelo filtro ativo — **não** o acervo inteiro. O `/api/search` devolve a lista completa numa resposta só (sem paginação, sem *scroll* infinito, sem virtualização), então "carregado" e "exibido" coincidem. | Implementado |
+| **RF-067** | O mesmo controle deve desfazer a seleção em massa quando tudo já estiver selecionado, alternando o rótulo entre *Selecionar tudo* e *Desmarcar tudo*. | Implementado |
+| **RF-068** | Com seleção parcial, o controle deve exibir *Selecionar tudo* e, ao ser acionado, **completar** a seleção em vez de invertê-la. | Implementado |
+| **RF-069** | A interface deve exibir a contagem de resultados e, havendo seleção, quantos estão marcados. | Implementado |
+| **RF-070** | A seleção em massa e a individual compartilham o mesmo estado: desmarcar um card depois de "selecionar tudo" deve refletir no contador e no rótulo do botão, e remarcá-lo deve devolver o estado anterior. | Implementado |
+| **RF-071** | Sem resultados, a barra de ações deve ficar oculta — não há o que selecionar. | Implementado |
+| **RF-072** | A elegibilidade de cada item segue a regra de seleção já existente (RF-013). A seleção em massa **não** cria nem relaxa critério próprio. | Implementado |
+
+### Exportação imediata
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-073** | Concluída a adição de imagens a uma coleção — nova ou existente — a interface deve oferecer a exportação daquela coleção, sem exigir navegação até a área de Coleções. | Implementado |
+| **RF-074** | A oferta é **opcional**: recusar mantém o usuário exatamente onde estava, com a coleção já atualizada. | Implementado |
+| **RF-075** | A exportação imediata deve reutilizar `exportarColecao()`, o mesmo caminho do modal de Coleções. É proibido um segundo mecanismo de exportação. | Implementado |
+| **RF-076** | A exportação deve usar o estado **atual** da coleção: adicionar 5 a uma coleção de 10 e exportar deve produzir 15 arquivos. | Implementado |
+| **RF-077** | A confirmação deve informar o total de itens da coleção após a atualização. Falha ao obter esse total não pode bloquear a oferta. | Implementado |
+| **RF-078** | Recusar, cancelar ou falhar a exportação **não** pode desfazer a adição. As associações em `collection_files` permanecem íntegras. | Implementado |
+| **RF-079** | Coleção que fique vazia após a operação não deve receber oferta de exportação. | Implementado |
+
+---
+
 ## 5. Critérios de aceite
 
 Formato Dado/Quando/Então. Todos verificáveis manualmente com o app rodando.
@@ -392,6 +424,49 @@ Quando `pytest tests/integration/test_paridade_mock.py` for executado;
 Então ele deve passar;
 E nenhuma rota `/api/` pode existir só no backend real, só no mock, ou só no `docs/API.md`.
 *Cobre RF-061, RF-062.*
+
+### Seleção em massa e exportação imediata
+
+**CA-026 — Selecionar tudo**
+Dado que uma pesquisa retornou 7 imagens elegíveis;
+Quando o usuário acionar "Selecionar tudo";
+Então as 7 devem ficar marcadas;
+E o contador deve exibir "7 selecionadas";
+E o botão deve passar a exibir "Desmarcar tudo".
+*Cobre RF-065, RF-067, RF-069.*
+
+**CA-027 — Completar seleção parcial**
+Dado que 1 de 7 imagens está marcada manualmente;
+Quando o usuário acionar "Selecionar tudo";
+Então as 7 devem ficar marcadas — a já marcada não pode ser desmarcada.
+*Cobre RF-068.*
+
+**CA-028 — Sincronia com a seleção individual**
+Dado que todas as 7 estão selecionadas e o botão exibe "Desmarcar tudo";
+Quando o usuário desmarcar uma imagem no card;
+Então o contador deve exibir "6 selecionadas";
+E o botão deve voltar a "Selecionar tudo";
+E ao remarcar essa imagem, deve voltar a "Desmarcar tudo".
+*Cobre RF-070.*
+
+**CA-029 — Sem resultados**
+Dado que a pesquisa não retornou nada;
+Então a barra de ações dos resultados não deve estar visível.
+*Cobre RF-071.*
+
+**CA-030 — Exportação imediata**
+Dado que o usuário adicionou imagens a uma coleção;
+Quando a adição for concluída;
+Então deve ser oferecida a exportação daquela coleção;
+E aceitar deve acionar o mesmo fluxo de exportação do modal de Coleções.
+*Cobre RF-073, RF-075.*
+
+**CA-031 — Recusar preserva tudo**
+Dado que a oferta de exportação foi exibida;
+Quando o usuário escolher continuar pesquisando;
+Então nenhuma exportação deve ser iniciada;
+E a coleção deve manter todas as imagens adicionadas.
+*Cobre RF-074, RF-078.*
 
 **CA-025 — Mock não escreve em disco**
 Dado o servidor mock rodando (`py backend/mock_server.py`);

@@ -2748,7 +2748,13 @@ def _sanitizar_nome(nome: str, padrao: str = "sem_nome", limite: int = 120) -> s
     if len(limpo) > limite:
         limpo = limpo[:limite].rstrip(". ")
 
-    return limpo or padrao
+    # Um nome que virou só separadores ("///:::" → "______") é tecnicamente
+    # válido, mas não diz nada a quem for abrir a pasta. Sem nenhum caractere
+    # alfanumérico sobrando, o padrão é mais útil (RF-039).
+    if not any(c.isalnum() for c in limpo):
+        return padrao
+
+    return limpo
 
 
 def _nome_disponivel(pasta: str, nome_arquivo: str) -> str:

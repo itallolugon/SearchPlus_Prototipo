@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from urllib.parse import urlparse
 
 from locust import HttpUser, LoadTestShape, between, events, task
@@ -144,6 +145,105 @@ class UsuarioDoSearchPlus(HttpUser):
     @task(1)
     def consultar_status_do_motor(self):
         self.client.get("/api/status", name="/api/status")
+
+    @task(3)
+    def selecionar_tudo_e_adicionar_em_lote(self):
+        """
+        O fluxo que "selecionar tudo" cria: uma busca, e todos os resultados
+        indo de uma vez para uma coleção.
+
+        É a requisição de maior payload do produto — a lista de ids cresce com o
+        tamanho do resultado. Medir aqui é o que evita descobrir em produção que
+        uma busca com 200 imagens estoura o tempo do INSERT em lote.
+        """
+        consulta = CONSULTAS[UsuarioDoSearchPlus._contador % len(CONSULTAS)]
+        r = self.client.post(
+            "/api/search", json={"query": consulta, "filtro": "all"}, name="/api/search"
+        )
+        if r.status_code != 200:
+            return
+        ids = [item["id"] for item in (r.json() or {}).get("resultados", []) if item.get("id")]
+        if not ids:
+            return
+
+        col = self.client.post(
+            "/api/collections",
+            json={"nome": f"carga-{UsuarioDoSearchPlus._contador}-{time.time_ns()}"},
+            name="/api/collections (criar)",
+        )
+        # 409 = nome repetido; qualquer coisa fora de 200 não dá id para seguir.
+        if col.status_code != 200:
+            return
+        col_id = (col.json() or {}).get("id")
+        if not col_id:
+            return
+
+        with self.client.post(
+            f"/api/collections/{col_id}/files",
+            json={"file_ids": ids},
+            catch_response=True,
+            name="/api/collections/[id]/files (lote)",
+        ) as add:
+            if add.status_code != 200:
+                add.failure(f"HTTP {add.status_code}")
+            elif "adicionados" not in (add.json() or {}):
+                add.failure("resposta sem o campo 'adicionados'")
+            else:
+                add.success()
+
+        # A confirmação de exportação imediata relê a coleção para mostrar o
+        # total: entra na medição porque acontece a cada adição em lote.
+        self.client.get(f"/api/collections/{col_id}", name="/api/collections/[id]")
+
+        # Não deixa lixo acumulando no banco entre execuções.
+        self.client.delete(f"/api/collections/{col_id}", name="/api/collections/[id] (excluir)")
+
+    @task(2)
+    def readicionar_lote_ja_existente(self):
+        """
+        Re-adicionar o mesmo lote: o caminho 100% idempotente.
+
+        Custa um INSERT ... ON CONFLICT DO NOTHING que não grava nada. Se este
+        ficar lento, o gargalo é o próprio lote — não a escrita.
+        """
+        # A consulta precisa devolver resultados, senão a tarefa sai sem medir
+        # nada — e some silenciosamente do relatório. CONSULTAS é a mesma lista
+        # que a task `buscar` usa, então acompanha o acervo do alvo.
+        consulta = CONSULTAS[UsuarioDoSearchPlus._contador % len(CONSULTAS)]
+        r = self.client.post(
+            "/api/search", json={"query": consulta, "filtro": "all"}, name="/api/search"
+        )
+        if r.status_code != 200:
+            return
+        ids = [item["id"] for item in (r.json() or {}).get("resultados", []) if item.get("id")]
+        if not ids:
+            return
+
+        col = self.client.post(
+            "/api/collections",
+            json={"nome": f"carga-dup-{UsuarioDoSearchPlus._contador}-{time.time_ns()}"},
+            name="/api/collections (criar)",
+        )
+        if col.status_code != 200:
+            return
+        col_id = (col.json() or {}).get("id")
+        if not col_id:
+            return
+
+        rota = f"/api/collections/{col_id}/files"
+        self.client.post(rota, json={"file_ids": ids}, name="/api/collections/[id]/files (lote)")
+        with self.client.post(
+            rota, json={"file_ids": ids}, catch_response=True,
+            name="/api/collections/[id]/files (lote repetido)",
+        ) as dup:
+            if dup.status_code != 200:
+                dup.failure(f"HTTP {dup.status_code}")
+            elif (dup.json() or {}).get("adicionados") != 0:
+                dup.failure("re-adicionar duplicou itens na coleção")
+            else:
+                dup.success()
+
+        self.client.delete(f"/api/collections/{col_id}", name="/api/collections/[id] (excluir)")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

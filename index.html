@@ -354,6 +354,13 @@
 
             <div id="searchResultsView" class="fade-transition" style="display: none; opacity: 0;">
                 <h2 class="section-title-white text-center" id="tituloMelhores" style="display: none;">Resultados</h2>
+                <div class="resultados-acoes" id="resultadosAcoes" style="display: none;">
+                    <span id="resultadosResumo" class="resultados-resumo"></span>
+                    <button type="button" id="btnSelecionarTodos" class="action-btn btn-selecionar-todos"
+                            onclick="alternarSelecionarTodos()" aria-pressed="false"
+                            aria-label="Selecionar todas as imagens dos resultados"
+                            title="Selecionar todas as imagens dos resultados">☑ Selecionar tudo</button>
+                </div>
                 <div class="results-grid" id="melhoresGrid"></div>
 
                 <!-- Grid secundário mantido (oculto) para compatibilidade — não é mais usado -->

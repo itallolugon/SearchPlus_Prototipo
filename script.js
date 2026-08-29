@@ -91,7 +91,7 @@ const toastAviso = (m) => mostrarToast(m, 'aviso', 5500);
 // MODAL DE CONFIRMAÇÃO (substitui o confirm() nativo)
 // Uso: if (await confirmarAcao("Excluir?", "Essa ação...")) { ... }
 // ==========================================
-function confirmarAcao(titulo, texto, textoBotao = 'Confirmar') {
+function confirmarAcao(titulo, texto, textoBotao = 'Confirmar', textoCancelar = 'Cancelar') {
     return new Promise((resolve) => {
         const modal = document.getElementById('confirmModal');
         document.getElementById('confirmTitulo').textContent = titulo;
@@ -99,6 +99,9 @@ function confirmarAcao(titulo, texto, textoBotao = 'Confirmar') {
         const btnOk = document.getElementById('confirmOk');
         const btnCancel = document.getElementById('confirmCancelar');
         btnOk.textContent = textoBotao;
+        // Sempre reatribuído: sem isto, um rótulo customizado por uma chamada
+        // vazaria para todas as outras (o botão é compartilhado no DOM).
+        btnCancel.textContent = textoCancelar;
 
         const fechar = (resultado) => {
             modal.style.display = 'none';
@@ -1666,22 +1669,32 @@ async function forcarAnalise() {
     }
 }
 
-function renderizarResultados() {
-    const mGrid = document.getElementById('melhoresGrid'); const oGrid = document.getElementById('outrasGrid');
-    mGrid.innerHTML = ''; oGrid.innerHTML = '';
-
-    const filtrados = window.resultadosAtuais.filter(r => {
-        const ext = r.tipo.toLowerCase();
+// Resultados que o filtro atual deixa passar. Extraído de renderizarResultados()
+// porque "selecionar tudo" precisa da MESMA lista que está na tela — se as duas
+// aplicassem o filtro por conta própria, uma mudança em uma delas dessincronizaria
+// o contador do que o usuário enxerga.
+function resultadosVisiveis() {
+    return (window.resultadosAtuais || []).filter(r => {
+        const ext = (r.tipo || '').toLowerCase();
         if (filtroAtual === 'all') return true;
         if (filtroAtual === 'imagem') return extensoesImagem.includes(ext);
         if (filtroAtual === 'midia') return extensoesAudio.includes(ext) || extensoesVideo.includes(ext);
         return !extensoesImagem.includes(ext) && !extensoesAudio.includes(ext) && !extensoesVideo.includes(ext);
     });
+}
+
+function renderizarResultados() {
+    const mGrid = document.getElementById('melhoresGrid'); const oGrid = document.getElementById('outrasGrid');
+    mGrid.innerHTML = ''; oGrid.innerHTML = '';
+
+    const filtrados = resultadosVisiveis();
 
     if (filtrados.length > 0) {
         document.getElementById('tituloMelhores').style.display = 'block';
     } else {
         document.getElementById('tituloMelhores').style.display = 'none';
+        // Sem resultados não há o que selecionar: a barra de ações some (CA-005).
+        atualizarAcoesResultados();
         mGrid.innerHTML = '<p style="text-align:center; width:100%; color:var(--text-secondary);">Nada encontrado.</p>'; return;
     }
 
@@ -1714,6 +1727,7 @@ function renderizarResultados() {
 
     mGrid.innerHTML = ordenados.map(buildCard).join('');
     oGrid.innerHTML = '';
+    atualizarAcoesResultados();
 }
 
 // ==========================================
@@ -2471,10 +2485,12 @@ function atualizarBarraSelecao() {
     const n = _selecionados.size;
     if (n === 0) {
         barra.classList.remove('visivel');
+        atualizarAcoesResultados();
         return;
     }
     cont.textContent = `${n} ${n === 1 ? 'imagem selecionada' : 'imagens selecionadas'}`;
     barra.classList.add('visivel');
+    atualizarAcoesResultados();
 }
 
 function limparSelecao() {
@@ -2486,6 +2502,72 @@ function limparSelecao() {
     });
     document.querySelectorAll('.card-selecionado').forEach(c => c.classList.remove('card-selecionado'));
     atualizarBarraSelecao();
+}
+
+// ── Seleção em massa ────────────────────────────────────────────────────────
+// "Tudo" é o que está na tela agora: os resultados da busca atual que passam
+// pelo filtro ativo. Não é o acervo inteiro — a busca já devolve a lista
+// completa de uma vez (não há paginação nem scroll infinito no /api/search),
+// então "carregado" e "exibido" são a mesma coisa aqui.
+
+function todosVisiveisSelecionados() {
+    const vis = resultadosVisiveis();
+    return vis.length > 0 && vis.every(r => _selecionados.has(r.id));
+}
+
+function alternarSelecionarTodos() {
+    const vis = resultadosVisiveis();
+    if (vis.length === 0) return;
+
+    if (todosVisiveisSelecionados()) {
+        // Desmarca só os visíveis — uma seleção feita sob outro filtro continua de pé.
+        vis.forEach(r => _selecionados.delete(r.id));
+    } else {
+        vis.forEach(r => _selecionados.add(r.id));
+    }
+
+    sincronizarCardsComSelecao();
+    atualizarBarraSelecao();
+}
+
+// Reflete o Set no DOM sem reconstruir o grid: mexer no innerHTML aqui
+// recriaria centenas de nós e descartaria o scroll do usuário.
+function sincronizarCardsComSelecao() {
+    document.querySelectorAll('.card[data-file-id]').forEach(card => {
+        const id  = Number(card.getAttribute('data-file-id'));
+        const btn = card.querySelector('.btn-sel-abs');
+        const sel = _selecionados.has(id);
+        card.classList.toggle('card-selecionado', sel);
+        if (!btn) return;
+        btn.classList.toggle('is-sel', sel);
+        btn.textContent = sel ? '✓' : '';
+        btn.setAttribute('aria-checked', sel ? 'true' : 'false');
+    });
+}
+
+function atualizarAcoesResultados() {
+    const acoes  = document.getElementById('resultadosAcoes');
+    const resumo = document.getElementById('resultadosResumo');
+    const btn    = document.getElementById('btnSelecionarTodos');
+    if (!acoes || !resumo || !btn) return;
+
+    const vis = resultadosVisiveis();
+    if (vis.length === 0) { acoes.style.display = 'none'; return; }
+    acoes.style.display = 'flex';
+
+    const marcados = vis.filter(r => _selecionados.has(r.id)).length;
+    resumo.textContent = marcados > 0
+        ? `${vis.length} ${vis.length === 1 ? 'resultado' : 'resultados'} · ${marcados} ${marcados === 1 ? 'selecionada' : 'selecionadas'}`
+        : `${vis.length} ${vis.length === 1 ? 'resultado' : 'resultados'}`;
+
+    const todos = marcados === vis.length;
+    btn.textContent = todos ? '☒ Desmarcar tudo' : '☑ Selecionar tudo';
+    btn.setAttribute('aria-pressed', todos ? 'true' : 'false');
+    const rotulo = todos ? 'Desmarcar todas as imagens dos resultados'
+                         : 'Selecionar todas as imagens dos resultados';
+    btn.setAttribute('aria-label', rotulo);
+    btn.title = rotulo;
+    btn.classList.toggle('is-ativo', todos);
 }
 
 // ==========================================
@@ -2749,7 +2831,39 @@ async function adicionarAColecao(colId, nome) {
         else                toastOk(`${add === 1 ? 'Adicionado' : add + ' adicionadas'} à coleção "${nome}".`);
 
         if (_selecionados.size > 0) limparSelecao();
+
+        // Atalho: exportar sem ter que navegar até Coleções e achar a coleção.
+        // Só oferece — quem quiser continuar pesquisando é só recusar.
+        await oferecerExportacaoImediata(colId, nome);
     } catch (e) { console.error(e); toastErro("Erro de conexão."); }
+}
+
+// Pergunta se quer exportar agora e, se sim, delega para exportarColecao() —
+// o MESMO caminho usado dentro do modal de Coleções. Não há segundo mecanismo
+// de exportação: isto só aponta _colecaoAtual para a coleção recém-atualizada.
+async function oferecerExportacaoImediata(colId, nome) {
+    let total = null;
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/collections/${colId}`);
+        if (r.ok) {
+            const d = await r.json();
+            total = (d.resultados || []).length;
+        }
+    } catch (e) { console.error(e); }   // contagem é enfeite: sem ela, segue
+
+    if (total === 0) return;            // coleção vazia não tem o que exportar
+
+    const texto = total === null
+        ? `Quer exportar "${nome}" para uma pasta no seu computador agora?`
+        : `${total} ${total === 1 ? 'imagem está' : 'imagens estão'} em "${nome}". ` +
+          `Quer exportar para uma pasta no seu computador agora?`;
+
+    const querExportar = await confirmarAcao(
+        'Coleção atualizada', texto, 'Exportar coleção', 'Continuar pesquisando');
+    if (!querExportar) return;          // "Continuar" — fluxo segue intacto
+
+    _colecaoAtual = { id: colId, nome };
+    await exportarColecao();
 }
 
 // ==========================================
