@@ -2949,12 +2949,36 @@ def _nome_disponivel(pasta: str, nome_arquivo: str) -> str:
     return candidato
 
 
-def _pasta_disponivel(destino: str, nome_pasta: str) -> str:
-    """Caminho de pasta ainda inexistente: Nome, Nome (1), Nome (2)… (RF-041)."""
+def _pasta_disponivel(destino: str, nome_pasta: str, sufixo: str = "") -> str:
+    """
+    Caminho de pasta ainda inexistente, preservando o nome da coleção.
+
+    O nome da coleção é sempre o prefixo — é o que permite ao usuário
+    reconhecer no Explorer de qual coleção veio a pasta, e ao sistema
+    relacionar as duas. O que varia é o sufixo:
+
+        "Natureza"            1ª exportação
+        "Natureza_2"          2ª (sufixo automático)
+        "Natureza_praia"      sufixo escolhido pelo usuário
+
+    Colisão continua sendo tratada: se "Natureza_praia" já existir, tenta
+    "Natureza_praia_2". Nunca sobrescreve nada (RF-041, RF-043).
+    """
+    if sufixo:
+        base = f"{nome_pasta}_{_sanitizar_nome(sufixo, padrao='2')}"
+        candidato = os.path.join(destino, base)
+        if not os.path.exists(candidato):
+            return candidato
+        # Sufixo escolhido já em uso: numera a partir dele
+        i = 2
+        while os.path.exists(os.path.join(destino, f"{base}_{i}")):
+            i += 1
+        return os.path.join(destino, f"{base}_{i}")
+
     candidato = os.path.join(destino, nome_pasta)
-    i = 1
+    i = 2                       # a primeira é sem número; a próxima é _2
     while os.path.exists(candidato):
-        candidato = os.path.join(destino, f"{nome_pasta} ({i})")
+        candidato = os.path.join(destino, f"{nome_pasta}_{i}")
         i += 1
     return candidato
 
@@ -3076,7 +3100,8 @@ def api_collection_export(col_id):
 
     # Cria a pasta ANTES de começar: se não der, nada é copiado (RF-054)
     nome_pasta = _sanitizar_nome(col["nome"], padrao=f"colecao_{col_id}")
-    pasta_final = _pasta_disponivel(destino, nome_pasta)
+    pasta_final = _pasta_disponivel(destino, nome_pasta,
+                                    sufixo=str(data.get("sufixo") or "").strip())
     try:
         os.makedirs(pasta_final)
     except PermissionError:
@@ -3087,21 +3112,34 @@ def api_collection_export(col_id):
         return jsonify({"error": f"Não foi possível criar a pasta da coleção em "
                                  f"{destino}. Escolha outra pasta."}), 400
 
-    # Registra a pasta e passa a apontar para ela. Sem isto, exportar era um
-    # retrato sem memória: as imagens adicionadas DEPOIS não tinham para onde
-    # ir, e o usuário só descobria ao abrir a pasta e não achar as novas.
+    # Registra a pasta. Sem isto, exportar era um retrato sem memória: as
+    # imagens adicionadas DEPOIS não tinham para onde ir, e o usuário só
+    # descobria ao abrir a pasta e não achar as novas.
+    #
+    # O VÍNCULO é decisão à parte. Numa segunda exportação, quem escolhe qual
+    # pasta recebe as próximas imagens é o usuário — assumir a mais recente
+    # mudaria o destino sem ele pedir. `vincular` vem do frontend:
+    #   ausente → só vincula se ainda não houver pasta vinculada
+    #   true    → passa a apontar para esta
+    #   false   → mantém o vínculo atual
     conn = get_db()
     try:
         _registrar_pasta(conn, col_id, uid, pasta_final)
-        # Só define o modo se a coleção ainda não tinha vínculo — uma coleção
-        # já configurada mantém a escolha que o usuário fez na criação.
-        conn.execute(
-            "UPDATE collections SET pasta_vinculada = %s, "
-            "modo_sync = CASE WHEN pasta_vinculada IS NULL THEN 'perguntar' "
-            "                 ELSE modo_sync END "
-            "WHERE id = %s AND user_id = %s",
-            (pasta_final, col_id, uid),
-        )
+        vincular = data.get("vincular")
+        if vincular is True:
+            conn.execute(
+                "UPDATE collections SET pasta_vinculada = %s, "
+                "modo_sync = CASE WHEN modo_sync = 'manual' THEN 'perguntar' "
+                "                 ELSE modo_sync END "
+                "WHERE id = %s AND user_id = %s",
+                (pasta_final, col_id, uid),
+            )
+        elif vincular is None:
+            conn.execute(
+                "UPDATE collections SET pasta_vinculada = %s, modo_sync = 'perguntar' "
+                "WHERE id = %s AND user_id = %s AND pasta_vinculada IS NULL",
+                (pasta_final, col_id, uid),
+            )
         conn.commit()
     finally:
         conn.close()

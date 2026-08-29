@@ -541,10 +541,37 @@ destino uma subpasta com o nome da coleção. O `destino` deve vir de
 [`GET /api/choose_folder`](#pastas-monitoradas) — não digite caminho à mão.
 
 ```json
-{ "destino": "D:\\Fotos" }
+{ "destino": "D:\\Fotos", "sufixo": "backup", "vincular": false }
 ```
 
-→ `{"status": "ok", "job_id": "a1b2…", "total": 12, "pasta": "D:\\Fotos\\Natureza"}`
+→ `{"status": "ok", "job_id": "a1b2…", "total": 12, "pasta": "D:\\Fotos\\Natureza_backup"}`
+
+| Campo | Obrigatório | Efeito |
+|---|---|---|
+| `destino` | sim | Pasta-mãe. Deve vir do seletor nativo |
+| `sufixo` | não | Complemento do nome. Sem ele, a numeração é automática |
+| `vincular` | não | Qual pasta passa a receber as novas fotos |
+
+**Nomeação.** O nome da coleção é **sempre** o prefixo — é o que permite
+reconhecer no Explorer de onde a pasta veio, e ao sistema relacionar as duas:
+
+```
+Natureza          1ª exportação
+Natureza_2        2ª, sem sufixo
+Natureza_backup   sufixo escolhido pelo usuário
+Natureza_backup_2 sufixo já em uso
+```
+
+**`vincular`** decide o destino das próximas fotos da coleção:
+
+| Valor | Comportamento |
+|---|---|
+| ausente | Vincula só se ainda não houver pasta vinculada |
+| `true` | Passa a apontar para a pasta recém-criada |
+| `false` | Mantém o vínculo atual |
+
+Numa re-exportação o frontend manda `false` e pergunta depois qual pasta deve
+receber — assumir a mais recente trocaria o destino sem o usuário pedir.
 
 A cópia roda em segundo plano: a resposta volta na hora e o progresso é lido
 pelo endpoint de status. Erros **fatais** (nada é copiado) vêm aqui:

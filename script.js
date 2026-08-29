@@ -2416,6 +2416,8 @@ document.addEventListener('keydown', (e) => {
         const ml = document.getElementById('menuLateral');
         if (ml && ml.classList.contains('aberto')) { fecharMenuLateral(); return; }
         const fechaveis = [
+            ['exportarDeNovoModal', () => { if (typeof fecharExportarDeNovo === 'function') fecharExportarDeNovo(); }],
+            ['pastasExportadasModal', () => { if (typeof fecharPastasExportadas === 'function') fecharPastasExportadas(); }],
             ['pastasColecaoModal', () => { if (typeof fecharPastasColecao === 'function') fecharPastasColecao(); }],
             ['vincularPastaModal', () => { if (typeof fecharVincularPasta === 'function') fecharVincularPasta(); }],
             ['exportModal', () => { if (typeof fecharExportacao === 'function') fecharExportacao(); }],
@@ -2856,20 +2858,98 @@ async function atualizarBotaoAbrirPasta(colId) {
     } catch (e) { console.error(e); }
 }
 
-// Abre no Explorer a pasta desta coleção. Com mais de uma, abre a que recebe
-// novas imagens; sem vínculo, a mais recente.
+// Lista as pastas exportadas e deixa o usuário escolher qual abrir — e qual
+// recebe as próximas fotos. Com uma pasta só, abre direto: um modal de um item
+// para escolher entre uma opção é burocracia.
 async function abrirPastaDaColecao() {
     if (!_colecaoAtual.id) return;
+    let pastas;
     try {
         const r = await fetch(`${API_BASE_URL}/api/collections/${_colecaoAtual.id}/folders`);
-        if (!r.ok) { toastErro('Não foi possível localizar a pasta.'); return; }
-        const pastas = ((await r.json()).pastas || []).filter(p => p.existe);
-        if (pastas.length === 0) {
-            toastAviso('Esta coleção ainda não tem pasta no computador. Use "Exportar coleção".');
-            return;
+        if (!r.ok) { toastErro(await _erroDaResposta(r, 'Não foi possível localizar as pastas.')); return; }
+        pastas = ((await r.json()).pastas || []).filter(p => p.existe);
+    } catch (e) { console.error(e); toastErro('Erro de conexão.'); return; }
+
+    if (pastas.length === 0) {
+        toastAviso('Esta coleção ainda não tem pasta no computador. Use "Exportar coleção".');
+        return;
+    }
+    if (pastas.length === 1) { await abrirPastaExportada(pastas[0].caminho); return; }
+
+    renderizarPastasExportadas(pastas);
+    document.getElementById('pastasExportadasModal').style.display = 'flex';
+}
+
+function renderizarPastasExportadas(pastas) {
+    const vinc = pastas.find(p => p.vinculada);
+    document.getElementById('pastasExpTexto').textContent = vinc
+        ? `As fotos que você adicionar a esta coleção vão para "${vinc.nome}". ` +
+          `Você pode abrir qualquer pasta ou trocar qual delas recebe.`
+        : `Nenhuma destas pastas está recebendo as novas fotos. ` +
+          `Escolha uma em "Receber fotos" para ativar.`;
+
+    const lista = document.getElementById('pastasExpLista');
+    lista.innerHTML = '';
+    pastas.forEach(p => {
+        const item = document.createElement('div');
+        item.className = 'pasta-exp';
+
+        const info = document.createElement('div');
+        info.className = 'pasta-exp-info';
+        const nome = document.createElement('span');
+        nome.className = 'pasta-exp-nome';
+        nome.textContent = p.nome;
+        if (p.vinculada) {
+            const selo = document.createElement('span');
+            selo.className = 'pasta-item-selo';
+            selo.textContent = 'recebe as fotos';
+            nome.appendChild(selo);
         }
-        const alvo = pastas.find(p => p.vinculada) || pastas[0];
-        await abrirPastaExportada(alvo.caminho);
+        const caminho = document.createElement('span');
+        caminho.className = 'pasta-exp-caminho';
+        caminho.textContent = `${p.caminho} · ${p.arquivos} ${p.arquivos === 1 ? 'arquivo' : 'arquivos'}`;
+        info.append(nome, caminho);
+
+        const acoes = document.createElement('div');
+        acoes.className = 'pasta-exp-acoes';
+        const abrir = document.createElement('button');
+        abrir.className = 'action-btn gradient-btn';
+        abrir.textContent = 'Abrir';
+        abrir.onclick = () => { fecharPastasExportadas(); abrirPastaExportada(p.caminho); };
+        acoes.appendChild(abrir);
+
+        if (!p.vinculada) {
+            const usar = document.createElement('button');
+            usar.className = 'action-btn';
+            usar.style.background = 'transparent';
+            usar.textContent = 'Receber fotos';
+            usar.title = 'Passar a enviar as novas fotos desta coleção para esta pasta';
+            usar.onclick = () => definirPastaQueRecebe(p.caminho, p.nome);
+            acoes.appendChild(usar);
+        }
+
+        item.append(info, acoes);
+        lista.appendChild(item);
+    });
+}
+
+function fecharPastasExportadas() {
+    document.getElementById('pastasExportadasModal').style.display = 'none';
+}
+
+// Troca a pasta que recebe as próximas fotos, sem mexer no modo de sincronia.
+async function definirPastaQueRecebe(caminho, nome) {
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/collections/${_colecaoAtual.id}`, {
+            method: 'PATCH', headers: fetchOptions.headers,
+            body: JSON.stringify({ pasta_vinculada: caminho })
+        });
+        if (!r.ok) { toastErro(await _erroDaResposta(r, 'Não foi possível trocar a pasta.')); return; }
+        toastOk(`As novas fotos desta coleção passam a ir para "${nome}".`);
+
+        const rf = await fetch(`${API_BASE_URL}/api/collections/${_colecaoAtual.id}/folders`);
+        if (rf.ok) renderizarPastasExportadas(((await rf.json()).pastas || []).filter(p => p.existe));
+        atualizarBotaoAbrirPasta(_colecaoAtual.id);
     } catch (e) { console.error(e); toastErro('Erro de conexão.'); }
 }
 
@@ -3205,7 +3285,23 @@ let _exportTimer = null;
 async function exportarColecao() {
     if (!_colecaoAtual.id) return;
 
-    // 1) Escolher o destino pelo diálogo nativo do Windows
+    // Já exportada antes? Então esta é uma SEGUNDA pasta, e há duas decisões
+    // que só o usuário pode tomar: como chamar a nova, e qual das pastas passa
+    // a receber as fotos. Exportar em silêncio criaria pastas soltas e mudaria
+    // o destino sem ele perceber.
+    let existentes = [];
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/collections/${_colecaoAtual.id}/folders`);
+        if (r.ok) existentes = ((await r.json()).pastas || []).filter(p => p.existe);
+    } catch (e) { console.error(e); }
+
+    let sufixo = '';
+    if (existentes.length > 0) {
+        sufixo = await perguntarNomeDaNovaPasta(existentes);
+        if (sufixo === null) return;             // desistiu
+    }
+
+    // Escolher o destino pelo diálogo nativo do Windows
     let destino;
     try {
         const r = await fetch(`${API_BASE_URL}/api/choose_folder`);
@@ -3218,19 +3314,117 @@ async function exportarColecao() {
         destino = d.pasta;
     } catch (e) { console.error(e); toastErro("Erro de conexão."); return; }
 
-    // 2) Iniciar o job
+    // Iniciar o job. Numa re-exportação, `vincular: false` mantém o destino
+    // atual — a troca é perguntada depois, quando a pasta já existe.
+    let pastaNova;
     try {
+        const corpo = { destino };
+        if (existentes.length > 0) { corpo.sufixo = sufixo; corpo.vincular = false; }
         const r = await fetch(`${API_BASE_URL}/api/collections/${_colecaoAtual.id}/export`, {
             method: 'POST', headers: fetchOptions.headers,
-            body: JSON.stringify({ destino })
+            body: JSON.stringify(corpo)
         });
+        if (!r.ok) { toastErro(await _erroDaResposta(r, 'Não foi possível exportar.')); return; }
         const d = await r.json();
-        if (!r.ok) { toastErro(d.error || "Não foi possível exportar."); return; }
+        pastaNova = d.pasta;
 
         _exportJobId = d.job_id;
         abrirModalExportacao(d.total);
         _exportTimer = setInterval(consultarExportacao, 400);
-    } catch (e) { console.error(e); toastErro("Erro de conexão."); }
+    } catch (e) { console.error(e); toastErro("Erro de conexão."); return; }
+
+    if (existentes.length > 0) _pendenteEscolherDestino = { pastaNova, existentes };
+}
+
+// ── Segunda exportação: nome da pasta nova ─────────────────────────────────
+let _expNovoCtx = null;
+let _pendenteEscolherDestino = null;
+
+function perguntarNomeDaNovaPasta(existentes) {
+    return new Promise((resolve) => {
+        const base = _colecaoAtual.nome;
+        _expNovoCtx = { resolve, base, existentes };
+
+        document.getElementById('expNovoTexto').textContent =
+            `"${base}" já foi exportada para ${existentes.length === 1 ? 'uma pasta' : `${existentes.length} pastas`}. ` +
+            `Uma nova pasta será criada — o nome da coleção é mantido no começo, ` +
+            `para você reconhecer de onde ela veio.`;
+
+        document.getElementById('expNovoAutoDesc').textContent =
+            `A pasta vai se chamar "${base}_${existentes.length + 1}".`;
+        document.getElementById('expNovoCustomDesc').textContent =
+            `Ex.: "${base}_backup" ou "${base}_praia".`;
+        document.getElementById('expNovoPrefixo').textContent = `${base}_`;
+        document.getElementById('expNovoSufixo').value = '';
+
+        document.getElementById('expNovoEtapaNome').style.display = 'block';
+        document.getElementById('expNovoEtapaDestino').style.display = 'none';
+        document.getElementById('expNovoCampo').style.display = 'none';
+        document.getElementById('exportarDeNovoModal').style.display = 'flex';
+    });
+}
+
+function escolherNomeNovaPasta(tipo) {
+    if (!_expNovoCtx) return;
+    if (tipo === 'auto') {
+        _fecharExpNovo('');                 // sufixo vazio: backend numera
+        return;
+    }
+    document.getElementById('expNovoCampo').style.display = 'block';
+    setTimeout(() => document.getElementById('expNovoSufixo').focus(), 50);
+}
+
+function confirmarNomeNovaPasta() {
+    const v = document.getElementById('expNovoSufixo').value.trim();
+    if (!v) { toastAviso('Escreva um complemento ou escolha numerar automaticamente.'); return; }
+    _fecharExpNovo(v);
+}
+
+function _fecharExpNovo(valor) {
+    document.getElementById('exportarDeNovoModal').style.display = 'none';
+    const ctx = _expNovoCtx;
+    _expNovoCtx = null;
+    if (ctx) ctx.resolve(valor);
+}
+
+function fecharExportarDeNovo() {
+    if (_expNovoCtx) _fecharExpNovo(null);   // null = desistiu
+    else document.getElementById('exportarDeNovoModal').style.display = 'none';
+}
+
+// ── Depois da segunda exportação: qual pasta recebe as próximas fotos ──────
+function perguntarQualPastaRecebe({ pastaNova, existentes }) {
+    const nomeNova = _nomeDaPasta(pastaNova);
+    document.getElementById('expNovoTexto').textContent =
+        `A pasta "${nomeNova}" foi criada. Agora escolha para onde vão as fotos ` +
+        `que você adicionar a esta coleção daqui em diante.`;
+    document.getElementById('expNovoEtapaNome').style.display = 'none';
+    document.getElementById('expNovoEtapaDestino').style.display = 'block';
+
+    const box = document.getElementById('expNovoDestinos');
+    box.innerHTML = '';
+    const opcoes = [{ caminho: pastaNova, nome: nomeNova, nova: true },
+                    ...existentes.map(p => ({ caminho: p.caminho, nome: p.nome, atual: p.vinculada }))];
+
+    opcoes.forEach(o => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'vincular-opcao';
+        const t = document.createElement('span');
+        t.className = 'vincular-opcao-titulo';
+        t.textContent = o.nome + (o.nova ? '  (a que você acabou de criar)' : o.atual ? '  (recebe hoje)' : '');
+        const d = document.createElement('span');
+        d.className = 'vincular-opcao-desc';
+        d.textContent = o.caminho;
+        btn.append(t, d);
+        btn.onclick = async () => {
+            document.getElementById('exportarDeNovoModal').style.display = 'none';
+            await definirPastaQueRecebe(o.caminho, o.nome);
+        };
+        box.appendChild(btn);
+    });
+
+    document.getElementById('exportarDeNovoModal').style.display = 'flex';
 }
 
 function abrirModalExportacao(total) {
@@ -3359,6 +3553,15 @@ function fecharExportacao() {
     pararPolling();
     _exportJobId = null;
     document.getElementById('exportModal').style.display = 'none';
+    atualizarBotaoAbrirPasta(_colecaoAtual.id);
+
+    // Numa segunda exportação, a escolha de destino vem AGORA — depois do
+    // resultado, para não competir com a barra de progresso na tela.
+    if (_pendenteEscolherDestino) {
+        const ctx = _pendenteEscolherDestino;
+        _pendenteEscolherDestino = null;
+        perguntarQualPastaRecebe(ctx);
+    }
 }
 
 // ==========================================

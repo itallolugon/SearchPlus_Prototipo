@@ -80,15 +80,38 @@ class TestColisaoDeNomes:
         assert os.path.basename(destino) == "Natureza"
 
     def test_pasta_ocupada_ganha_sufixo(self, app_module, tmp_path):
+        # O nome da coleção é sempre o prefixo: "Natureza" → "Natureza_2".
         (tmp_path / "Natureza").mkdir()
         destino = app_module._pasta_disponivel(str(tmp_path), "Natureza")
-        assert os.path.basename(destino) == "Natureza (1)"
+        assert os.path.basename(destino) == "Natureza_2"
 
     def test_sufixo_incrementa_ate_achar_livre(self, app_module, tmp_path):
         (tmp_path / "Natureza").mkdir()
-        (tmp_path / "Natureza (1)").mkdir()
+        (tmp_path / "Natureza_2").mkdir()
         destino = app_module._pasta_disponivel(str(tmp_path), "Natureza")
-        assert os.path.basename(destino) == "Natureza (2)"
+        assert os.path.basename(destino) == "Natureza_3"
+
+    def test_sufixo_escolhido_pelo_usuario(self, app_module, tmp_path):
+        destino = app_module._pasta_disponivel(str(tmp_path), "Natureza", sufixo="praia")
+        assert os.path.basename(destino) == "Natureza_praia"
+
+    def test_sufixo_escolhido_ja_em_uso_numera(self, app_module, tmp_path):
+        (tmp_path / "Natureza_praia").mkdir()
+        destino = app_module._pasta_disponivel(str(tmp_path), "Natureza", sufixo="praia")
+        assert os.path.basename(destino) == "Natureza_praia_2"
+
+    def test_sufixo_invalido_e_sanitizado(self, app_module, tmp_path):
+        destino = app_module._pasta_disponivel(str(tmp_path), "Natureza", sufixo="a/b:c")
+        nome = os.path.basename(destino)
+        assert nome.startswith("Natureza_")
+        assert "/" not in nome and ":" not in nome
+
+    def test_nome_da_colecao_e_sempre_o_prefixo(self, app_module, tmp_path):
+        """Regra do produto: dá para reconhecer a coleção pelo nome da pasta."""
+        (tmp_path / "Ferias").mkdir()
+        for sufixo in ("", "backup"):
+            destino = app_module._pasta_disponivel(str(tmp_path), "Ferias", sufixo=sufixo)
+            assert os.path.basename(destino).startswith("Ferias")
 
     def test_nao_escreve_dentro_de_pasta_preexistente(self, app_module, tmp_path):
         # Exportar duas vezes para o mesmo lugar não pode misturar os conteúdos.

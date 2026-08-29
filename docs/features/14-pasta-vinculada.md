@@ -2,7 +2,7 @@
 
 **Data:** 29/08/2026
 **Branch:** `feature/selecionar-todas-e-exportacao-imediata`
-**Requisitos:** RF-080 … RF-111 · CA-032 … CA-044 ·
+**Requisitos:** RF-080 … RF-121 · CA-032 … CA-047 ·
 [`../09-requisitos-funcionais.md`](../09-requisitos-funcionais.md)
 **Status:** implementado.
 
@@ -350,6 +350,72 @@ próxima adição tentaria copiar para um caminho morto.
 
 Excluir pastas e excluir a coleção são **operações separadas**: uma acontece
 sem a outra, nos dois sentidos.
+
+### Várias pastas para a mesma coleção
+
+Exportar duas vezes cria duas pastas. Três decisões saem disso, e nenhuma podia
+ser tomada pelo sistema.
+
+**Como chamar a nova.** O nome da coleção é sempre o prefixo — é o que faz o
+usuário reconhecer a origem no Explorer:
+
+```
+Natureza            1ª exportação
+Natureza_2          2ª, numeração automática
+Natureza_backup     complemento escolhido
+Natureza_backup_2   complemento já em uso
+```
+
+O padrão anterior era `Natureza (1)`, estilo Windows. Mudou para `_2` a pedido:
+lê melhor como "a segunda pasta da Natureza" e não se confunde com cópia do
+sistema operacional.
+
+**Qual pasta recebe as fotos.** Uma re-exportação **não** troca o destino
+sozinha. Antes, `/export` sempre vinculava a pasta recém-criada — o usuário
+exportava para um backup e, sem perceber, as fotos seguintes paravam de ir para
+a pasta principal. Agora o backend aceita `vincular`:
+
+| Valor | Comportamento |
+|---|---|
+| ausente | Vincula só se ainda não houver pasta vinculada |
+| `true` | Passa a apontar para a nova |
+| `false` | Mantém o destino atual |
+
+O frontend manda `false` na re-exportação e pergunta depois, com a pasta já
+criada e todas as opções na tela.
+
+**Qual abrir.** "Abrir pasta exportada" lista todas, com caminho, contagem de
+arquivos e selo em quem recebe as fotos. Dá para abrir qualquer uma ou trocar o
+destino ali mesmo. Com uma pasta só, abre direto — um modal de item único para
+escolher entre uma opção é burocracia.
+
+### O fluxo de exportar de novo
+
+```
+[Exportar coleção]  numa coleção que já tem pasta
+         │
+         ▼
+ "Natureza já foi exportada para 3 pastas"
+         │
+    ┌────┴─────┐
+    ▼          ▼
+Numerar     Escolher
+ (_4)      complemento     →  Natureza_[____]
+    └────┬─────┘               prefixo fixo
+         ▼
+  seletor nativo de pasta
+         ▼
+     cópia + progresso
+         ▼
+ "Para qual pasta vão as próximas fotos?"
+   ○ Natureza_praia (a que você acabou de criar)
+   ○ Natureza (recebe hoje)
+   ○ Natureza_2
+```
+
+A pergunta do destino vem **depois** do resultado da cópia, não antes: competir
+com a barra de progresso na tela faria o usuário decidir no meio de uma
+operação em andamento.
 
 ---
 

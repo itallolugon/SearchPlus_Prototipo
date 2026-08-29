@@ -301,6 +301,21 @@ seguintes. Detalhes em
 | **RF-110** | Cancelar o diálogo cancela também a exclusão da coleção. | Implementado |
 | **RF-111** | Excluir pastas e excluir a coleção são operações independentes: uma pode acontecer sem a outra. | Implementado |
 
+### Múltiplas pastas por coleção
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-112** | O nome da coleção deve ser **sempre** o prefixo da pasta gerada. É o que permite reconhecer a origem no Explorer e relacionar pasta e coleção. | Implementado |
+| **RF-113** | Exportações seguintes devem numerar a partir de 2 preservando o prefixo — `Natureza`, `Natureza_2`, `Natureza_3`. | Implementado |
+| **RF-114** | O usuário deve poder escolher o complemento do nome em vez da numeração: `Natureza_backup`, `Natureza_praia`. O prefixo permanece fixo e não é editável. | Implementado |
+| **RF-115** | O complemento escolhido deve ser sanitizado pelas mesmas regras do nome da pasta, e numerado se já estiver em uso (`Natureza_backup_2`). | Implementado |
+| **RF-116** | Ao acionar "Exportar" numa coleção já exportada, o sistema deve **avisar** que ela já tem pasta e quantas, antes de criar outra. | Implementado |
+| **RF-117** | Uma re-exportação **não** pode mudar sozinha qual pasta recebe as novas fotos. A troca é decisão explícita do usuário. | Implementado |
+| **RF-118** | Após criar a nova pasta, o sistema deve perguntar para qual das pastas vão as próximas fotos, listando todas como opção. | Implementado |
+| **RF-119** | "Abrir pasta exportada" deve listar **todas** as pastas e deixar o usuário escolher qual abrir. Com uma só, abre direto. | Implementado |
+| **RF-120** | A lista deve indicar visualmente qual pasta está recebendo as fotos, e permitir trocar ali mesmo. | Implementado |
+| **RF-121** | O usuário deve conseguir saber, a qualquer momento, para qual pasta as fotos da coleção estão indo. | Implementado |
+
 ---
 
 ## 5. Critérios de aceite
@@ -616,6 +631,27 @@ Então nada deve ser apagado no primeiro acionamento;
 E deve ser exibido o aviso com a contagem de pastas e arquivos;
 E só o segundo acionamento executa.
 *Cobre RF-105, RF-106.*
+
+**CA-045 — Prefixo preservado nas re-exportações**
+Dado a coleção "Natureza" já exportada uma vez;
+Quando o usuário exportar de novo sem escolher complemento;
+Então a nova pasta deve se chamar "Natureza_2";
+E ao escolher o complemento "backup", deve se chamar "Natureza_backup".
+*Cobre RF-112, RF-113, RF-114.*
+
+**CA-046 — Re-exportar não muda o destino sozinho**
+Dado que as fotos da coleção vão para "Natureza";
+Quando o usuário exportar para uma segunda pasta;
+Então "Natureza" deve continuar recebendo até o usuário escolher outra.
+*Cobre RF-117.*
+
+**CA-047 — Escolher qual pasta abrir**
+Dado uma coleção com três pastas exportadas;
+Quando o usuário acionar "Abrir pasta exportada";
+Então as três devem ser listadas com caminho e contagem de arquivos;
+E a que recebe as fotos deve estar marcada;
+E abrir qualquer uma deve ser possível.
+*Cobre RF-119, RF-120, RF-121.*
 
 **CA-044 — Caminho não registrado é recusado**
 Dado um caminho que existe no disco mas não foi gerado pelo app;

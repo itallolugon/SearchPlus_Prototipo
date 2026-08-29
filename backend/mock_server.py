@@ -851,7 +851,16 @@ def collection_export(col_id):
             return jsonify({"error": "Esta coleção já está sendo exportada."}), 409
 
     job_id = uuid.uuid4().hex
-    pasta = os.path.join(destino, col["nome"])
+    # Mesma nomeacao do backend real: o nome da colecao e sempre o prefixo.
+    geradas_ate_agora = col.get("pastas_geradas") or []
+    sufixo = str(data.get("sufixo") or "").strip()
+    if sufixo:
+        base = f'{col["nome"]}_{sufixo}'
+    elif geradas_ate_agora:
+        base = f'{col["nome"]}_{len(geradas_ate_agora) + 1}'
+    else:
+        base = col["nome"]
+    pasta = os.path.join(destino, base)
     _EXPORTS[job_id] = {
         "collection_id": col_id, "colecao": col["nome"], "pasta": pasta,
         "total": len(col["files"]), "inicio": time.time(),
@@ -864,7 +873,13 @@ def collection_export(col_id):
     col.setdefault("pastas_geradas", [])
     if pasta not in col["pastas_geradas"]:
         col["pastas_geradas"].append(pasta)
-    if not col.get("pasta_vinculada"):
+    # `vincular` decide o destino das proximas fotos — ver docs/API.md
+    vincular = data.get("vincular")
+    if vincular is True:
+        col["pasta_vinculada"] = pasta
+        if col.get("modo_sync", "manual") == "manual":
+            col["modo_sync"] = "perguntar"
+    elif vincular is None and not col.get("pasta_vinculada"):
         col["pasta_vinculada"] = pasta
         col["modo_sync"] = "perguntar"
 

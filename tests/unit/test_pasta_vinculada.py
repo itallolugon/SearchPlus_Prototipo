@@ -139,7 +139,7 @@ class TestCriarPastaAoVincular:
         client_logado.patch("/api/collections/1", json={"criar_pasta_em": str(tmp_path)})
 
         assert (antiga / "preciso.txt").read_text(encoding="utf-8") == "nao apague"
-        assert (tmp_path / "Natureza (1)").is_dir()
+        assert (tmp_path / "Natureza_2").is_dir()
 
     def test_destino_inexistente_e_recusado(self, client_logado, db_roteado, tmp_path):
         db_roteado({})

@@ -762,6 +762,60 @@
         </div>
     </div>
 
+    <!-- Modal: pastas exportadas — abrir e escolher qual recebe as fotos -->
+    <div id="pastasExportadasModal" class="modal" style="z-index: 10005;">
+        <div class="modal-content" style="max-width: 580px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+                <h3 style="margin:0; color:var(--text-primary); font-size:1.3rem;">Pastas exportadas</h3>
+                <span class="close-btn" onclick="fecharPastasExportadas()" style="position:static;">&times;</span>
+            </div>
+            <p id="pastasExpTexto" style="color:var(--text-secondary); font-size:0.92rem; line-height:1.5; margin:0 0 16px 0;"></p>
+            <div id="pastasExpLista" class="pastas-lista"></div>
+        </div>
+    </div>
+
+    <!-- Modal: exportar de novo — nome da nova pasta e destino das próximas fotos -->
+    <div id="exportarDeNovoModal" class="modal" style="z-index: 10006;">
+        <div class="modal-content" style="max-width: 560px;">
+            <h3 style="margin:0 0 10px 0; color:var(--text-primary); font-size:1.3rem;">
+                Esta coleção já foi exportada
+            </h3>
+            <p id="expNovoTexto" style="color:var(--text-secondary); font-size:0.95rem; line-height:1.5; margin:0 0 16px 0;"></p>
+
+            <div id="expNovoEtapaNome">
+                <p class="exp-novo-rotulo">Como chamar a nova pasta?</p>
+                <div class="vincular-opcoes">
+                    <button type="button" class="vincular-opcao" onclick="escolherNomeNovaPasta('auto')">
+                        <span class="vincular-opcao-titulo" id="expNovoAutoTitulo">Numerar automaticamente</span>
+                        <span class="vincular-opcao-desc" id="expNovoAutoDesc"></span>
+                    </button>
+                    <button type="button" class="vincular-opcao" onclick="escolherNomeNovaPasta('custom')">
+                        <span class="vincular-opcao-titulo">Escolher um complemento</span>
+                        <span class="vincular-opcao-desc" id="expNovoCustomDesc"></span>
+                    </button>
+                </div>
+                <div id="expNovoCampo" style="display:none; margin-top:14px;">
+                    <label class="exp-novo-rotulo" for="expNovoSufixo">Complemento do nome</label>
+                    <div class="exp-novo-linha">
+                        <span id="expNovoPrefixo" class="exp-novo-prefixo"></span>
+                        <input type="text" id="expNovoSufixo" class="settings-input" style="flex:1; margin:0;"
+                               placeholder="praia, backup, 2026..." maxlength="60"
+                               onkeypress="if(event.key==='Enter') confirmarNomeNovaPasta()">
+                    </div>
+                    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:14px;">
+                        <button class="action-btn" style="background:transparent;" onclick="fecharExportarDeNovo()">Cancelar</button>
+                        <button class="action-btn gradient-btn" onclick="confirmarNomeNovaPasta()">Continuar</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="expNovoEtapaDestino" style="display:none;">
+                <p class="exp-novo-rotulo">Para qual pasta devem ir as próximas fotos desta coleção?</p>
+                <div id="expNovoDestinos" class="vincular-opcoes"></div>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal: o que fazer com as pastas ao excluir a coleção -->
     <div id="pastasColecaoModal" class="modal" style="z-index: 10005;">
         <div class="modal-content" style="max-width: 560px;">
