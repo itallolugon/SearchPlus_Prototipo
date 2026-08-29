@@ -316,6 +316,20 @@ seguintes. Detalhes em
 | **RF-120** | A lista deve indicar visualmente qual pasta está recebendo as fotos, e permitir trocar ali mesmo. | Implementado |
 | **RF-121** | O usuário deve conseguir saber, a qualquer momento, para qual pasta as fotos da coleção estão indo. | Implementado |
 
+### Conjunto de pastas de destino
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-122** | O destino das novas imagens é um **conjunto** de pastas, não um valor único. Persistido em `collection_folders.recebe`. | Implementado |
+| **RF-123** | O usuário deve poder marcar **várias** pastas para receber ao mesmo tempo, espelhando a coleção em mais de um lugar. | Implementado |
+| **RF-124** | O usuário deve poder deixar **nenhuma** pasta marcada. As pastas já criadas permanecem registradas e abríveis; apenas o envio automático para. | Implementado |
+| **RF-125** | A sincronia deve copiar cada arquivo uma vez **por pasta** do conjunto. Dois arquivos em duas pastas resultam em quatro cópias. | Implementado |
+| **RF-126** | Falha do arquivo (ausente, fora das pastas monitoradas) deve ser contada **uma vez**, não uma por destino — senão o resumo multiplicaria a mesma falha. | Implementado |
+| **RF-127** | Se uma pasta do conjunto sumir do disco, a cópia deve prosseguir nas restantes. Só falha quando **nenhuma** resta. | Implementado |
+| **RF-128** | A interface deve usar caixas de marcação, e informar quantas e quais pastas estão recebendo. | Implementado |
+| **RF-129** | Após uma re-exportação, o usuário deve poder escolher entre atalhos (só a nova, todas, nenhuma) ou marcar exatamente quais. | Implementado |
+| **RF-130** | Coleções que usavam destino único devem migrar sem intervenção: a pasta apontada por `pasta_vinculada` vira o primeiro elemento do conjunto. | Implementado |
+
 ---
 
 ## 5. Critérios de aceite
@@ -631,6 +645,27 @@ Então nada deve ser apagado no primeiro acionamento;
 E deve ser exibido o aviso com a contagem de pastas e arquivos;
 E só o segundo acionamento executa.
 *Cobre RF-105, RF-106.*
+
+**CA-048 — Espelhar em duas pastas**
+Dado uma coleção com duas pastas exportadas, ambas marcadas para receber;
+Quando o usuário adicionar uma imagem;
+Então a imagem deve ser copiada para as duas pastas;
+E o resultado deve informar 2 cópias.
+*Cobre RF-123, RF-125.*
+
+**CA-049 — Nenhuma pasta recebendo**
+Dado que o usuário desmarcou todas as pastas;
+Quando adicionar imagens à coleção;
+Então nada deve ser copiado;
+E as pastas devem continuar registradas e abríveis.
+*Cobre RF-124.*
+
+**CA-050 — Uma pasta sumida não bloqueia as outras**
+Dado duas pastas marcadas e uma delas apagada do disco;
+Quando a sincronia rodar;
+Então a cópia deve acontecer na pasta que restou;
+E a operação não deve falhar.
+*Cobre RF-127.*
 
 **CA-045 — Prefixo preservado nas re-exportações**
 Dado a coleção "Natureza" já exportada uma vez;

@@ -2,7 +2,7 @@
 
 **Data:** 29/08/2026
 **Branch:** `feature/selecionar-todas-e-exportacao-imediata`
-**Requisitos:** RF-080 … RF-121 · CA-032 … CA-047 ·
+**Requisitos:** RF-080 … RF-130 · CA-032 … CA-050 ·
 [`../09-requisitos-funcionais.md`](../09-requisitos-funcionais.md)
 **Status:** implementado.
 
@@ -417,6 +417,59 @@ A pergunta do destino vem **depois** do resultado da cópia, não antes: competi
 com a barra de progresso na tela faria o usuário decidir no meio de uma
 operação em andamento.
 
+### O destino é um conjunto, não um valor
+
+A primeira versão tinha **uma** pasta vinculada. Organizar a mesma coleção em
+duas pastas — uma de trabalho e um backup, por exemplo — era impossível, e
+"parar de enviar" só existia desvinculando, o que apagava a configuração.
+
+Agora `collection_folders.recebe` marca quais pastas recebem. São três estados
+legítimos:
+
+| Marcadas | O que acontece |
+|---|---|
+| Várias | Cada imagem é copiada para todas — a coleção fica espelhada |
+| Uma | Comportamento anterior |
+| Nenhuma | Nada é enviado; as pastas continuam registradas e abríveis |
+
+O último é o que faltava: parar o envio sem perder o histórico das pastas.
+
+**Contagem.** `copiados` conta uma cópia por pasta: 2 arquivos em 2 pastas dão
+4. Já a falha do arquivo — ausente, ou fora das pastas monitoradas — é contada
+**uma vez**, porque é do arquivo e não do destino. Contá-la por pasta faria o
+resumo multiplicar o mesmo problema.
+
+**Pasta sumida.** Se uma das pastas foi apagada por fora, a cópia acontece nas
+que restaram. Só devolve 409 quando nenhuma sobrou. Perder um destino não pode
+bloquear os demais.
+
+**Migração.** O `schema.sql` marca `recebe = TRUE` na pasta que estava em
+`collections.pasta_vinculada`, uma vez. Coleções antigas continuam funcionando
+sem intervenção. O campo `pasta_vinculada` permanece como espelho do primeiro
+elemento do conjunto — as telas e mensagens antigas ainda o leem, e deixá-lo
+divergir criaria duas verdades sobre o mesmo assunto.
+
+### Depois de re-exportar
+
+O modal oferece três atalhos e a marcação livre:
+
+```
+Para qual pasta devem ir as próximas fotos?
+
+  [ Só "Fotos_backup" ]        só a pasta nova
+  [ Todas as pastas ]          espelha em todas
+  [ Nenhuma por enquanto ]     pastas salvas, nada enviado
+
+Ou escolha exatamente quais:
+  ☑ Fotos_backup  (a que você acabou de criar)
+  ☑ Fotos         (recebe hoje)
+  ☐ Fotos_2
+  [ Confirmar escolha ]
+```
+
+Os atalhos existem porque "só a nova" é o caso mais frequente e, sem eles,
+custaria desmarcar as outras uma a uma.
+
 ---
 
 ## 8. Limitações
@@ -428,3 +481,4 @@ operação em andamento.
 | **L-3** | Renomear a coleção não renomeia a pasta. | O vínculo é pelo caminho absoluto, não pelo nome. |
 | **L-4** | Sem histórico do que foi sincronizado. | O *toast* informa e some. |
 | **L-5** | O modo é por coleção, sem padrão global. | Quem quiser `auto` em tudo escolhe a cada criação. Um padrão em `config_json` resolveria. |
+| **L-6** | Marcar uma pasta como destino não copia o que já está na coleção — só o que entrar dali em diante. | Para encher a pasta com o acervo atual, use "Exportar coleção". |

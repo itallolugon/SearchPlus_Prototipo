@@ -2880,26 +2880,41 @@ async function abrirPastaDaColecao() {
     document.getElementById('pastasExportadasModal').style.display = 'flex';
 }
 
+// O destino é um CONJUNTO: marcar várias espelha a coleção em todas, e
+// desmarcar todas simplesmente para de enviar — sem perder as pastas já
+// criadas. Daí caixas de marcação, e não escolha única.
+let _pastasExpCache = [];
+
 function renderizarPastasExportadas(pastas) {
-    const vinc = pastas.find(p => p.vinculada);
-    document.getElementById('pastasExpTexto').textContent = vinc
-        ? `As fotos que você adicionar a esta coleção vão para "${vinc.nome}". ` +
-          `Você pode abrir qualquer pasta ou trocar qual delas recebe.`
-        : `Nenhuma destas pastas está recebendo as novas fotos. ` +
-          `Escolha uma em "Receber fotos" para ativar.`;
+    _pastasExpCache = pastas;
+    const recebendo = pastas.filter(p => p.recebe);
+    document.getElementById('pastasExpTexto').textContent =
+        recebendo.length === 0
+            ? 'Nenhuma pasta está recebendo as novas fotos. Marque quantas quiser — ou deixe todas desmarcadas para não enviar nada.'
+        : recebendo.length === 1
+            ? `As fotos que você adicionar a esta coleção vão para "${recebendo[0].nome}". Marque mais de uma para enviar a várias pastas.`
+            : `As fotos vão para ${recebendo.length} pastas ao mesmo tempo: ${recebendo.map(p => `"${p.nome}"`).join(', ')}.`;
 
     const lista = document.getElementById('pastasExpLista');
     lista.innerHTML = '';
-    pastas.forEach(p => {
+    pastas.forEach((p, i) => {
         const item = document.createElement('div');
         item.className = 'pasta-exp';
+
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = !!p.recebe;
+        cb.dataset.idx = i;
+        cb.setAttribute('aria-label', `Enviar as novas fotos para ${p.nome}`);
+        cb.title = 'Receber as novas fotos desta coleção';
+        cb.onchange = () => aplicarPastasQueRecebem();
 
         const info = document.createElement('div');
         info.className = 'pasta-exp-info';
         const nome = document.createElement('span');
         nome.className = 'pasta-exp-nome';
         nome.textContent = p.nome;
-        if (p.vinculada) {
+        if (p.recebe) {
             const selo = document.createElement('span');
             selo.className = 'pasta-item-selo';
             selo.textContent = 'recebe as fotos';
@@ -2918,34 +2933,51 @@ function renderizarPastasExportadas(pastas) {
         abrir.onclick = () => { fecharPastasExportadas(); abrirPastaExportada(p.caminho); };
         acoes.appendChild(abrir);
 
-        if (!p.vinculada) {
-            const usar = document.createElement('button');
-            usar.className = 'action-btn';
-            usar.style.background = 'transparent';
-            usar.textContent = 'Receber fotos';
-            usar.title = 'Passar a enviar as novas fotos desta coleção para esta pasta';
-            usar.onclick = () => definirPastaQueRecebe(p.caminho, p.nome);
-            acoes.appendChild(usar);
-        }
-
-        item.append(info, acoes);
+        item.append(cb, info, acoes);
         lista.appendChild(item);
     });
+}
+
+// Envia o conjunto inteiro a cada mudança: o backend recebe a lista completa,
+// então não há estado parcial nem ordem de operações a coordenar.
+async function aplicarPastasQueRecebem() {
+    const marcadas = [...document.querySelectorAll('#pastasExpLista input[type="checkbox"]')]
+        .filter(cb => cb.checked)
+        .map(cb => _pastasExpCache[Number(cb.dataset.idx)].caminho);
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/collections/${_colecaoAtual.id}`, {
+            method: 'PATCH', headers: fetchOptions.headers,
+            body: JSON.stringify({ pastas_que_recebem: marcadas })
+        });
+        if (!r.ok) { toastErro(await _erroDaResposta(r, 'Não foi possível salvar.')); return; }
+
+        const rf = await fetch(`${API_BASE_URL}/api/collections/${_colecaoAtual.id}/folders`);
+        if (rf.ok) renderizarPastasExportadas(((await rf.json()).pastas || []).filter(p => p.existe));
+        atualizarBotaoAbrirPasta(_colecaoAtual.id);
+
+        if (marcadas.length === 0)      toastInfo('As novas fotos não serão enviadas para nenhuma pasta.');
+        else if (marcadas.length === 1) toastOk('As novas fotos vão para 1 pasta.');
+        else                            toastOk(`As novas fotos vão para ${marcadas.length} pastas.`);
+    } catch (e) { console.error(e); toastErro('Erro de conexão.'); }
 }
 
 function fecharPastasExportadas() {
     document.getElementById('pastasExportadasModal').style.display = 'none';
 }
 
-// Troca a pasta que recebe as próximas fotos, sem mexer no modo de sincronia.
-async function definirPastaQueRecebe(caminho, nome) {
+// Define o conjunto de pastas que recebem. Aceita um caminho (trocar o
+// destino) ou uma lista (espelhar em várias).
+async function definirPastaQueRecebe(caminhos, nome) {
+    const lista = Array.isArray(caminhos) ? caminhos : [caminhos];
     try {
         const r = await fetch(`${API_BASE_URL}/api/collections/${_colecaoAtual.id}`, {
             method: 'PATCH', headers: fetchOptions.headers,
-            body: JSON.stringify({ pasta_vinculada: caminho })
+            body: JSON.stringify({ pastas_que_recebem: lista })
         });
         if (!r.ok) { toastErro(await _erroDaResposta(r, 'Não foi possível trocar a pasta.')); return; }
-        toastOk(`As novas fotos desta coleção passam a ir para "${nome}".`);
+        toastOk(lista.length > 1
+            ? `As novas fotos desta coleção vão para ${lista.length} pastas.`
+            : `As novas fotos desta coleção passam a ir para "${nome}".`);
 
         const rf = await fetch(`${API_BASE_URL}/api/collections/${_colecaoAtual.id}/folders`);
         if (rf.ok) renderizarPastasExportadas(((await rf.json()).pastas || []).filter(p => p.existe));
@@ -3404,25 +3436,74 @@ function perguntarQualPastaRecebe({ pastaNova, existentes }) {
     const box = document.getElementById('expNovoDestinos');
     box.innerHTML = '';
     const opcoes = [{ caminho: pastaNova, nome: nomeNova, nova: true },
-                    ...existentes.map(p => ({ caminho: p.caminho, nome: p.nome, atual: p.vinculada }))];
+                    ...existentes.map(p => ({ caminho: p.caminho, nome: p.nome, atual: p.recebe }))];
 
-    opcoes.forEach(o => {
+    // Atalhos para os dois casos comuns, e depois a marcação livre. Sem eles,
+    // "só a nova" — o caso mais frequente — custaria desmarcar as outras.
+    const atalho = (rotulo, desc, lista) => {
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'vincular-opcao';
         const t = document.createElement('span');
         t.className = 'vincular-opcao-titulo';
-        t.textContent = o.nome + (o.nova ? '  (a que você acabou de criar)' : o.atual ? '  (recebe hoje)' : '');
+        t.textContent = rotulo;
         const d = document.createElement('span');
         d.className = 'vincular-opcao-desc';
-        d.textContent = o.caminho;
+        d.textContent = desc;
         btn.append(t, d);
         btn.onclick = async () => {
             document.getElementById('exportarDeNovoModal').style.display = 'none';
-            await definirPastaQueRecebe(o.caminho, o.nome);
+            await definirPastaQueRecebe(lista, nomeNova);
         };
         box.appendChild(btn);
+    };
+
+    atalho(`Só "${nomeNova}"`, 'As próximas fotos vão apenas para a pasta nova.',
+           [pastaNova]);
+    atalho('Todas as pastas', `As próximas fotos vão para as ${opcoes.length} pastas ao mesmo tempo.`,
+           opcoes.map(o => o.caminho));
+    atalho('Nenhuma por enquanto', 'As pastas ficam salvas, mas nada é enviado automaticamente.',
+           []);
+
+    // Marcação livre, para combinações que os atalhos não cobrem
+    const sep = document.createElement('p');
+    sep.className = 'exp-novo-rotulo';
+    sep.style.marginTop = '14px';
+    sep.textContent = 'Ou escolha exatamente quais:';
+    box.appendChild(sep);
+
+    opcoes.forEach(o => {
+        const item = document.createElement('label');
+        item.className = 'pasta-item';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = !!(o.nova || o.atual);
+        cb.dataset.caminho = o.caminho;
+        cb.setAttribute('aria-label', `Enviar as novas fotos para ${o.nome}`);
+        const info = document.createElement('div');
+        info.className = 'pasta-item-info';
+        const nm = document.createElement('span');
+        nm.className = 'pasta-item-nome';
+        nm.textContent = o.nome + (o.nova ? '  (a que você acabou de criar)' : o.atual ? '  (recebe hoje)' : '');
+        const cm = document.createElement('span');
+        cm.className = 'pasta-item-caminho';
+        cm.textContent = o.caminho;
+        info.append(nm, cm);
+        item.append(cb, info);
+        box.appendChild(item);
     });
+
+    const confirmar = document.createElement('button');
+    confirmar.className = 'action-btn gradient-btn';
+    confirmar.style.cssText = 'margin-top:14px; align-self:flex-end;';
+    confirmar.textContent = 'Confirmar escolha';
+    confirmar.onclick = async () => {
+        const marcadas = [...box.querySelectorAll('input[type="checkbox"]:checked')]
+            .map(cb => cb.dataset.caminho);
+        document.getElementById('exportarDeNovoModal').style.display = 'none';
+        await definirPastaQueRecebe(marcadas, nomeNova);
+    };
+    box.appendChild(confirmar);
 
     document.getElementById('exportarDeNovoModal').style.display = 'flex';
 }

@@ -194,17 +194,18 @@ class TestExclusaoExecutada:
         assert r.status_code == 200
         assert r.get_json()["falhas"] == []
 
-    def test_desvincula_ao_apagar_a_pasta_de_sincronia(self, client_logado,
+    def test_pasta_apagada_sai_do_conjunto_de_destinos(self, client_logado,
                                                        db_roteado, pasta_gerada):
         """Sem isto, a próxima adição tentaria copiar para um caminho morto."""
         conexao = db_roteado(_rotas([pasta_gerada], vinculada=pasta_gerada))
         client_logado.delete("/api/collections/1/folders",
                              json={"caminhos": [str(pasta_gerada)], "confirmar": True})
 
-        updates = [str(c.args[0]) for c in conexao.execute.call_args_list
-                   if "UPDATE collections" in str(c.args[0])]
-        assert any("pasta_vinculada = NULL" in u and "modo_sync = 'manual'" in u
-                   for u in updates)
+        # A linha de collection_folders some junto com a pasta — é o que a tira
+        # do conjunto. Resta ajustar o espelho em collections.
+        sqls = [str(c.args[0]) for c in conexao.execute.call_args_list]
+        assert any("DELETE FROM collection_folders" in q for q in sqls)
+        assert any("UPDATE collections SET pasta_vinculada" in q for q in sqls)
 
     def test_nao_toca_o_que_esta_fora_da_pasta(self, client_logado, db_roteado, tmp_path):
         """rmtree é recursivo: confirma que o raio de ação para na pasta."""

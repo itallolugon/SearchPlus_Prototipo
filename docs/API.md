@@ -503,8 +503,14 @@ para copiar só o que acabou de entrar.
 
 Sem `file_ids`, sincroniza a coleção inteira.
 
-→ `{"status": "ok", "copiados": 2, "ja_existiam": 0, "falhas": [], "pasta": "D:\\Fotos\\…"}`
-· `400` sem pasta vinculada · `404` · `409` a pasta vinculada sumiu do disco
+→ `{"status": "ok", "copiados": 4, "ja_existiam": 0, "falhas": [], "pastas": ["D:\\…", "E:\\…"], "pasta": "D:\\…"}`
+· `400` nenhuma pasta recebendo · `404` · `409` todas as pastas sumiram do disco
+
+Copia para **todas** as pastas do conjunto: `copiados` conta uma cópia por
+pasta, então 2 arquivos em 2 pastas dão 4. Se uma pasta sumiu do disco mas
+outra continua lá, a cópia acontece nas que sobraram — só falha com 409 quando
+nenhuma resta. Falha do arquivo (ausente, fora das pastas monitoradas) é
+contada **uma vez**, não uma por destino.
 
 Arquivo que já existe no destino é contado em `ja_existiam` e **não** é
 duplicado com sufixo — aqui a intenção é espelhar a coleção, não acumular

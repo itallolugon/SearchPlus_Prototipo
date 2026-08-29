@@ -2615,6 +2615,49 @@ def _pastas_da_colecao(conn, col_id: int, uid: int):
     ).fetchall()]
 
 
+def _pastas_que_recebem(conn, col_id: int, uid: int):
+    """
+    Pastas que devem receber as novas imagens da coleção.
+
+    É um conjunto, não um valor: o usuário pode espelhar a coleção em duas
+    pastas ao mesmo tempo, ou em nenhuma. Lista vazia significa "não enviar",
+    sem perder o registro das pastas já criadas.
+    """
+    return [r["caminho"] for r in conn.execute(
+        "SELECT caminho FROM collection_folders "
+        "WHERE collection_id = %s AND user_id = %s AND recebe = TRUE "
+        "ORDER BY criado_em",
+        (col_id, uid),
+    ).fetchall()]
+
+
+def _definir_pastas_que_recebem(conn, col_id: int, uid: int, caminhos) -> list:
+    """
+    Troca o conjunto de destinos. Só aceita pasta já registrada para a coleção.
+
+    Mantém `collections.pasta_vinculada` apontando para a primeira do conjunto
+    (ou NULL): as telas antigas e as mensagens de erro ainda leem esse campo, e
+    deixá-lo divergir do conjunto criaria duas verdades sobre o mesmo assunto.
+    """
+    registradas = {os.path.normpath(c) for c in _pastas_da_colecao(conn, col_id, uid)}
+    alvos = [c for c in (os.path.normpath(str(x).strip()) for x in caminhos)
+             if c in registradas]
+
+    conn.execute(
+        "UPDATE collection_folders SET recebe = FALSE "
+        "WHERE collection_id = %s AND user_id = %s", (col_id, uid))
+    if alvos:
+        conn.execute(
+            "UPDATE collection_folders SET recebe = TRUE "
+            "WHERE collection_id = %s AND user_id = %s AND caminho = ANY(%s)",
+            (col_id, uid, alvos))
+
+    conn.execute(
+        "UPDATE collections SET pasta_vinculada = %s WHERE id = %s AND user_id = %s",
+        (alvos[0] if alvos else None, col_id, uid))
+    return alvos
+
+
 def _atualizar_colecao(col_id: int, uid: int):
     """
     PATCH da coleção: nome, pasta vinculada e modo de sincronia.
@@ -2696,7 +2739,16 @@ def _atualizar_colecao(col_id: int, uid: int):
         campos.append("modo_sync = %s")
         valores.append(modo)
 
-    if not campos:
+    # Conjunto de pastas que recebem as novas imagens. Lista vazia é escolha
+    # válida: para de enviar sem perder o registro das pastas já criadas.
+    novos_destinos = None
+    if "pastas_que_recebem" in data:
+        bruto = data.get("pastas_que_recebem")
+        if not isinstance(bruto, list):
+            return jsonify({"error": "pastas_que_recebem deve ser uma lista."}), 400
+        novos_destinos = bruto
+
+    if not campos and novos_destinos is None:
         return jsonify({"error": "Nada para atualizar."}), 400
 
     conn = get_db()
@@ -2707,13 +2759,21 @@ def _atualizar_colecao(col_id: int, uid: int):
         if not dono:
             return jsonify({"error": "Coleção não encontrada."}), 404
 
-        valores.extend([col_id, uid])
         try:
-            conn.execute(
-                f"UPDATE collections SET {', '.join(campos)} "
-                "WHERE id = %s AND user_id = %s",
-                tuple(valores),
-            )
+            if campos:
+                valores.extend([col_id, uid])
+                conn.execute(
+                    f"UPDATE collections SET {', '.join(campos)} "
+                    "WHERE id = %s AND user_id = %s",
+                    tuple(valores),
+                )
+            # Pasta recém-criada por `criar_pasta_em` já entra como destino —
+            # foi para isso que o usuário a criou.
+            if pasta_criada and novos_destinos is None:
+                atuais = _pastas_que_recebem(conn, col_id, uid)
+                _definir_pastas_que_recebem(conn, col_id, uid, atuais + [pasta_criada])
+            elif novos_destinos is not None:
+                _definir_pastas_que_recebem(conn, col_id, uid, novos_destinos)
             conn.commit()
         except psycopg2.errors.UniqueViolation:
             conn.rollback()
@@ -2724,6 +2784,7 @@ def _atualizar_colecao(col_id: int, uid: int):
             "WHERE id = %s AND user_id = %s",
             (col_id, uid),
         ).fetchone()
+        destinos = _pastas_que_recebem(conn, col_id, uid)
     finally:
         conn.close()
 
@@ -2732,6 +2793,7 @@ def _atualizar_colecao(col_id: int, uid: int):
         "id": atual["id"],
         "nome": atual["nome"],
         "pasta_vinculada": atual["pasta_vinculada"],
+        "pastas_que_recebem": destinos,
         "modo_sync": atual["modo_sync"],
     })
 
@@ -3184,24 +3246,27 @@ def api_collection_folders(col_id):
     conn = get_db()
     try:
         col = conn.execute(
-            "SELECT id, pasta_vinculada FROM collections WHERE id = %s AND user_id = %s",
+            "SELECT id FROM collections WHERE id = %s AND user_id = %s",
             (col_id, uid),
         ).fetchone()
         if not col:
             return jsonify({"error": "Coleção não encontrada."}), 404
         caminhos = _pastas_da_colecao(conn, col_id, uid)
+        recebem = {os.path.normpath(c) for c in _pastas_que_recebem(conn, col_id, uid)}
     finally:
         conn.close()
 
-    vinculada = os.path.normpath(col["pasta_vinculada"]) if col["pasta_vinculada"] else None
     pastas = []
     for c in caminhos:
         existe = os.path.isdir(c)
+        recebe = os.path.normpath(c) in recebem
         pastas.append({
             "caminho": c,
             "nome": os.path.basename(c),
             "existe": existe,
-            "vinculada": vinculada == os.path.normpath(c),
+            "recebe": recebe,
+            # `vinculada` mantido para não quebrar quem já lê esse campo
+            "vinculada": recebe,
             "arquivos": len(os.listdir(c)) if existe else 0,
         })
     return jsonify({"pastas": pastas})
@@ -3285,12 +3350,14 @@ def api_collection_folders_delete(col_id):
             conn.execute(
                 "DELETE FROM collection_folders WHERE collection_id = %s "
                 "AND user_id = %s AND caminho = %s", (col_id, uid, alvo))
-            # A pasta apagada era o destino da sincronia? Desvincula, senão a
-            # próxima adição tentaria copiar para um caminho que não existe.
+            # A linha some junto com a pasta, então ela sai do conjunto de
+            # destinos automaticamente. Só o espelho em `collections` precisa
+            # de ajuste — e apenas se apontava para a pasta apagada.
+            restantes = _pastas_que_recebem(conn, col_id, uid)
             conn.execute(
-                "UPDATE collections SET pasta_vinculada = NULL, modo_sync = 'manual' "
+                "UPDATE collections SET pasta_vinculada = %s "
                 "WHERE id = %s AND user_id = %s AND pasta_vinculada = %s",
-                (col_id, uid, alvo))
+                (restantes[0] if restantes else None, col_id, uid, alvo))
             conn.commit()
         finally:
             conn.close()
@@ -3301,11 +3368,14 @@ def api_collection_folders_delete(col_id):
 @app.route("/api/collections/<int:col_id>/sync", methods=["POST"])
 def api_collection_sync(col_id):
     """
-    Copia arquivos da coleção para a pasta JÁ vinculada.
+    Copia arquivos da coleção para TODAS as pastas marcadas como destino.
+
+    O destino é um conjunto: o usuário pode espelhar a coleção em duas pastas
+    ao mesmo tempo. Cada arquivo é copiado uma vez por pasta.
 
     Diferente de /export em dois pontos que importam:
 
-    1. Escreve dentro da pasta existente — não cria `Nome (1)`. A pasta
+    1. Escreve dentro das pastas existentes — não cria `Nome_2`. A pasta
        vinculada é um espelho estável da coleção; criar outra a cada adição
        derrotaria o propósito.
     2. Aceita `file_ids` para copiar só o que acabou de entrar. Sem isso,
@@ -3324,20 +3394,27 @@ def api_collection_sync(col_id):
     conn = get_db()
     try:
         col = conn.execute(
-            "SELECT id, nome, pasta_vinculada, modo_sync FROM collections "
+            "SELECT id, nome, modo_sync FROM collections "
             "WHERE id = %s AND user_id = %s",
             (col_id, uid),
         ).fetchone()
         if not col:
             return jsonify({"error": "Coleção não encontrada."}), 404
 
-        pasta = col["pasta_vinculada"]
-        if not pasta:
-            return jsonify({"error": "Esta coleção não tem pasta vinculada."}), 400
-        if not os.path.isdir(pasta):
+        destinos = _pastas_que_recebem(conn, col_id, uid)
+        if not destinos:
+            return jsonify({"error": "Esta coleção não tem pasta recebendo imagens."}), 400
+
+        # Uma pasta pode ter sumido do disco sem as outras terem sumido: só
+        # aborta se NENHUMA sobrou. Perder um destino não pode impedir a cópia
+        # nos demais.
+        sumidas = [d for d in destinos if not os.path.isdir(d)]
+        destinos = [d for d in destinos if os.path.isdir(d)]
+        if not destinos:
+            nomes = ", ".join(f'"{os.path.basename(d)}"' for d in sumidas)
             return jsonify({
-                "error": f'A pasta "{os.path.basename(pasta)}" não está mais no lugar. '
-                         "Vincule a coleção a outra pasta para continuar."
+                "error": f'A pasta {nomes} não está mais no lugar. '
+                         "Escolha outra pasta para receber as imagens."
             }), 409
 
         if brutos is None:
@@ -3358,7 +3435,8 @@ def api_collection_sync(col_id):
                 return jsonify({"error": "Identificador de arquivo inválido."}), 400
             if not ids:
                 return jsonify({"status": "ok", "copiados": 0, "ja_existiam": 0,
-                                "falhas": [], "pasta": pasta})
+                                "falhas": [], "pastas": destinos,
+                                "pasta": destinos[0]})
             sql = """
                 SELECT f.nome, f.caminho
                 FROM collection_files cf
@@ -3377,6 +3455,9 @@ def api_collection_sync(col_id):
     copiados, ja_existiam, falhas = 0, 0, []
     for a in arquivos:
         origem = a["caminho"]
+
+        # Validações do arquivo valem para todos os destinos: falham uma vez,
+        # não uma por pasta — senão o resumo contaria a mesma falha N vezes.
         if not _dentro_das_pastas(origem, pastas):
             falhas.append({"nome": a["nome"], "motivo": "fora_das_pastas"})
             continue
@@ -3384,21 +3465,26 @@ def api_collection_sync(col_id):
             falhas.append({"nome": a["nome"], "motivo": "nao_encontrado"})
             continue
 
-        alvo = os.path.join(pasta, _sanitizar_nome(a["nome"], padrao="arquivo"))
-        if os.path.exists(alvo):
-            ja_existiam += 1
-            continue
-        try:
-            shutil.copy2(origem, alvo)
-            copiados += 1
-        except PermissionError:
-            falhas.append({"nome": a["nome"], "motivo": "sem_permissao"})
-        except OSError as exc:
-            print(f"[SYNC] '{origem}' → '{alvo}': {type(exc).__name__}: {exc}")
-            falhas.append({"nome": a["nome"], "motivo": "erro_escrita"})
+        nome_destino = _sanitizar_nome(a["nome"], padrao="arquivo")
+        for pasta in destinos:
+            alvo = os.path.join(pasta, nome_destino)
+            if os.path.exists(alvo):
+                ja_existiam += 1
+                continue
+            try:
+                shutil.copy2(origem, alvo)
+                copiados += 1
+            except PermissionError:
+                falhas.append({"nome": a["nome"], "motivo": "sem_permissao",
+                               "pasta": os.path.basename(pasta)})
+            except OSError as exc:
+                print(f"[SYNC] '{origem}' → '{alvo}': {type(exc).__name__}: {exc}")
+                falhas.append({"nome": a["nome"], "motivo": "erro_escrita",
+                               "pasta": os.path.basename(pasta)})
 
     return jsonify({"status": "ok", "copiados": copiados,
-                    "ja_existiam": ja_existiam, "falhas": falhas, "pasta": pasta})
+                    "ja_existiam": ja_existiam, "falhas": falhas,
+                    "pastas": destinos, "pasta": destinos[0]})
 
 
 def _job_do_usuario(job_id, uid):

@@ -651,10 +651,20 @@ def collection_detail(col_id):
                 return jsonify({"error": "Modo de sincronia inválido."}), 400
             col["modo_sync"] = modo
             campos += 1
+        if "pastas_que_recebem" in data:
+            bruto = data.get("pastas_que_recebem")
+            if not isinstance(bruto, list):
+                return jsonify({"error": "pastas_que_recebem deve ser uma lista."}), 400
+            geradas = col.get("pastas_geradas") or []
+            alvos = [c for c in bruto if c in geradas]
+            col["pastas_que_recebem"] = alvos
+            col["pasta_vinculada"] = alvos[0] if alvos else None
+            campos += 1
         if not campos:
             return jsonify({"error": "Nada para atualizar."}), 400
         return jsonify({"status": "ok", "id": col["id"], "nome": col["nome"],
                         "pasta_vinculada": col.get("pasta_vinculada"),
+                        "pastas_que_recebem": col.get("pastas_que_recebem") or [],
                         "modo_sync": col.get("modo_sync", "manual")})
 
     itens = [_item(a) for a in (_por_id(i) for i in col["files"]) if a]
@@ -723,10 +733,15 @@ def collection_folders(col_id):
         return jsonify({"error": "Coleção não encontrada."}), 404
 
     geradas = col.get("pastas_geradas") or []
+    # Conjunto de destinos; cai no campo antigo para coleções criadas antes.
     vinc = col.get("pasta_vinculada")
+    recebem = col.get("pastas_que_recebem")
+    if recebem is None:
+        recebem = [vinc] if vinc else []
     return jsonify({"pastas": [
         {"caminho": c, "nome": c.rstrip("\\/").split("\\")[-1],
-         "existe": True, "vinculada": c == vinc,
+         "existe": True,
+         "recebe": c in recebem, "vinculada": c in recebem,
          "arquivos": len(col["files"])}
         for c in geradas
     ]})
@@ -788,9 +803,12 @@ def collection_sync(col_id):
     if not col:
         return jsonify({"error": "Coleção não encontrada."}), 404
 
-    pasta = col.get("pasta_vinculada")
-    if not pasta:
-        return jsonify({"error": "Esta coleção não tem pasta vinculada."}), 400
+    destinos = col.get("pastas_que_recebem")
+    if destinos is None:
+        destinos = [col["pasta_vinculada"]] if col.get("pasta_vinculada") else []
+    if not destinos:
+        return jsonify({"error": "Esta coleção não tem pasta recebendo imagens."}), 400
+    pasta = destinos[0]
 
     data = request.get_json(force=True, silent=True) or {}
     brutos = data.get("file_ids")
@@ -814,8 +832,9 @@ def collection_sync(col_id):
         if sumido:
             falhas.append({"nome": sumido["nome"], "motivo": "nao_encontrado"})
 
-    return jsonify({"status": "ok", "copiados": len(copiados),
-                    "ja_existiam": 0, "falhas": falhas, "pasta": pasta})
+    return jsonify({"status": "ok", "copiados": len(copiados) * len(destinos),
+                    "ja_existiam": 0, "falhas": falhas,
+                    "pastas": destinos, "pasta": pasta})
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -875,11 +894,16 @@ def collection_export(col_id):
         col["pastas_geradas"].append(pasta)
     # `vincular` decide o destino das proximas fotos — ver docs/API.md
     vincular = data.get("vincular")
+    col.setdefault("pastas_que_recebem",
+                   [col["pasta_vinculada"]] if col.get("pasta_vinculada") else [])
     if vincular is True:
-        col["pasta_vinculada"] = pasta
+        if pasta not in col["pastas_que_recebem"]:
+            col["pastas_que_recebem"].append(pasta)
+        col["pasta_vinculada"] = col["pastas_que_recebem"][0]
         if col.get("modo_sync", "manual") == "manual":
             col["modo_sync"] = "perguntar"
-    elif vincular is None and not col.get("pasta_vinculada"):
+    elif vincular is None and not col["pastas_que_recebem"]:
+        col["pastas_que_recebem"] = [pasta]
         col["pasta_vinculada"] = pasta
         col["modo_sync"] = "perguntar"
 

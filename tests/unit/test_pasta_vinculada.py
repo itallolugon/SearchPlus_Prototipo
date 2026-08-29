@@ -160,11 +160,13 @@ def cenario_sync(tmp_path):
     return origem, destino
 
 
-def _rotas_sync(origem, destino, arquivos, modo="auto"):
+def _rotas_sync(origem, destinos, arquivos, modo="auto"):
+    """Destino é um CONJUNTO: aceita uma pasta ou várias."""
+    if not isinstance(destinos, (list, tuple)):
+        destinos = [destinos]
     return {
-        "FROM collections": {"fetchone": {"id": 1, "nome": "C",
-                                          "pasta_vinculada": str(destino),
-                                          "modo_sync": modo}},
+        "FROM collections": {"fetchone": {"id": 1, "nome": "C", "modo_sync": modo}},
+        "FROM collection_folders": {"fetchall": [{"caminho": str(d)} for d in destinos]},
         "JOIN files f ON f.id = cf.file_id": {
             "fetchall": [{"nome": n, "caminho": str(origem / n)} for n in arquivos]
         },
@@ -221,9 +223,8 @@ class TestSincronia:
         intruso.write_text("chave", encoding="utf-8")
 
         db_roteado({
-            "FROM collections": {"fetchone": {"id": 1, "nome": "C",
-                                              "pasta_vinculada": str(destino),
-                                              "modo_sync": "auto"}},
+            "FROM collections": {"fetchone": {"id": 1, "nome": "C", "modo_sync": "auto"}},
+            "FROM collection_folders": {"fetchall": [{"caminho": str(destino)}]},
             "JOIN files f ON f.id = cf.file_id": {
                 "fetchall": [{"nome": "segredo.txt", "caminho": str(intruso)}]
             },
@@ -236,24 +237,65 @@ class TestSincronia:
         assert corpo["falhas"][0]["motivo"] == "fora_das_pastas"
         assert os.listdir(destino) == []
 
-    def test_sem_pasta_vinculada_e_recusado(self, client_logado, db_roteado):
+    def test_sem_pasta_recebendo_e_recusado(self, client_logado, db_roteado):
+        """Nenhuma pasta marcada é escolha válida — mas não há o que sincronizar."""
         db_roteado({
-            "FROM collections": {"fetchone": {"id": 1, "nome": "C",
-                                              "pasta_vinculada": None,
-                                              "modo_sync": "manual"}},
+            "FROM collections": {"fetchone": {"id": 1, "nome": "C", "modo_sync": "manual"}},
+            "FROM collection_folders": {"fetchall": []},
         })
         assert client_logado.post("/api/collections/1/sync", json={}).status_code == 400
 
-    def test_pasta_vinculada_sumiu_do_disco(self, client_logado, db_roteado, tmp_path):
+    def test_todas_as_pastas_sumiram_do_disco(self, client_logado, db_roteado, tmp_path):
         """409, e a mensagem orienta — não é um erro técnico."""
         db_roteado({
-            "FROM collections": {"fetchone": {"id": 1, "nome": "C",
-                                              "pasta_vinculada": str(tmp_path / "foi_embora"),
-                                              "modo_sync": "auto"}},
+            "FROM collections": {"fetchone": {"id": 1, "nome": "C", "modo_sync": "auto"}},
+            "FROM collection_folders": {"fetchall": [{"caminho": str(tmp_path / "foi_embora")}]},
         })
         r = client_logado.post("/api/collections/1/sync", json={})
         assert r.status_code == 409
-        assert "Vincule" in r.get_json()["error"]
+        assert "Escolha outra pasta" in r.get_json()["error"]
+
+    def test_uma_pasta_sumida_nao_impede_as_outras(self, client_logado,
+                                                   db_roteado, cenario_sync):
+        """Perder um destino não pode bloquear a cópia nos demais."""
+        origem, destino = cenario_sync
+        sumida = origem.parent / "nao_existe"
+        db_roteado(_rotas_sync(origem, [sumida, destino], ["a.jpg"]))
+
+        corpo = client_logado.post("/api/collections/1/sync", json={}).get_json()
+
+        assert corpo["copiados"] == 1
+        assert (destino / "a.jpg").exists()
+
+    def test_copia_para_as_duas_pastas(self, client_logado, db_roteado, tmp_path):
+        """O caso que motivou o conjunto: espelhar a coleção em duas pastas."""
+        origem = tmp_path / "Fotos"
+        d1 = tmp_path / "Espelho1"
+        d2 = tmp_path / "Espelho2"
+        for d in (origem, d1, d2):
+            d.mkdir()
+        (origem / "a.jpg").write_text("conteudo", encoding="utf-8")
+
+        db_roteado(_rotas_sync(origem, [d1, d2], ["a.jpg"]))
+        corpo = client_logado.post("/api/collections/1/sync", json={}).get_json()
+
+        assert corpo["copiados"] == 2          # uma cópia por pasta
+        assert (d1 / "a.jpg").read_text(encoding="utf-8") == "conteudo"
+        assert (d2 / "a.jpg").read_text(encoding="utf-8") == "conteudo"
+        assert len(corpo["pastas"]) == 2
+
+    def test_falha_do_arquivo_conta_uma_vez_so(self, client_logado, db_roteado, tmp_path):
+        """Arquivo ausente é UMA falha, não uma por pasta de destino."""
+        origem = tmp_path / "Fotos"
+        d1, d2 = tmp_path / "E1", tmp_path / "E2"
+        for d in (origem, d1, d2):
+            d.mkdir()
+
+        db_roteado(_rotas_sync(origem, [d1, d2], ["sumiu.jpg"]))
+        corpo = client_logado.post("/api/collections/1/sync", json={}).get_json()
+
+        assert len(corpo["falhas"]) == 1
+        assert corpo["falhas"][0]["motivo"] == "nao_encontrado"
 
     def test_lista_vazia_nao_faz_nada(self, client_logado, db_roteado, cenario_sync):
         origem, destino = cenario_sync

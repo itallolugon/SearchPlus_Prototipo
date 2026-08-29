@@ -94,6 +94,28 @@ CREATE TABLE IF NOT EXISTS collection_folders (
 CREATE INDEX IF NOT EXISTS collection_folders_col_idx ON collection_folders (collection_id);
 CREATE INDEX IF NOT EXISTS collection_folders_user_idx ON collection_folders (user_id);
 
+-- Quais pastas recebem as novas imagens da coleção. É um CONJUNTO: podem ser
+-- várias (organizar em duas pastas), uma, ou nenhuma (parar de enviar sem
+-- perder o registro das pastas já criadas).
+-- Esta coluna é a fonte da verdade sobre o DESTINO; `collections.modo_sync`
+-- continua respondendo QUANDO enviar.
+ALTER TABLE collection_folders ADD COLUMN IF NOT EXISTS recebe BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- Migração das coleções que já usavam o destino único: a pasta apontada por
+-- `collections.pasta_vinculada` passa a ser a primeira do conjunto. Roda uma
+-- vez; depois disso nenhuma linha casa e o UPDATE é inócuo.
+UPDATE collection_folders cf
+   SET recebe = TRUE
+  FROM collections c
+ WHERE cf.collection_id = c.id
+   AND c.pasta_vinculada IS NOT NULL
+   AND cf.caminho = c.pasta_vinculada
+   AND cf.recebe = FALSE
+   AND NOT EXISTS (
+       SELECT 1 FROM collection_folders x
+        WHERE x.collection_id = cf.collection_id AND x.recebe = TRUE
+   );
+
 -- Relação N:N entre coleções e arquivos
 CREATE TABLE IF NOT EXISTS collection_files (
     collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
