@@ -2809,7 +2809,7 @@ async function confirmarExclusaoPastas(apagar) {
             body: JSON.stringify({ caminhos, confirmar: true })
         });
         const d = await r.json().catch(() => ({}));
-        if (!r.ok) { toastErro(d.error || 'Não foi possível apagar as pastas.'); return; }
+        if (!r.ok) { toastErro(await _erroDaResposta(r, 'Não foi possível apagar as pastas.')); return; }
 
         const n = (d.apagadas || []).length;
         const falhas = (d.falhas || []).length;
@@ -3073,6 +3073,23 @@ function _nomeDaPasta(caminho) {
     return (caminho || '').split(/[\\/]/).filter(Boolean).pop() || caminho;
 }
 
+// Traduz uma resposta de erro em algo acionável.
+//
+// O caso que motivou isto: com o backend rodando de antes da feature, o PATCH
+// devolvia 405 em HTML. O `.json()` falhava, o corpo virava {} e o usuário via
+// "Não foi possível criar a pasta" — mensagem que manda procurar permissão de
+// disco quando o problema era um servidor desatualizado.
+async function _erroDaResposta(r, padrao) {
+    if (r.status === 405 || r.status === 404) {
+        return 'O servidor está desatualizado e não conhece esta função. ' +
+               'Feche a janela do servidor e rode o rodar.bat de novo.';
+    }
+    let d = {};
+    try { d = await r.json(); } catch (e) { /* resposta não-JSON: usa o padrão */ }
+    if (d && d.error) return d.error;
+    return `${padrao} (erro ${r.status})`;
+}
+
 // Chama /sync e traduz o resultado numa frase. Sem barra de progresso: a
 // sincronia é de poucos arquivos e termina antes de valer a pena mostrar uma.
 async function enviarParaPastaVinculada(colId, nome, ids) {
@@ -3089,7 +3106,7 @@ async function enviarParaPastaVinculada(colId, nome, ids) {
             toastErro(d.error || 'A pasta vinculada não está mais no lugar.');
             return;
         }
-        if (!r.ok) { toastErro(d.error || 'Não foi possível enviar para a pasta.'); return; }
+        if (!r.ok) { toastErro(await _erroDaResposta(r, 'Não foi possível enviar para a pasta.')); return; }
 
         const falhas = (d.falhas || []).length;
         const alvo = _nomeDaPasta(d.pasta);
@@ -3158,8 +3175,11 @@ async function configurarPastaDaColecao(colId, nome) {
             method: 'PATCH', headers: fetchOptions.headers,
             body: JSON.stringify({ criar_pasta_em: destino, modo_sync: modo })
         });
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok) { toastErro(d.error || 'Não foi possível criar a pasta.'); return 'manual'; }
+        if (!r.ok) {
+            toastErro(await _erroDaResposta(r, 'Não foi possível criar a pasta.'));
+            return 'manual';
+        }
+        const d = await r.json();
         pastaCriada = d.pasta_vinculada;
     } catch (e) { console.error(e); toastErro('Erro de conexão.'); return 'manual'; }
 
