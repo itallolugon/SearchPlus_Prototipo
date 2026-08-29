@@ -1,10 +1,14 @@
 # Feature — Limpar rapidamente o campo de busca
 
 **Data:** 25/08/2026
-**Branch sugerida:** `feature/limpar-busca` (ver [`../07-git-fluxo.md`](../07-git-fluxo.md))
+**Branch:** `feature/limpar-busca-e-colecoes` (ver [`../07-git-fluxo.md`](../07-git-fluxo.md))
 **Requisitos:** RF-001 … RF-012 · CA-001 … CA-007 ·
 [`../09-requisitos-funcionais.md`](../09-requisitos-funcionais.md)
-**Status:** especificação. Nenhum código de aplicação foi alterado.
+**Status:** **implementado**. Este documento foi escrito como especificação,
+antes do código; o texto abaixo preserva o tempo verbal original ("deve",
+"deverá") de propósito — ele descreve o contrato que a implementação cumpre, e
+continua servindo de referência para a interface nova prevista em
+[`../FRONTEND.md`](../FRONTEND.md).
 
 ---
 

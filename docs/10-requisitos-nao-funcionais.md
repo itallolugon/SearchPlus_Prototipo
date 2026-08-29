@@ -3,7 +3,9 @@
 **Data:** 25/08/2026
 **Escopo:** atributos de qualidade das duas features especificadas em
 [`09-requisitos-funcionais.md`](09-requisitos-funcionais.md).
-**Status:** especificação. Nenhum código de aplicação foi alterado.
+**Status:** **implementado**. Escrito como especificação, antes do código —
+o tempo verbal ("deve", "deverá") descreve o contrato que a implementação
+cumpre, não trabalho pendente.
 
 Cada requisito abaixo é **verificável**. Requisitos do tipo "deve ser rápido"
 ou "deve ser intuitivo" foram convertidos em número, procedimento de medição

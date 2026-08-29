@@ -1,10 +1,14 @@
 # Feature — Coleções e exportação para uma pasta local
 
 **Data:** 25/08/2026
-**Branch sugerida:** `feature/colecoes-exportacao` (ver [`../07-git-fluxo.md`](../07-git-fluxo.md))
+**Branch:** `feature/limpar-busca-e-colecoes` (ver [`../07-git-fluxo.md`](../07-git-fluxo.md))
 **Requisitos:** RF-013 … RF-060 · CA-008 … CA-023 ·
 [`../09-requisitos-funcionais.md`](../09-requisitos-funcionais.md)
-**Status:** especificação. Nenhum código de aplicação foi alterado.
+**Status:** **implementado**. Este documento foi escrito como especificação,
+antes do código; o texto abaixo preserva o tempo verbal original ("deve",
+"deverá") de propósito — ele descreve o contrato que a implementação cumpre.
+Evolução de fluxo posterior em
+[`13-selecao-em-massa.md`](13-selecao-em-massa.md).
 
 ---
 
@@ -163,7 +167,7 @@ são visualmente próximas e semanticamente opostas.
 | **Onde vive** | `files.favorito` (coluna no banco) | Memória do navegador. **Não** vai para o banco |
 | **Quantidade** | Uma imagem, um estado | Muitas imagens, um conjunto |
 | **Consequência** | Aparece em "Favoritos" | Habilita a barra de ações em lote |
-| **Situação hoje** | ✅ Implementado | ❌ Não existe |
+| **Situação em 25/08/2026** | ✅ Já existia | ❌ Não existia — construído por esta feature |
 
 Favoritar é um **julgamento sobre a imagem**. Selecionar é um **passo de um
 fluxo de trabalho**. Uma imagem pode ser favorita e não estar selecionada; pode

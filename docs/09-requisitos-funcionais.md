@@ -3,7 +3,9 @@
 **Data:** 25/08/2026
 **Escopo:** duas funcionalidades novas — (1) botão de limpar o campo de busca;
 (2) seleção de imagens, coleções e exportação para uma pasta local.
-**Status:** especificação. Nenhum código de aplicação foi alterado.
+**Status:** **implementado** (RF-001 … RF-064). Escrito como especificação,
+antes do código: as colunas "Novo/Existente" e o tempo verbal refletem o
+estado de 25/08/2026, quando o documento foi redigido.
 
 Documentos irmãos:
 [`10-requisitos-nao-funcionais.md`](10-requisitos-nao-funcionais.md) ·
@@ -137,7 +139,8 @@ existe seleção múltipla.
 
 ## 4. Exportação para pasta local
 
-Nada nesta seção existe hoje. Tudo é novo.
+Nada nesta seção existia quando o documento foi escrito — toda a exportação
+é trabalho novo, hoje implementado.
 
 ### 4.1 Disparo e destino
 
