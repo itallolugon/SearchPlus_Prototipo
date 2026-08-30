@@ -752,7 +752,16 @@ def serve_static(filename):
         # as_posix(): send_from_directory espera '/' como separador. No Windows,
         # str(rel) devolveria 'fonts\arquivo.ttf' e a barra invertida seria
         # recusada, transformando um arquivo existente em 404.
-        return send_from_directory(str(FRONTEND_DIR), rel.as_posix())
+        resposta = send_from_directory(str(FRONTEND_DIR), rel.as_posix())
+
+        # Código do frontend nunca é cacheado. O index.html referencia
+        # `script.js?v=<string fixa>`: se o navegador guardar a versão antiga,
+        # ela fica servida para sempre, e o app passa a rodar HTML novo com JS
+        # velho — sintoma que aparece como erro de backend, não de cache.
+        # Fonte e imagem continuam cacheáveis: mudam raramente e pesam.
+        if rel.suffix.lower() in {".js", ".css", ".html"}:
+            resposta.headers["Cache-Control"] = "no-store, must-revalidate"
+        return resposta
 
     # Não é arquivo: se o caminho tem cara de recurso estático (tem extensão),
     # é um 404 de verdade. Sem extensão, é rota de SPA — entrega o index.html
