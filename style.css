@@ -497,6 +497,7 @@ body {
 .action-btn,
 .btn-renomear,
 .btn-verificar-pasta,
+.faixa-preparando,
 .btn-fav-abs,
 .btn-fav-icon,
 .btn-sel-abs,
@@ -1401,4 +1402,37 @@ body {
     }
     /* Estatísticas do perfil empilham */
     .toast { min-width: auto; max-width: 90vw; }
+}
+
+
+/* Faixa "preparando a busca" — aparece só na janela entre o servidor subir e
+   os modelos terminarem de carregar. Fica no rodapé e por cima de tudo,
+   inclusive da tela de login: é justamente durante o login que a espera
+   acontece. Não bloqueia clique nenhum. */
+.faixa-preparando {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    z-index: 10200; pointer-events: none;
+    display: flex; align-items: center; gap: 10px;
+    max-width: min(560px, calc(100vw - 32px));
+    padding: 10px 16px; border-radius: 22px;
+    background: rgba(20, 16, 30, 0.92);
+    border: 1px solid var(--border-light);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    color: var(--text-secondary); font-size: 0.82rem; line-height: 1.4;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+}
+.faixa-preparando-ponto {
+    flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent-primary);
+    animation: faixa-pulsa 1.4s ease-in-out infinite;
+}
+@keyframes faixa-pulsa {
+    0%, 100% { opacity: 0.35; }
+    50%      { opacity: 1; }
+}
+
+/* Quem prefere menos movimento não precisa de um ponto piscando no rodapé
+   durante meio minuto. */
+@media (prefers-reduced-motion: reduce) {
+    .faixa-preparando-ponto { animation: none; opacity: 0.9; }
 }

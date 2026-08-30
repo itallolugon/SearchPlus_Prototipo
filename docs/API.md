@@ -331,6 +331,36 @@ Erros:
 ```
 Aceita `id` **ou** `path` para identificar a pasta. Campos alteráveis: `prioridades`, `perfil_analise` (`fast`/`deep`), `janela_processamento`.
 
+#### `GET /api/health`
+Diz se o programa já está inteiro de pé. **Não exige sessão** — a espera
+acontece justamente na tela de login, antes de qualquer sessão existir.
+
+```json
+{
+  "servidor": "ok",
+  "modelos": {
+    "texto":  { "estado": "pronto", "motivo": "" },
+    "visual": { "estado": "carregando", "motivo": "" }
+  },
+  "busca_pronta": true,
+  "carregando": true
+}
+```
+
+`estado` é `carregando`, `pronto` ou `indisponivel`; `motivo` só vem preenchido
+em `indisponivel`. `busca_pronta` acompanha o modelo de **texto**, que é o que
+destrava a busca escrita.
+
+O servidor responde desde o primeiro instante e carrega os modelos em segundo
+plano. Antes eles eram carregados na importação, e por ~30 segundos o navegador
+não recebia nem a tela de login — o usuário via "não foi possível acessar" e
+concluía que o programa não tinha aberto.
+
+Enquanto `carregando` for `true`, `/api/search` e `/api/search_by_image`
+respondem **503** com `"carregando": true` e uma mensagem pedindo para tentar
+de novo em instantes. Depois que a carga termina, um 503 sem `carregando`
+significa que o modelo não subiu e esperar não vai resolver.
+
 #### `GET /api/estimate_time?pasta=<path>&perfil=fast&foco=tudo`
 ```json
 { "estimativa_minutos": 3, "total_imagens": 120 }

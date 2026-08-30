@@ -11,6 +11,7 @@ import bcrypt
 import mimetypes
 import queue
 import secrets
+import sys
 import shutil
 import subprocess
 import threading
@@ -75,19 +76,26 @@ CLAUDE_OK = False
 # Modelo usado tanto para descrever imagens quanto para julgar a busca.
 # Pode ser trocado no .env (CLAUDE_MODEL) sem mexer no código.
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "").strip() or "claude-opus-5"
-try:
-    import anthropic as _anthropic
-    _chave = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    if not _chave:
-        print("[AI] ANTHROPIC_API_KEY não encontrada no .env — análise de imagens e re-rank ficarão indisponíveis.")
-    else:
+# O `import anthropic` custa ~3s sozinho. Como nada dele é preciso para o
+# servidor atender, ele sai daqui e vai para a carga em segundo plano, junto
+# dos modelos — ver _carregar_modelos().
+
+
+def _iniciar_claude() -> None:
+    global _CLAUDE, CLAUDE_OK
+    try:
+        import anthropic as _anthropic
+        _chave = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+        if not _chave:
+            print("[AI] ANTHROPIC_API_KEY não encontrada no .env — análise de imagens e re-rank ficarão indisponíveis.")
+            return
         _CLAUDE = _anthropic.Anthropic(api_key=_chave)
         CLAUDE_OK = True
         print("[AI] Claude ativo — descrição de imagens e re-rank da busca via API.")
-except ImportError:
-    print("[AI] Lib 'anthropic' não instalada (pip install anthropic).")
-except Exception as _e:
-    print(f"[AI] Falha ao iniciar Claude: {_e}")
+    except ImportError:
+        print("[AI] Lib 'anthropic' não instalada (pip install anthropic).")
+    except Exception as _e:
+        print(f"[AI] Falha ao iniciar Claude: {_e}")
 
 try:
     import fitz  # PyMuPDF
@@ -101,13 +109,21 @@ try:
 except ImportError:
     DOCX_OK = False
 
+# numpy fica aqui: custa 0,3s e é usado em vários pontos.
 try:
-    from sklearn.feature_extraction.text import TfidfVectorizer
-    from sklearn.metrics.pairwise import cosine_similarity
     import numpy as np
-    SKLEARN_OK = True
+    NUMPY_OK = True
 except ImportError:
-    SKLEARN_OK = False
+    NUMPY_OK = False
+
+# scikit-learn sai do caminho de inicialização: sozinho ele custava 4,8s dos
+# ~7s que o servidor levava para atender o primeiro pedido, e nada dele é
+# preciso até alguém buscar. Carrega junto dos modelos, no mesmo thread.
+#
+# `TfidfVectorizer` também era importado aqui e não é usado em lugar nenhum —
+# um import morto pagando parte dessa conta.
+cosine_similarity = None
+SKLEARN_OK = False
 
 # Força uso do cache local por padrão — evita timeouts de rede ao checar arquivos no HuggingFace.
 # Para baixar modelos pela primeira vez, rode com: SEARCHPLUS_OFFLINE=0 py backend/app.py
@@ -116,34 +132,147 @@ if os.environ.get("SEARCHPLUS_OFFLINE", "1") == "1":
     os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 try:
-    from sentence_transformers import SentenceTransformer as _ST
-    _SBERT = _ST("paraphrase-multilingual-MiniLM-L12-v2")
-    SBERT_OK = True
-    print("[AI] Sentence Transformers carregado — busca semântica ativa.")
-except Exception as _e:
-    SBERT_OK = False
-    print(f"[AI] Sentence Transformers indisponível: {_e}")
-
-# ── CLIP: busca visual direta (texto↔imagem no mesmo espaço vetorial) ───────
-# Dois modelos: encoder de texto multilingual + encoder de imagem original.
-# Total ~1.1GB no primeiro download. Rode uma vez com SEARCHPLUS_OFFLINE=0.
-try:
     from PIL import Image as _PILImage
     PIL_OK = True
 except ImportError:
     PIL_OK = False
 
-try:
-    if not PIL_OK:
-        raise ImportError("Pillow não instalado (pip install Pillow).")
-    from sentence_transformers import SentenceTransformer as _ST2
-    _CLIP_TXT = _ST2("sentence-transformers/clip-ViT-B-32-multilingual-v1")
-    _CLIP_IMG = _ST2("sentence-transformers/clip-ViT-B-32")
-    CLIP_OK = True
-    print("[AI] CLIP multilingual carregado — busca visual ativa.")
-except Exception as _e:
-    CLIP_OK = False
-    print(f"[AI] CLIP indisponível (busca visual desligada): {_e}")
+# ── Modelos de busca: carregados em segundo plano ──────────────────────────
+#
+# Carregar aqui, na importação, custava ~30 segundos antes de o Flask começar a
+# atender. Nesse intervalo o navegador não recebia nem a tela de login: o
+# usuário via "não foi possível acessar" e concluía que o programa não abriu.
+#
+# Agora a importação só declara o estado; um thread carrega em paralelo e o
+# servidor atende de imediato. As flags continuam sendo globais do módulo, e
+# todas as leituras acontecem dentro de funções (tempo de chamada), então elas
+# enxergam o valor atualizado assim que a carga termina.
+_SBERT = None
+_CLIP_TXT = None
+_CLIP_IMG = None
+SBERT_OK = False
+CLIP_OK = False
+
+# "carregando" → "pronto" | "indisponivel"
+_estado_modelos = {"texto": "carregando", "visual": "carregando"}
+_motivo_modelos: dict[str, str] = {}
+_lock_modelos = threading.Lock()
+
+# Sinaliza que a carga TERMINOU — de bem ou de mal. Quem espera aqui precisa
+# saber que não adianta mais esperar, não que deu certo; para saber se deu
+# certo, olhe SBERT_OK / CLIP_OK.
+_MODELOS_RESOLVIDOS = threading.Event()
+
+
+def _marcar_modelo(qual: str, estado: str, motivo: str = "") -> None:
+    with _lock_modelos:
+        _estado_modelos[qual] = estado
+        if motivo:
+            _motivo_modelos[qual] = motivo
+
+
+def estado_dos_modelos() -> dict:
+    """Cópia do estado, para o /api/health responder sem segurar o lock."""
+    with _lock_modelos:
+        return {
+            "texto": {"estado": _estado_modelos["texto"],
+                      "motivo": _motivo_modelos.get("texto", "")},
+            "visual": {"estado": _estado_modelos["visual"],
+                       "motivo": _motivo_modelos.get("visual", "")},
+        }
+
+
+def busca_pronta() -> bool:
+    """A busca por texto depende do modelo de texto; é ele que manda."""
+    return SBERT_OK
+
+
+def _carregar_modelos() -> None:
+    """
+    Carrega os modelos, um de cada vez, atualizando o estado conforme termina.
+
+    O de texto vem primeiro de propósito: é ele que destrava a busca escrita,
+    que é o que o usuário faz assim que abre o programa. O visual pode demorar
+    mais um pouco sem que ninguém fique esperando.
+    """
+    global _SBERT, _CLIP_TXT, _CLIP_IMG, SBERT_OK, CLIP_OK
+    global cosine_similarity, SKLEARN_OK
+
+    # Carregar em paralelo com o servidor tem um custo: a cada 5ms (padrão do
+    # Python) o interpretador tira o GIL desta thread e oferece às outras. No
+    # meio de um import pesado isso é quase sempre desperdício — troca de
+    # contexto sem ninguém para atender. Alargando a fatia para 50ms, a carga
+    # terminou em 35s em vez de 42s nas medições.
+    #
+    # Isso NÃO limita a espera de um pedido a 50ms: um import em C segura o GIL
+    # enquanto quiser, e a fatia não interrompe código nativo. Medido durante a
+    # carga, o /api/health respondeu com mediana de 6ms e pior caso de ~1,5s.
+    # O pior caso já existia antes desta linha; ela só reduz o vaivém inútil.
+    _fatia_original = sys.getswitchinterval()
+    sys.setswitchinterval(0.05)
+    try:
+        _carregar_modelos_de_fato()
+    finally:
+        sys.setswitchinterval(_fatia_original)
+        _MODELOS_RESOLVIDOS.set()
+
+
+def _carregar_modelos_de_fato() -> None:
+    global _SBERT, _CLIP_TXT, _CLIP_IMG, SBERT_OK, CLIP_OK
+    global cosine_similarity, SKLEARN_OK
+
+    try:
+        from sentence_transformers import SentenceTransformer as _ST
+        _SBERT = _ST("paraphrase-multilingual-MiniLM-L12-v2")
+        SBERT_OK = True
+        _marcar_modelo("texto", "pronto")
+        print("[AI] Sentence Transformers carregado — busca semântica ativa.")
+    except Exception as _e:
+        SBERT_OK = False
+        _marcar_modelo("texto", "indisponivel", str(_e))
+        print(f"[AI] Sentence Transformers indisponível: {_e}")
+
+    # scikit-learn e o SDK do Claude vêm DEPOIS do modelo de texto. Os dois
+    # somam ~8s e nenhum deles é preciso para a busca escrita funcionar:
+    # deixá-los na frente adiava em 8 segundos o momento em que o usuário
+    # consegue buscar, sem devolver nada em troca.
+    try:
+        from sklearn.metrics.pairwise import cosine_similarity as _cos
+        cosine_similarity = _cos
+        SKLEARN_OK = True
+    except ImportError as _e:
+        SKLEARN_OK = False
+        print(f"[AI] scikit-learn indisponível: {_e}")
+
+    _iniciar_claude()
+
+    # CLIP: busca visual direta (texto↔imagem no mesmo espaço vetorial).
+    # Dois modelos: encoder de texto multilingual + encoder de imagem original.
+    # Total ~1.1GB no primeiro download. Rode uma vez com SEARCHPLUS_OFFLINE=0.
+    try:
+        if not PIL_OK:
+            raise ImportError("Pillow não instalado (pip install Pillow).")
+        from sentence_transformers import SentenceTransformer as _ST2
+        _CLIP_TXT = _ST2("sentence-transformers/clip-ViT-B-32-multilingual-v1")
+        _CLIP_IMG = _ST2("sentence-transformers/clip-ViT-B-32")
+        CLIP_OK = True
+        _marcar_modelo("visual", "pronto")
+        print("[AI] CLIP multilingual carregado — busca visual ativa.")
+    except Exception as _e:
+        CLIP_OK = False
+        _marcar_modelo("visual", "indisponivel", str(_e))
+        print(f"[AI] CLIP indisponível (busca visual desligada): {_e}")
+
+
+def iniciar_carga_dos_modelos() -> None:
+    """Dispara a carga uma única vez. Chamada na importação."""
+    if _MODELOS_RESOLVIDOS.is_set():
+        return
+    threading.Thread(target=_carregar_modelos, daemon=True,
+                     name="carga-modelos").start()
+
+
+iniciar_carga_dos_modelos()
 
 # ── BM25: busca por palavra-chave (complemento ao SBERT) ────────────────────
 try:
@@ -1932,8 +2061,21 @@ def api_search():
     t0 = time.time()
 
     if not SBERT_OK:
-        return jsonify({"resultados": [], "tempo": 0,
-                        "erro": "SBERT indisponível — busca semântica desligada."})
+        # Duas situações bem diferentes, e o usuário precisa saber qual é a
+        # dele: esperar meio minuto resolve uma e não resolve a outra.
+        if not _MODELOS_RESOLVIDOS.is_set():
+            return jsonify({
+                "resultados": [], "tempo": 0, "carregando": True,
+                "erro": "Ainda estou preparando a busca. Isso leva alguns "
+                        "segundos na primeira vez que o programa abre — "
+                        "tente de novo em instantes.",
+            }), 503
+        return jsonify({
+            "resultados": [], "tempo": 0,
+            "erro": "A busca por texto não está disponível. Feche o programa "
+                    "e abra de novo; se continuar, rode o rodar.bat uma vez "
+                    "com a internet conectada.",
+        }), 503
 
     q = _analisar_query(query)
     query_emb = _SBERT.encode(q["expandida"], convert_to_numpy=True).tolist()
@@ -2206,8 +2348,16 @@ def api_search_by_image():
         return jsonify({"error": "Não autenticado."}), 401
 
     if not CLIP_OK:
-        return jsonify({"erro": "Busca por imagem indisponível (modelo visual desligado). "
-                                "Reinicie o servidor com conexão à internet na primeira vez."})
+        if not _MODELOS_RESOLVIDOS.is_set():
+            return jsonify({
+                "carregando": True,
+                "erro": "Ainda estou preparando a busca por imagem. "
+                        "Tente de novo em instantes.",
+            }), 503
+        return jsonify({
+            "erro": "A busca por imagem não está disponível. Rode o rodar.bat "
+                    "uma vez com a internet conectada para baixar o que falta.",
+        }), 503
 
     data = request.get_json(force=True) or {}
     file_id = data.get("file_id")
@@ -4234,6 +4384,26 @@ def api_debug_scores():
 # Análise forçada
 # ──────────────────────────────────────────────────────────────────────────────
 
+@app.route("/api/health")
+def api_health():
+    """
+    Diz se o programa já está inteiro de pé. Não exige sessão.
+
+    O front consulta isto enquanto os modelos carregam, para avisar que a
+    busca ainda vai demorar alguns segundos em vez de deixar o usuário digitar
+    e receber um erro seco. Fica fora da autenticação de propósito: a tela de
+    login aparece antes de qualquer sessão existir, e é justamente ali que a
+    espera acontece.
+    """
+    modelos = estado_dos_modelos()
+    return jsonify({
+        "servidor": "ok",
+        "modelos": modelos,
+        "busca_pronta": busca_pronta(),
+        "carregando": not _MODELOS_RESOLVIDOS.is_set(),
+    })
+
+
 @app.route("/api/analyze_folders", methods=["POST"])
 def api_analyze_folders():
     uid = _uid()
@@ -4942,6 +5112,16 @@ def _get_precomputed_clip_embs(category: str) -> list:
 
 def _process_worker() -> None:
     global _processed, _status
+
+    # Sem esperar, os primeiros arquivos da fila seriam indexados enquanto os
+    # modelos ainda carregam: entrariam sem embedding e ficariam invisíveis
+    # para a busca, sem nenhum sinal de que algo deu errado. O usuário só
+    # descobriria procurando por uma foto que ele sabe que está lá.
+    #
+    # O timeout é uma rede de segurança: se a carga travar, o worker volta a
+    # rodar e faz o que der (extrair texto, registrar o arquivo) em vez de
+    # ficar parado para sempre.
+    _MODELOS_RESOLVIDOS.wait(timeout=600)
 
     # Contador de itens consecutivos descartados por janela. Quando bate o
     # tamanho da fila, dormimos uma vez e zeramos — evita o ciclo

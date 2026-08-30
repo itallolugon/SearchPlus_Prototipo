@@ -395,6 +395,31 @@ levando a um clique que não abre nada.
 | **RF-167** | A varredura da indexação e a da verificação devem enxergar **o mesmo conjunto de arquivos** (mesmas extensões, mesma lista de pastas ignoradas). Divergir faria a verificação acusar como novo algo que a indexação ignora de propósito, e o contador nunca zeraria. | Implementado |
 | **RF-168** | A verificação não pode acontecer por GET. Um link ou um prefetch do navegador dispararia reindexação sozinho. | Implementado |
 
+### Inicialização do servidor
+
+Os modelos de busca eram carregados na importação: por ~30 segundos o Flask não
+tinha começado a atender e o navegador não recebia nem a tela de login. O
+usuário via "não foi possível acessar este site" e concluía que o programa não
+tinha aberto.
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-169** | O servidor deve atender em **menos de 2 segundos**, antes de os modelos estarem carregados. Medido: 29,70s → ~2,2s. | Implementado |
+| **RF-170** | Os modelos devem carregar em segundo plano, sem bloquear o atendimento. | Implementado |
+| **RF-171** | O modelo de **texto** deve carregar antes do resto. É ele que destrava a busca escrita, que é o que o usuário faz assim que abre o programa. | Implementado |
+| **RF-172** | Nada pesado pode voltar para o nível do módulo. Medidos individualmente: modelos ~12s, scikit-learn ~4,8s, SDK do Claude ~3s. Há teste que falha se algum voltar. | Implementado |
+| **RF-173** | `GET /api/health` deve informar o estado de cada modelo (`carregando`, `pronto`, `indisponivel`) **sem exigir sessão** — a espera acontece na tela de login, antes de qualquer sessão existir. | Implementado |
+| **RF-174** | Buscar antes da carga terminar deve responder **503** com mensagem pedindo para tentar de novo em instantes — nunca lista vazia com 200, que o usuário lê como "minhas fotos não estão indexadas". | Implementado |
+| **RF-175** | Depois que a carga termina sem sucesso, a mensagem deve **parar de mandar esperar** e dizer o que fazer. Esperar não resolve mais. | Implementado |
+| **RF-176** | Nenhuma mensagem ao usuário pode citar nome de modelo. A mensagem anterior dizia "SBERT indisponível". | Corrigido |
+| **RF-177** | A interface deve exibir aviso enquanto a busca se prepara, e removê-lo sozinha ao terminar. O aviso não pode bloquear clique. | Implementado |
+| **RF-178** | Se os modelos já estiverem carregados, nenhum aviso deve aparecer — o caso comum é abrir o programa com o servidor já rodando. | Implementado |
+| **RF-179** | A fila de indexação deve esperar os modelos. Sem isso os primeiros arquivos entrariam sem representação e ficariam invisíveis para a busca, sem sinal nenhum de erro. | Implementado |
+
+**Contrapartida aceita:** a busca escrita fica pronta ~35s depois de abrir, contra
+~29,7s antes, porque a carga agora divide processador com o servidor. Em troca, o
+resto da interface sai de inacessível para utilizável em 2 segundos.
+
 ### Capa das coleções
 
 | ID | Requisito | Situação |

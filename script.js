@@ -207,6 +207,9 @@ window.onload = async () => {
 
     await carregarConfiguracoesUX();
 
+    // Sem await: o preparo da busca não pode atrasar a tela de login.
+    acompanharPreparoDaBusca();
+
     try {
         const res = await fetch(`${API_BASE_URL}/api/check_session`);
         if (res.ok) {
@@ -217,6 +220,79 @@ window.onload = async () => {
         }
     } catch (e) { console.error(e); toastErro("Servidor offline. Verifique se o backend Python está rodando."); }
 };
+
+// ==========================================
+// PREPARO DA BUSCA (os modelos carregam em segundo plano)
+// ==========================================
+// O servidor passou a atender em ~2s em vez de ~30s, carregando os modelos
+// depois de já estar de pé. O efeito colateral é uma janela em que a tela
+// funciona mas a busca ainda não: sem avisar, o usuário digita, recebe um erro
+// e conclui que o programa está quebrado.
+let _sondaBusca = null;
+
+function marcarBuscaPreparando(preparando) {
+    let faixa = document.getElementById('faixaPreparando');
+
+    if (!preparando) {
+        if (faixa) faixa.remove();
+        return;
+    }
+
+    if (!faixa) {
+        faixa = document.createElement('div');
+        faixa.id = 'faixaPreparando';
+        faixa.className = 'faixa-preparando';
+        faixa.setAttribute('role', 'status');
+        faixa.setAttribute('aria-live', 'polite');
+        faixa.innerHTML = '<span class="faixa-preparando-ponto" aria-hidden="true"></span>' +
+            '<span>Preparando a busca. Isso leva alguns segundos na primeira vez ' +
+            'que o programa abre — o resto do Search+ já funciona.</span>';
+        document.body.appendChild(faixa);
+    }
+}
+
+async function acompanharPreparoDaBusca() {
+    // Uma consulta antes de qualquer espera: quando os modelos já estão
+    // carregados (o caso comum, de quem não acabou de abrir o programa), nada
+    // aparece na tela e a sondagem nem começa.
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/health`);
+        const d = await r.json();
+        if (!d.carregando) { marcarBuscaPreparando(false); return; }
+    } catch (e) {
+        return;   // servidor fora do ar é outro problema, com outro aviso
+    }
+
+    marcarBuscaPreparando(true);
+
+    if (_sondaBusca) clearInterval(_sondaBusca);
+    _sondaBusca = setInterval(async () => {
+        try {
+            const r = await fetch(`${API_BASE_URL}/api/health`);
+            const d = await r.json();
+            if (d.carregando) return;
+
+            clearInterval(_sondaBusca);
+            _sondaBusca = null;
+            marcarBuscaPreparando(false);
+
+            if (d.busca_pronta) {
+                toastOk('Busca pronta.');
+            } else {
+                const motivo = (d.modelos && d.modelos.texto && d.modelos.texto.estado) || '';
+                if (motivo === 'indisponivel') {
+                    toastErro('A busca por texto não subiu. Feche o programa e abra de novo; ' +
+                              'se continuar, rode o rodar.bat uma vez com a internet conectada.');
+                }
+            }
+        } catch (e) {
+            // Servidor caiu no meio da carga: para de sondar em vez de encher
+            // o console de erro a cada 1,5s.
+            clearInterval(_sondaBusca);
+            _sondaBusca = null;
+        }
+    }, 1500);
+}
 
 // ==========================================
 // SELETOR E CROPPER DE IMAGEM
@@ -1587,6 +1663,17 @@ async function realizarBusca() {
         const corpo = { query: query, filtro: filtroAtual, avancado: coletarFiltrosAvancados() };
         const res = await fetch(`${API_BASE_URL}/api/search`, { method: 'POST', headers: fetchOptions.headers, body: JSON.stringify(corpo) });
         const dados = await res.json();
+
+        // Sem esta checagem, um 503 caía no `dados.resultados || []` e virava
+        // uma tela de "nada encontrado" — a resposta mais enganosa possível
+        // para quem só precisava esperar dez segundos.
+        if (!res.ok) {
+            toastAviso(dados.erro || 'A busca não está disponível agora.');
+            if (dados.carregando) marcarBuscaPreparando(true);
+            window.resultadosAtuais = [];
+            return;
+        }
+
         window.resultadosAtuais = Array.isArray(dados) ? dados : (dados.resultados || []);
         salvarBuscaNoHistorico(query.trim());
 

@@ -1260,6 +1260,19 @@ def status():
                     "arquivos_processados_sessao": len(_ARQUIVOS)})
 
 
+@app.route("/api/health")
+def health():
+    # O mock nao carrega modelo nenhum, entao esta sempre pronto. E util assim:
+    # o front consegue exercitar o caminho normal sem esperar 30 segundos.
+    return jsonify({
+        "servidor": "ok",
+        "modelos": {"texto": {"estado": "pronto", "motivo": ""},
+                    "visual": {"estado": "pronto", "motivo": ""}},
+        "busca_pronta": True,
+        "carregando": False,
+    })
+
+
 @app.route("/api/analyze_folders", methods=["POST"])
 def analyze_folders():
     if not _logado():
