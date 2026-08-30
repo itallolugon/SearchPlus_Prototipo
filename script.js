@@ -151,6 +151,47 @@ const dicasUX = [
 ];
 let tipInterval;
 
+// ==========================================
+// TEXTO ALTERNATIVO DAS IMAGENS
+// ==========================================
+// A descrição gerada pela IA já está no banco e não era usada onde teria mais
+// valor: o `alt`. Nenhuma das nove tags <img> do app tinha um.
+//
+// Truncar `descricao_ia` cru em 125 caracteres daria
+// "- Estilo: foto - O que é: boia inflá" — pior que nada para quem ouve. O
+// campo tem formato fixo ("- Estilo: … - O que é: …"), então o que serve como
+// alt é o "O que é": uma frase que descreve a cena.
+function textoAlternativo(item) {
+    const desc = (item && (item.descricao_ia || item.conteudo)) || '';
+
+    const oQueE = desc.match(/^-\s*O que é:\s*(.+)$/im);
+    if (oQueE && oQueE[1].trim()) return _limitar(oQueE[1].trim(), 125);
+
+    // Documento não usa o formato de campos — traz o texto extraído direto.
+    const primeiraLinha = desc.split('\n').map(l => l.trim())
+        .find(l => l && !l.startsWith('-'));
+    if (primeiraLinha) return _limitar(primeiraLinha, 125);
+
+    // Sem descrição (imagem ainda não analisada — a indexação é sob demanda):
+    // o nome do arquivo sem extensão ainda diz mais que "imagem".
+    const nome = (item && item.nome) || '';
+    return nome.replace(/\.[^.]+$/, '') || 'Imagem sem descrição';
+}
+
+function _limitar(texto, max) {
+    if (texto.length <= max) return texto;
+    // Corta na palavra, não no meio dela
+    const corte = texto.slice(0, max);
+    const ultimoEspaco = corte.lastIndexOf(' ');
+    return (ultimoEspaco > max * 0.6 ? corte.slice(0, ultimoEspaco) : corte) + '…';
+}
+
+// Escapa para uso dentro de atributo HTML montado por template string.
+function _attr(texto) {
+    return String(texto).replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+                        .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function formatImagePath(path) {
     if (!path) return '';
     if (path.startsWith('http') || path.startsWith('data:')) return path;
@@ -1577,7 +1618,7 @@ function popularDashboard(resultados) {
     resultados.forEach(r => {
         const ext = r.tipo.toLowerCase();
         if (extensoesImagem.includes(ext) && imgs < 4) {
-            rGridImg.innerHTML += `<div class="recent-card" onclick="abrirPainelPeloNome('${r.nome}')"><div class="recent-img"><img src="${formatImagePath(r.caminho)}"></div><p>${r.nome}</p></div>`;
+            rGridImg.innerHTML += `<div class="recent-card" onclick="abrirPainelPeloNome('${r.nome}')"><div class="recent-img"><img src="${formatImagePath(r.caminho)}" alt="${_attr(textoAlternativo(r))}"></div><p>${r.nome}</p></div>`;
             imgs++;
         } else if (!extensoesImagem.includes(ext) && docs < 4) {
             rGridDoc.innerHTML += `<div class="recent-card" onclick="abrirPainelPeloNome('${r.nome}')"><div class="recent-img doc-icon">${ext.toUpperCase()}</div><p>${r.nome}</p></div>`;
@@ -1723,7 +1764,7 @@ function renderizarResultados() {
         let midia = `<div class="document-icon-wrapper"><svg viewBox='0 0 24 24'><path d='M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z'/></svg></div>`;
         if (extensoesVideo.includes(ext)) midia = `<video controls><source src="${link}"></video>`;
         else if (extensoesAudio.includes(ext)) midia = `<audio controls><source src="${link}"></audio>`;
-        else if (extensoesImagem.includes(ext)) midia = `<img src="${link}">`;
+        else if (extensoesImagem.includes(ext)) midia = `<img src="${link}" alt="${_attr(textoAlternativo(r))}">`;
 
         const idx = window.resultadosAtuais.indexOf(r);
         let trecho = r.trecho && r.trecho !== "Nenhum conteúdo..." ? `<div class="trecho-preview">"${r.trecho}"</div>` : '';
@@ -1897,6 +1938,7 @@ function mostrarHoverPreview(ev, idx) {
     _hoverTimer = setTimeout(() => {
         if (extensoesImagem.includes(ext)) {
             img.src = formatImagePath(r.caminho);
+            img.alt = textoAlternativo(r);
             img.style.display = 'block';
             doc.style.display = 'none';
         } else {
@@ -1952,7 +1994,7 @@ function abrirPainelLateral(id) {
     const mediaBox = document.getElementById('sideMediaPreview');
     if (extensoesVideo.includes(ext)) mediaBox.innerHTML = `<video controls autoplay><source src="${link}"></video>`;
     else if (extensoesAudio.includes(ext)) mediaBox.innerHTML = `<audio controls autoplay><source src="${link}"></audio>`;
-    else if (extensoesImagem.includes(ext)) mediaBox.innerHTML = `<img src="${link}">`;
+    else if (extensoesImagem.includes(ext)) mediaBox.innerHTML = `<img src="${link}" alt="${_attr(textoAlternativo(res))}">`;
     else mediaBox.innerHTML = `<div class="document-icon-wrapper" style="width:100%; height:100%;"><svg viewBox='0 0 24 24'><path d='M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z'/></svg></div>`;
 
     let txt = res.conteudo || res.trecho || "Nenhum conteúdo legível.";
@@ -2011,7 +2053,7 @@ async function carregarFavoritos() {
 
                 let thumbHtml = `<div class="fav-thumb" style="display:flex; align-items:center; justify-content:center; font-size:1.5rem;">${iconText}</div>`;
                 if (extensoesImagem.includes(ext)) {
-                    thumbHtml = `<img src="${formatImagePath(r.caminho)}" class="fav-thumb">`;
+                    thumbHtml = `<img src="${formatImagePath(r.caminho)}" class="fav-thumb" alt="${_attr(textoAlternativo(r))}">`;
                 }
 
                 const dataAdd = r.data ? new Date(r.data).toLocaleDateString('pt-BR') : "Desconhecido";
@@ -2121,7 +2163,7 @@ async function carregarFavoritosDash() {
 
                 let midia = `<div class="recent-img" style="font-size:3rem; background:transparent;">${iconText}</div>`;
                 if (extensoesImagem.includes(ext)) {
-                    midia = `<div class="recent-img"><img src="${formatImagePath(r.caminho)}"></div>`;
+                    midia = `<div class="recent-img"><img src="${formatImagePath(r.caminho)}" alt="${_attr(textoAlternativo(r))}"></div>`;
                 }
 
                 const cardBox = `<div class="recent-card" onclick="abrirFavoritos()" id="favDash_${r.id}">
@@ -2193,6 +2235,7 @@ async function carregarGaleria() {
                 if (extensoesImagem.includes(ext)) {
                     const img = document.createElement('img');
                     img.src = formatImagePath(r.caminho);
+                    img.alt = textoAlternativo(r);
                     img.loading = 'lazy';
                     imgBox.appendChild(img);
                 }
@@ -2782,6 +2825,11 @@ async function carregarColecoes() {
                 caps.slice(0, 4).forEach(caminho => {
                     const img = document.createElement('img');
                     img.src = formatImagePath(caminho);
+                    // Mosaico da capa é DECORATIVO: o nome e a contagem da
+                    // coleção já são anunciados logo abaixo. alt="" faz o
+                    // leitor de tela pular, em vez de ler quatro descrições
+                    // que não ajudam a escolher a coleção.
+                    img.alt = '';
                     img.loading = 'lazy';
                     capa.appendChild(img);
                 });
@@ -3527,6 +3575,7 @@ async function verColecao(id, nome) {
             if (extensoesImagem.includes(ext)) {
                 const img = document.createElement('img');
                 img.src = formatImagePath(r.caminho);
+                img.alt = textoAlternativo(r);
                 img.style.cssText = 'width:100%; height:110px; object-fit:cover; border-radius:8px;';
                 card.appendChild(img);
             }
