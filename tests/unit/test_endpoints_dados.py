@@ -130,20 +130,50 @@ class TestColecoes:
         assert corpo["colecoes"][0]["nome"] == "Viagem"
 
     def test_listagem_monta_capas_em_mosaico(self, client_logado, db_roteado):
-        """Cada coleção leva até 4 imagens para a capa; o front espera a lista."""
+        """
+        Cada coleção leva até 4 imagens para a capa; o front espera a lista.
+
+        As capas de todas as coleções vêm numa consulta só, então cada linha
+        diz a que coleção pertence — é o `colecao_id` que distribui o mosaico.
+        """
         db_roteado(
             {
                 "FROM collections": {
-                    "fetchall": [{"id": 1, "nome": "Viagem", "total": 2, "criado_em": None,
-                                  "pasta_vinculada": None, "modo_sync": "manual"}]
+                    "fetchall": [
+                        {"id": 1, "nome": "Viagem", "total": 2, "criado_em": None,
+                         "pasta_vinculada": None, "modo_sync": "manual"},
+                        {"id": 2, "nome": "Praia", "total": 1, "criado_em": None,
+                         "pasta_vinculada": None, "modo_sync": "manual"},
+                    ]
                 },
-                "JOIN files f ON f.id = cf.file_id": {
-                    "fetchall": [{"caminho": r"C:\Fotos\a.jpg"}, {"caminho": r"C:\Fotos\b.jpg"}]
+                "ROW_NUMBER": {
+                    "fetchall": [
+                        {"colecao_id": 1, "caminho": r"C:\Fotos\a.jpg"},
+                        {"colecao_id": 1, "caminho": r"C:\Fotos\b.jpg"},
+                        {"colecao_id": 2, "caminho": r"C:\Fotos\c.jpg"},
+                    ]
+                },
+            }
+        )
+        colecoes = client_logado.get("/api/collections").get_json()["colecoes"]
+        por_id = {c["id"]: c for c in colecoes}
+
+        assert por_id[1]["capas"] == [r"C:\Fotos\a.jpg", r"C:\Fotos\b.jpg"]
+        assert por_id[2]["capas"] == [r"C:\Fotos\c.jpg"]
+
+    def test_colecao_sem_imagem_fica_sem_capa(self, client_logado, db_roteado):
+        """Coleção só com PDF não aparece no resultado das capas — e não quebra."""
+        db_roteado(
+            {
+                "FROM collections": {
+                    "fetchall": [{"id": 7, "nome": "Documentos", "total": 3,
+                                  "criado_em": None, "pasta_vinculada": None,
+                                  "modo_sync": "manual"}]
                 },
             }
         )
         colecao = client_logado.get("/api/collections").get_json()["colecoes"][0]
-        assert len(colecao["capas"]) == 2
+        assert colecao["capas"] == []
 
     def test_criar_sem_nome_e_recusado(self, client_logado, db_roteado):
         db_roteado({})

@@ -2617,27 +2617,45 @@ def api_collections():
             (uid,)
         ).fetchall()
 
-        colecoes = []
-        for r in rows:
-            # Pega até 4 imagens da coleção pra montar a capa em mosaico
-            capas = conn.execute(
+        # Capas de TODAS as coleções numa consulta só.
+        #
+        # Antes havia um SELECT de capa por coleção, dentro do laço: 51 idas ao
+        # Postgres para 50 coleções. Como o banco é remoto (Supabase), o custo
+        # não era o plano de execução — era a latência de rede multiplicada.
+        #
+        # ROW_NUMBER() particiona por coleção e ordena por data; o filtro < 5
+        # no SELECT de fora corta nas 4 primeiras de cada uma. É o padrão de
+        # "top N por grupo", e o número de consultas passa a ser constante.
+        capas_por_colecao = {}
+        if rows:
+            for c in conn.execute(
                 """
-                SELECT f.caminho
-                FROM collection_files cf
-                JOIN files f ON f.id = cf.file_id
-                WHERE cf.collection_id = %s AND f.tipo = ANY(%s)
-                ORDER BY cf.adicionado_em DESC
-                LIMIT 4
+                SELECT colecao_id, caminho FROM (
+                    SELECT cf.collection_id AS colecao_id,
+                           f.caminho,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY cf.collection_id
+                               ORDER BY cf.adicionado_em DESC
+                           ) AS posicao
+                    FROM collection_files cf
+                    JOIN files f ON f.id = cf.file_id
+                    JOIN collections c ON c.id = cf.collection_id
+                    WHERE c.user_id = %s AND f.tipo = ANY(%s)
+                ) ranqueadas
+                WHERE posicao <= 4
+                ORDER BY colecao_id, posicao
                 """,
-                (r["id"], list(_EXT_IMG))
-            ).fetchall()
-            colecoes.append({
-                "id": r["id"], "nome": r["nome"], "total": r["total"],
-                "criado_em": r["criado_em"].isoformat() if r["criado_em"] else "",
-                "capas": [c["caminho"] for c in capas],
-                "pasta_vinculada": r["pasta_vinculada"],
-                "modo_sync": r["modo_sync"] or "manual",
-            })
+                (uid, list(_EXT_IMG))
+            ).fetchall():
+                capas_por_colecao.setdefault(c["colecao_id"], []).append(c["caminho"])
+
+        colecoes = [{
+            "id": r["id"], "nome": r["nome"], "total": r["total"],
+            "criado_em": r["criado_em"].isoformat() if r["criado_em"] else "",
+            "capas": capas_por_colecao.get(r["id"], []),
+            "pasta_vinculada": r["pasta_vinculada"],
+            "modo_sync": r["modo_sync"] or "manual",
+        } for r in rows]
         conn.close()
         return jsonify({"colecoes": colecoes})
 
