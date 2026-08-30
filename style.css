@@ -484,6 +484,45 @@ body {
 .barra-selecao #selecaoContador { color: var(--text-primary); font-weight: 600; white-space: nowrap; }
 .barra-selecao-acoes { display: flex; gap: 10px; }
 
+/* ==========================================
+   CONTROLES NÃO SÃO TEXTO
+   ==========================================
+   Botão, chip, card clicável e título de painel são ALVOS DE CLIQUE. Sem esta
+   regra o navegador os trata como conteúdo: cursor de I-beam piscando e
+   seleção acidental ao arrastar — o clique parece ter dado errado.
+
+   O que fica de FORA de propósito, porque copiar é uso legítimo: caminho de
+   pasta (.pasta-exp-caminho, .pasta-item-caminho), nome de arquivo,
+   descrição da IA (.trecho-preview) e o conteúdo do painel lateral. */
+.action-btn,
+.btn-renomear,
+.btn-fav-abs,
+.btn-fav-icon,
+.btn-sel-abs,
+.close-btn,
+.chip-foco,
+.filter-tag,
+.toggle-switch,
+.mini-profile,
+.recent-card,
+.colecao-card,
+.card,
+.vazio-chip,
+.vincular-opcao,
+.escolher-colecao-item,
+.pasta-exp-nome,
+.pasta-item-nome,
+.status-lista summary,
+.history-item,
+.colecao-card-nome,
+.colecao-card-meta,
+#colecoesTitulo,
+.section-title,
+.section-title-white {
+    user-select: none;
+    -webkit-user-select: none;
+}
+
 /* Renomear coleção — edição no próprio cabeçalho */
 .btn-renomear {
     background: transparent; border: 1px solid var(--border-light); border-radius: 8px;

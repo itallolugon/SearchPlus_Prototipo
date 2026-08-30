@@ -617,7 +617,7 @@ def collection_detail(col_id):
     if request.method == "PATCH":
         data = request.get_json(force=True, silent=True) or {}
         campos = 0
-        renomeadas = []
+        renomeadas, ignoradas = [], []
         if "nome" in data:
             nome = (data.get("nome") or "").strip()
             if not nome:
@@ -635,7 +635,16 @@ def collection_detail(col_id):
                 for i, caminho in enumerate(list(geradas)):
                     base = caminho.rsplit("\\", 1)[-1]
                     mae = caminho.rsplit("\\", 1)[0]
-                    sufixo = base[len(antigo) + 1:] if base.startswith(antigo + "_") else ""
+                    # Mesma regra do backend real: pasta que nao deriva do
+                    # nome antigo NAO e renomeada — senao duas disputariam o
+                    # mesmo nome novo.
+                    if base == antigo:
+                        sufixo = ""
+                    elif base.startswith(antigo + "_"):
+                        sufixo = base[len(antigo) + 1:]
+                    else:
+                        ignoradas.append(base)
+                        continue
                     novo_base = f"{nome}_{sufixo}" if sufixo else nome
                     novo = mae + "\\" + novo_base
                     geradas[i] = novo
@@ -689,7 +698,8 @@ def collection_detail(col_id):
                         "pastas_que_recebem": col.get("pastas_que_recebem") or [],
                         "modo_sync": col.get("modo_sync", "manual"),
                         "pastas_renomeadas": renomeadas,
-                        "pastas_com_falha": []})
+                        "pastas_com_falha": [],
+                        "pastas_ignoradas": ignoradas})
 
     itens = [_item(a) for a in (_por_id(i) for i in col["files"]) if a]
     return jsonify({"resultados": itens})

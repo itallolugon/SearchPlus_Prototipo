@@ -3268,6 +3268,19 @@ async function confirmarRenomearColecao() {
         if (renom.length) {
             toastOk(`${renom.length} ${renom.length === 1 ? 'pasta renomeada' : 'pastas renomeadas'} no computador.`);
         }
+        const ignoradas = d.pastas_ignoradas || [];
+        if (ignoradas.length) {
+            // Silêncio aqui seria pior: o usuário aceitou renomear e veria
+            // pastas com o nome antigo sem entender por quê. A mensagem aponta
+            // a saída — o lápis da lista de pastas reescreve o nome inteiro,
+            // usando o nome atual da coleção como prefixo.
+            const n = ignoradas.length;
+            toastAviso(
+                `${n === 1 ? 'Uma pasta manteve o nome' : `${n} pastas mantiveram o nome`} ` +
+                `(${ignoradas.join(', ')}): ${n === 1 ? 'ela não foi criada' : 'não foram criadas'} ` +
+                `com o nome anterior da coleção. Use o lápis em "Abrir pasta exportada" ` +
+                `para renomear ${n === 1 ? 'essa pasta' : 'cada uma'}.`);
+        }
         if (falhas.length) {
             // Motivo específico: "pasta aberta no Explorer" é acionável,
             // "erro ao renomear" não é.

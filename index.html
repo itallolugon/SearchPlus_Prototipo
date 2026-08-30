@@ -751,7 +751,10 @@
     <div id="toastContainer" class="toast-container"></div>
 
     <!-- Modal de confirmação genérico (substitui o confirm() nativo) -->
-    <div id="confirmModal" class="modal" style="z-index: 10002;">
+    <!-- Diálogos genéricos (substituem confirm() e prompt()): ficam ACIMA de
+         qualquer modal de feature, porque são abertos de dentro deles. Um
+         z-index menor os deixaria invisíveis atrás de quem os chamou. -->
+    <div id="confirmModal" class="modal" style="z-index: 10100;">
         <div class="modal-content" style="max-width: 440px;">
             <h3 id="confirmTitulo" style="margin:0 0 12px 0; color:var(--text-primary); font-size:1.3rem;">Confirmar</h3>
             <!-- pre-line: o texto vem por textContent (anti-XSS), então as
@@ -928,7 +931,7 @@
     </div>
 
     <!-- Modal de entrada de texto (substitui o prompt() nativo) -->
-    <div id="inputModal" class="modal" style="z-index: 10003;">
+    <div id="inputModal" class="modal" style="z-index: 10101;">
         <div class="modal-content" style="max-width: 420px;">
             <h3 id="inputTitulo" style="margin:0 0 8px 0; color:var(--text-primary); font-size:1.3rem;">Digite</h3>
             <label id="inputLabel" style="display:block; color:var(--text-secondary); font-size:0.9rem; margin-bottom:8px;"></label>

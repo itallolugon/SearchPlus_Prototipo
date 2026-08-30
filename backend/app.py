@@ -2715,19 +2715,36 @@ def _lembrar_pasta_exportacao(uid, destino: str) -> None:
         print(f"[EXPORT] não foi possível lembrar a pasta: {type(exc).__name__}: {exc}")
 
 
-def _sufixo_da_pasta(caminho: str, nome_colecao: str) -> str:
+def _sufixo_da_pasta(caminho: str, nome_colecao: str):
     """
-    Extrai o complemento escolhido pelo usuário no nome da pasta.
+    Complemento escolhido pelo usuário, ou None se a pasta não segue o padrão.
 
     A pasta é `<nome da coleção>` ou `<nome da coleção>_<sufixo>`. Só o prefixo
     é do sistema; o sufixo é do usuário e precisa sobreviver a um rename da
     coleção — foi ele quem escolheu "backup" ou "praia".
+
+    Três respostas, e a distinção entre as duas últimas importa:
+
+        "backup"  → a pasta é `<prefixo>_backup`
+        ""        → a pasta é exatamente `<prefixo>`, sem complemento
+        None      → **não** deriva deste prefixo
+
+    Devolver "" para o caso None era um bug: com a coleção "teste" e as pastas
+    "testee" e "teste01" — nenhuma derivada de "teste" — as duas viravam
+    candidatas ao mesmo nome novo. A primeira renomeava, a segunda falhava com
+    `nome_em_uso`, e o usuário via metade do trabalho feito. Pasta que não
+    segue o padrão fica como está: renomeá-la seria inventar uma relação que
+    não existe.
     """
     base = os.path.basename(os.path.normpath(caminho))
     prefixo = _sanitizar_nome(nome_colecao, padrao="")
-    if prefixo and base.startswith(prefixo + "_"):
+    if not prefixo:
+        return None
+    if base == prefixo:
+        return ""
+    if base.startswith(prefixo + "_"):
         return base[len(prefixo) + 1:]
-    return ""
+    return None
 
 
 def _renomear_pasta_no_disco(antigo: str, novo_nome: str):
@@ -2862,7 +2879,7 @@ def _atualizar_colecao(col_id: int, uid: int):
     # depois de gravar, o antigo se perde e não há como separar prefixo de
     # sufixo com segurança.
     renomear_pastas = bool(data.get("renomear_pastas")) and "nome" in data
-    renomeadas, falhas_pasta = [], []
+    renomeadas, falhas_pasta, ignoradas = [], [], []
 
     # `criar_pasta_em` é o caminho normal: o usuário escolhe a pasta-mãe e o
     # backend cria a subpasta da coleção dentro dela — mesma sanitização e
@@ -2983,6 +3000,13 @@ def _atualizar_colecao(col_id: int, uid: int):
         if renomear_pastas and nome_antigo and nome_antigo != nome:
             for antigo in _pastas_da_colecao(conn, col_id, uid):
                 sufixo = _sufixo_da_pasta(antigo, nome_antigo)
+                if sufixo is None:
+                    # Não deriva do nome antigo — provavelmente criada sob
+                    # outro nome, ou renomeada à mão. Renomeá-la inventaria
+                    # uma relação que não existe, e duas pastas assim
+                    # disputariam o mesmo nome novo.
+                    ignoradas.append(os.path.basename(antigo))
+                    continue
                 base = _sanitizar_nome(nome, padrao=f"colecao_{col_id}")
                 novo_nome = f"{base}_{sufixo}" if sufixo else base
                 novo, motivo = _renomear_pasta_no_disco(antigo, novo_nome)
@@ -3013,6 +3037,7 @@ def _atualizar_colecao(col_id: int, uid: int):
         "modo_sync": atual["modo_sync"],
         "pastas_renomeadas": renomeadas,
         "pastas_com_falha": falhas_pasta,
+        "pastas_ignoradas": ignoradas,
     })
 
 

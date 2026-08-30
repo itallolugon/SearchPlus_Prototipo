@@ -24,14 +24,24 @@ pytestmark = pytest.mark.unit
 
 class TestExtracaoDoSufixo:
     @pytest.mark.parametrize("pasta,colecao,esperado", [
-        (r"D:\A\Ferias",         "Ferias", ""),
+        (r"D:\A\Ferias",         "Ferias", ""),        # exatamente o prefixo
         (r"D:\A\Ferias_backup",  "Ferias", "backup"),
         (r"D:\A\Ferias_praia_2", "Ferias", "praia_2"),
-        (r"D:\A\Outra",          "Ferias", ""),      # não é desta coleção
-        (r"D:\A\FeriasXbackup",  "Ferias", ""),      # sem o separador
+        (r"D:\A\Outra",          "Ferias", None),      # não deriva do prefixo
+        (r"D:\A\FeriasXbackup",  "Ferias", None),      # sem o separador
+        (r"D:\A\Feriasx",        "Ferias", None),      # prefixo é só um pedaço
     ])
     def test_separa_prefixo_de_sufixo(self, app_module, pasta, colecao, esperado):
         assert app_module._sufixo_da_pasta(pasta, colecao) == esperado
+
+    def test_none_e_diferente_de_string_vazia(self, app_module):
+        """
+        A distinção que corrige o bug: "" significa "sem complemento",
+        None significa "não é desta coleção". Confundir os dois fazia duas
+        pastas disputarem o mesmo nome novo.
+        """
+        assert app_module._sufixo_da_pasta(r"D:\A\Ferias", "Ferias") == ""
+        assert app_module._sufixo_da_pasta(r"D:\A\Outra", "Ferias") is None
 
     def test_usa_o_nome_sanitizado_como_prefixo(self, app_module):
         """A pasta guarda o nome já sanitizado — comparar com o cru não casa."""
@@ -140,6 +150,41 @@ class TestCascataAoRenomearColecao:
         corpo = r.get_json()
         assert corpo["pastas_com_falha"][0]["motivo"] == "nome_em_uso"
         assert origem.is_dir()
+
+    def test_pasta_fora_do_padrao_e_ignorada(self, client_logado, db_roteado, tmp_path):
+        """
+        Regressão do bug relatado: coleção "teste" com as pastas "testee" e
+        "teste01" — nenhuma derivada de "teste". Antes as duas viravam
+        candidatas ao mesmo nome: a primeira renomeava, a segunda falhava com
+        `nome_em_uso`, e o usuário via metade do trabalho feito.
+        """
+        p1 = tmp_path / "testee"
+        p2 = tmp_path / "teste01"
+        p1.mkdir(); p2.mkdir()
+
+        db_roteado(_rotas("teste", [p1, p2]))
+        corpo = client_logado.patch("/api/collections/1", json={
+            "nome": "viagem", "renomear_pastas": True}).get_json()
+
+        # Nenhuma foi renomeada, e nenhuma falhou — foram ignoradas.
+        assert p1.is_dir() and p2.is_dir()
+        assert corpo["pastas_renomeadas"] == []
+        assert corpo["pastas_com_falha"] == []
+        assert sorted(corpo["pastas_ignoradas"]) == ["teste01", "testee"]
+
+    def test_mistura_de_padrao_e_fora_do_padrao(self, client_logado, db_roteado, tmp_path):
+        """A que segue o padrão é renomeada; a outra fica."""
+        boa = tmp_path / "Ferias_praia"
+        estranha = tmp_path / "OutraCoisa"
+        boa.mkdir(); estranha.mkdir()
+
+        db_roteado(_rotas("Ferias", [boa, estranha]))
+        corpo = client_logado.patch("/api/collections/1", json={
+            "nome": "Viagem", "renomear_pastas": True}).get_json()
+
+        assert (tmp_path / "Viagem_praia").is_dir()
+        assert estranha.is_dir()
+        assert corpo["pastas_ignoradas"] == ["OutraCoisa"]
 
     def test_colecao_sem_pastas(self, client_logado, db_roteado):
         db_roteado(_rotas("Ferias", []))
