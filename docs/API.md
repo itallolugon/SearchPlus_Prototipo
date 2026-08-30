@@ -469,6 +469,23 @@ exportada" e o diálogo de exclusão.
 `vinculada` marca a pasta que recebe novas imagens. `existe` é `false` quando
 o usuário apagou a pasta por fora — o registro fica, mas não há o que abrir.
 
+#### `PATCH /api/collections/<id>/folders`
+
+Troca o **complemento** do nome de uma pasta gerada. O prefixo continua sendo o
+nome da coleção — é o que liga a pasta à coleção no Explorer.
+
+```json
+{ "caminho": "D:\\Fotos\\Ferias_backup", "sufixo": "praia" }
+```
+
+→ `{"status": "ok", "caminho": "D:\\Fotos\\Ferias_praia", "nome": "Ferias_praia", "sufixo": "praia"}`
+· `400` sem `caminho` ou sem `sufixo` · `403` pasta não registrada · `404`
+· `409` nome em uso, pasta em uso ou sumida
+
+`sufixo` vazio deixa a pasta com só o nome da coleção. O valor é sanitizado
+pelas mesmas regras do nome da pasta. **Nunca sobrescreve**: se já existir pasta
+com o nome resultante, devolve 409 — mesclar duas em silêncio perderia arquivo.
+
 #### `DELETE /api/collections/<id>/folders`
 
 Apaga do disco as pastas escolhidas. **Irreversível — não há lixeira.**

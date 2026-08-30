@@ -754,7 +754,9 @@
     <div id="confirmModal" class="modal" style="z-index: 10002;">
         <div class="modal-content" style="max-width: 440px;">
             <h3 id="confirmTitulo" style="margin:0 0 12px 0; color:var(--text-primary); font-size:1.3rem;">Confirmar</h3>
-            <p id="confirmTexto" style="color:var(--text-secondary); font-size:0.95rem; line-height:1.5; margin:0 0 24px 0;"></p>
+            <!-- pre-line: o texto vem por textContent (anti-XSS), então as
+                 quebras precisam ser respeitadas pelo CSS, não por <br>. -->
+            <p id="confirmTexto" style="color:var(--text-secondary); font-size:0.95rem; line-height:1.5; margin:0 0 24px 0; white-space:pre-line;"></p>
             <div style="display:flex; gap:10px; justify-content:flex-end;">
                 <button id="confirmCancelar" class="action-btn" style="background:transparent;">Cancelar</button>
                 <button id="confirmOk" class="action-btn gradient-btn">Confirmar</button>

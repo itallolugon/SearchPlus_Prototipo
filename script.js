@@ -3141,6 +3141,17 @@ function renderizarPastasExportadas(pastas) {
 
         const acoes = document.createElement('div');
         acoes.className = 'pasta-exp-acoes';
+
+        const renomear = document.createElement('button');
+        renomear.type = 'button';
+        renomear.className = 'action-btn';
+        renomear.style.background = 'transparent';
+        renomear.textContent = '✎';
+        renomear.setAttribute('aria-label', `Mudar o complemento do nome de ${p.nome}`);
+        renomear.title = 'Mudar o complemento do nome desta pasta';
+        renomear.onclick = () => renomearSufixoDaPasta(p);
+        acoes.appendChild(renomear);
+
         const abrir = document.createElement('button');
         abrir.className = 'action-btn gradient-btn';
         abrir.textContent = 'Abrir';
@@ -3173,6 +3184,37 @@ function iniciarRenomearColecao() {
     if (botao) botao.style.display = 'none';
 }
 
+// Pergunta se as pastas exportadas devem acompanhar o novo nome, explicando
+// o que muda e o que fica. Só aparece quando existe pasta no disco.
+// Devolve true, false ou 'cancelado'.
+async function _perguntarSobrePastasAoRenomear(novoNome) {
+    let pastas = [];
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/collections/${_colecaoAtual.id}/folders`);
+        if (r.ok) pastas = ((await r.json()).pastas || []).filter(p => p.existe);
+    } catch (e) { console.error(e); }
+
+    if (pastas.length === 0) return false;      // nada no disco: nada a perguntar
+
+    // Mostra o "de → para" real de cada pasta. Dizer "o prefixo muda" no
+    // abstrato não deixa claro o que vai acontecer com "teste01_praia".
+    const antigo = _colecaoAtual.nome;
+    const exemplos = pastas.slice(0, 3).map(p => {
+        const sufixo = p.nome.startsWith(antigo + '_') ? p.nome.slice(antigo.length + 1) : '';
+        return `${p.nome} → ${sufixo ? `${novoNome}_${sufixo}` : novoNome}`;
+    }).join('\n');
+
+    const n = pastas.length;
+    const ok = await confirmarAcao(
+        'Renomear também as pastas?',
+        `${n === 1 ? 'Esta coleção tem uma pasta' : `Esta coleção tem ${n} pastas`} no seu computador. ` +
+        `O nome da coleção é o começo do nome ${n === 1 ? 'dela' : 'delas'} — o complemento que ` +
+        `você escolheu não muda:\n\n${exemplos}${n > 3 ? `\n… e mais ${n - 3}` : ''}`,
+        'Renomear as pastas', 'Manter os nomes atuais');
+
+    return ok;
+}
+
 function cancelarRenomearColecao() {
     const campo = document.getElementById('colecaoNomeEdit');
     campo.value = '';                       // impede o onblur de tentar salvar
@@ -3196,9 +3238,17 @@ async function confirmarRenomearColecao() {
 
     _renomeando = true;
     try {
+        // As pastas exportadas usam o nome da coleção como prefixo. Renomear a
+        // coleção sem tocá-las deixa "teste01_praia" apontando para uma coleção
+        // que agora se chama outra coisa — some a relação que o prefixo existia
+        // para criar. Perguntar é obrigatório: renomear pasta no disco do
+        // usuário sem avisar seria pior que a inconsistência.
+        const renomearPastas = await _perguntarSobrePastasAoRenomear(novo);
+        if (renomearPastas === 'cancelado') { campo.focus(); return; }
+
         const r = await fetch(`${API_BASE_URL}/api/collections/${_colecaoAtual.id}`, {
             method: 'PATCH', headers: fetchOptions.headers,
-            body: JSON.stringify({ nome: novo })
+            body: JSON.stringify({ nome: novo, renomear_pastas: renomearPastas })
         });
         if (!r.ok) {
             // 409 traz o motivo real ("já tem uma coleção com esse nome"). Manter
@@ -3212,7 +3262,23 @@ async function confirmarRenomearColecao() {
         document.getElementById('colecoesTitulo').textContent = d.nome;
         _fecharEdicaoDeNome();
         toastOk(`Coleção renomeada para "${d.nome}".`);
+
+        const renom = d.pastas_renomeadas || [];
+        const falhas = d.pastas_com_falha || [];
+        if (renom.length) {
+            toastOk(`${renom.length} ${renom.length === 1 ? 'pasta renomeada' : 'pastas renomeadas'} no computador.`);
+        }
+        if (falhas.length) {
+            // Motivo específico: "pasta aberta no Explorer" é acionável,
+            // "erro ao renomear" não é.
+            const motivos = { nome_em_uso: 'já existe pasta com esse nome',
+                              sem_permissao: 'pasta em uso — feche-a no Explorer',
+                              nao_encontrada: 'pasta não está mais no lugar' };
+            const detalhe = falhas.map(f => `"${f.pasta}" (${motivos[f.motivo] || 'erro'})`).join('; ');
+            toastAviso(`Não foi possível renomear: ${detalhe}. A coleção foi renomeada normalmente.`);
+        }
         carregarColecoes();
+        atualizarBotaoAbrirPasta(_colecaoAtual.id);
     } catch (e) { console.error(e); toastErro('Erro de conexão.'); }
     finally { _renomeando = false; }
 }
@@ -3520,6 +3586,35 @@ async function aplicarPastasQueRecebem() {
 
 function fecharPastasExportadas() {
     document.getElementById('pastasExportadasModal').style.display = 'none';
+}
+
+// Trocar o complemento do nome da pasta. O prefixo é o nome da coleção e não
+// entra na conversa — é o que liga a pasta à coleção no Explorer.
+async function renomearSufixoDaPasta(p) {
+    const prefixo = _colecaoAtual.nome;
+    const atual = p.nome.startsWith(prefixo + '_') ? p.nome.slice(prefixo.length + 1) : '';
+
+    const novo = await pedirTexto(
+        'Complemento do nome',
+        `A pasta vai se chamar "${prefixo}_<o que você escrever>". ` +
+        `Deixe em branco para ficar só "${prefixo}".`,
+        atual);
+    if (novo === null) return;                    // cancelou
+    if (novo.trim() === atual) return;            // nada mudou
+
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/collections/${_colecaoAtual.id}/folders`, {
+            method: 'PATCH', headers: fetchOptions.headers,
+            body: JSON.stringify({ caminho: p.caminho, sufixo: novo.trim() })
+        });
+        if (!r.ok) { toastErro(await _erroDaResposta(r, 'Não foi possível renomear a pasta.')); return; }
+        const d = await r.json();
+        toastOk(`Pasta renomeada para "${d.nome}".`);
+
+        const rf = await fetch(`${API_BASE_URL}/api/collections/${_colecaoAtual.id}/folders`);
+        if (rf.ok) renderizarPastasExportadas(((await rf.json()).pastas || []).filter(x => x.existe));
+        atualizarBotaoAbrirPasta(_colecaoAtual.id);
+    } catch (e) { console.error(e); toastErro('Erro de conexão.'); }
 }
 
 // Define o conjunto de pastas que recebem. Aceita um caminho (trocar o

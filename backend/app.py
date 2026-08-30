@@ -2715,6 +2715,61 @@ def _lembrar_pasta_exportacao(uid, destino: str) -> None:
         print(f"[EXPORT] não foi possível lembrar a pasta: {type(exc).__name__}: {exc}")
 
 
+def _sufixo_da_pasta(caminho: str, nome_colecao: str) -> str:
+    """
+    Extrai o complemento escolhido pelo usuário no nome da pasta.
+
+    A pasta é `<nome da coleção>` ou `<nome da coleção>_<sufixo>`. Só o prefixo
+    é do sistema; o sufixo é do usuário e precisa sobreviver a um rename da
+    coleção — foi ele quem escolheu "backup" ou "praia".
+    """
+    base = os.path.basename(os.path.normpath(caminho))
+    prefixo = _sanitizar_nome(nome_colecao, padrao="")
+    if prefixo and base.startswith(prefixo + "_"):
+        return base[len(prefixo) + 1:]
+    return ""
+
+
+def _renomear_pasta_no_disco(antigo: str, novo_nome: str):
+    """
+    Renomeia a pasta mantendo-a no mesmo diretório-mãe.
+
+    Devolve `(novo_caminho, None)` ou `(None, motivo)`. Nunca sobrescreve: se o
+    destino já existe, recusa — mesclar duas pastas em silêncio perderia
+    arquivo.
+    """
+    antigo = os.path.normpath(antigo)
+    if not os.path.isdir(antigo):
+        return None, "nao_encontrada"
+
+    destino = os.path.join(os.path.dirname(antigo), novo_nome)
+    if os.path.normpath(destino).lower() == antigo.lower():
+        return antigo, None                      # já tem o nome pedido
+    if os.path.exists(destino):
+        return None, "nome_em_uso"
+
+    try:
+        os.rename(antigo, destino)
+        return destino, None
+    except PermissionError:
+        return None, "sem_permissao"             # pasta aberta no Explorer
+    except OSError as exc:
+        print(f"[PASTAS] rename '{antigo}' -> '{destino}': {type(exc).__name__}: {exc}")
+        return None, "erro_ao_renomear"
+
+
+def _repontar_pasta(conn, col_id: int, uid: int, antigo: str, novo: str) -> None:
+    """Atualiza o registro e o vínculo depois de a pasta mudar de nome."""
+    conn.execute(
+        "UPDATE collection_folders SET caminho = %s "
+        "WHERE collection_id = %s AND user_id = %s AND caminho = %s",
+        (novo, col_id, uid, antigo))
+    conn.execute(
+        "UPDATE collections SET pasta_vinculada = %s "
+        "WHERE id = %s AND user_id = %s AND pasta_vinculada = %s",
+        (novo, col_id, uid, antigo))
+
+
 def _registrar_pasta(conn, col_id: int, uid: int, caminho: str) -> None:
     """
     Guarda uma pasta gerada para a coleção, sem duplicar.
@@ -2801,6 +2856,14 @@ def _atualizar_colecao(col_id: int, uid: int):
         campos.append("nome = %s")
         valores.append(nome)
 
+    # `renomear_pastas` acompanha a troca de nome: o prefixo das pastas segue a
+    # coleção, o sufixo escolhido pelo usuário fica. Precisa acontecer AQUI,
+    # junto do UPDATE, porque só neste ponto o backend conhece os dois nomes —
+    # depois de gravar, o antigo se perde e não há como separar prefixo de
+    # sufixo com segurança.
+    renomear_pastas = bool(data.get("renomear_pastas")) and "nome" in data
+    renomeadas, falhas_pasta = [], []
+
     # `criar_pasta_em` é o caminho normal: o usuário escolhe a pasta-mãe e o
     # backend cria a subpasta da coleção dentro dela — mesma sanitização e
     # mesma resolução de colisão da exportação, para não haver duas lógicas.
@@ -2885,6 +2948,15 @@ def _atualizar_colecao(col_id: int, uid: int):
         if not dono:
             return jsonify({"error": "Coleção não encontrada."}), 404
 
+        # O nome antigo só existe até o UPDATE. Lê-lo aqui é o que permite
+        # separar prefixo de sufixo depois.
+        nome_antigo = None
+        if renomear_pastas:
+            linha = conn.execute(
+                "SELECT nome FROM collections WHERE id = %s AND user_id = %s",
+                (col_id, uid)).fetchone()
+            nome_antigo = linha["nome"] if linha else None
+
         try:
             if campos:
                 valores.extend([col_id, uid])
@@ -2905,6 +2977,24 @@ def _atualizar_colecao(col_id: int, uid: int):
             conn.rollback()
             return jsonify({"error": "Você já tem uma coleção com esse nome."}), 409
 
+        # Depois do commit: o disco acompanha o nome novo. Falha aqui não
+        # desfaz o rename da coleção — são operações independentes, e reverter
+        # o nome por causa de uma pasta aberta no Explorer seria pior.
+        if renomear_pastas and nome_antigo and nome_antigo != nome:
+            for antigo in _pastas_da_colecao(conn, col_id, uid):
+                sufixo = _sufixo_da_pasta(antigo, nome_antigo)
+                base = _sanitizar_nome(nome, padrao=f"colecao_{col_id}")
+                novo_nome = f"{base}_{sufixo}" if sufixo else base
+                novo, motivo = _renomear_pasta_no_disco(antigo, novo_nome)
+                if novo:
+                    _repontar_pasta(conn, col_id, uid, antigo, novo)
+                    renomeadas.append({"de": os.path.basename(antigo),
+                                       "para": os.path.basename(novo)})
+                else:
+                    falhas_pasta.append({"pasta": os.path.basename(antigo),
+                                         "motivo": motivo})
+            conn.commit()
+
         atual = conn.execute(
             "SELECT id, nome, pasta_vinculada, modo_sync FROM collections "
             "WHERE id = %s AND user_id = %s",
@@ -2921,6 +3011,8 @@ def _atualizar_colecao(col_id: int, uid: int):
         "pasta_vinculada": atual["pasta_vinculada"],
         "pastas_que_recebem": destinos,
         "modo_sync": atual["modo_sync"],
+        "pastas_renomeadas": renomeadas,
+        "pastas_com_falha": falhas_pasta,
     })
 
 
@@ -3413,6 +3505,70 @@ def api_collection_folders(col_id):
             "arquivos": len(os.listdir(c)) if existe else 0,
         })
     return jsonify({"pastas": pastas})
+
+
+@app.route("/api/collections/<int:col_id>/folders", methods=["PATCH"])
+def api_collection_folder_rename(col_id):
+    """
+    Troca o complemento do nome de uma pasta gerada.
+
+    O prefixo continua sendo o nome da coleção — é o que liga a pasta à
+    coleção no Explorer. O usuário controla só o que vem depois:
+
+        Ferias        →  sufixo ""        (a primeira exportação)
+        Ferias_backup →  sufixo "backup"
+        Ferias_praia  →  sufixo "praia"
+
+    Renomear no disco não é destrutivo, mas mexe em arquivo do usuário: só
+    aceita caminho registrado para esta coleção, e nunca sobrescreve pasta
+    existente — mesclar duas em silêncio perderia arquivo.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    data = request.get_json(force=True) or {}
+    caminho = os.path.normpath(str(data.get("caminho") or "").strip())
+    if not caminho or caminho == ".":
+        return jsonify({"error": "Informe a pasta."}), 400
+    if "sufixo" not in data:
+        return jsonify({"error": "Informe o novo complemento."}), 400
+
+    sufixo = _sanitizar_nome(str(data.get("sufixo") or "").strip(), padrao="")
+
+    conn = get_db()
+    try:
+        col = conn.execute(
+            "SELECT id, nome FROM collections WHERE id = %s AND user_id = %s",
+            (col_id, uid)).fetchone()
+        if not col:
+            return jsonify({"error": "Coleção não encontrada."}), 404
+
+        registradas = {os.path.normpath(c) for c in _pastas_da_colecao(conn, col_id, uid)}
+        if caminho not in registradas:
+            return jsonify({"error": "Pasta não autorizada."}), 403
+
+        base = _sanitizar_nome(col["nome"], padrao=f"colecao_{col_id}")
+        novo_nome = f"{base}_{sufixo}" if sufixo else base
+
+        novo, motivo = _renomear_pasta_no_disco(caminho, novo_nome)
+        if not novo:
+            msgs = {
+                "nao_encontrada": "Essa pasta não está mais no lugar.",
+                "nome_em_uso": f'Já existe uma pasta chamada "{novo_nome}" nesse local.',
+                "sem_permissao": "Não foi possível renomear — feche a pasta no "
+                                 "Explorer e tente de novo.",
+                "erro_ao_renomear": "Não foi possível renomear a pasta.",
+            }
+            return jsonify({"error": msgs.get(motivo, msgs["erro_ao_renomear"])}), 409
+
+        _repontar_pasta(conn, col_id, uid, caminho, novo)
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({"status": "ok", "caminho": novo,
+                    "nome": os.path.basename(novo), "sufixo": sufixo})
 
 
 @app.route("/api/collections/<int:col_id>/folders", methods=["DELETE"])

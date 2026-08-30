@@ -617,6 +617,7 @@ def collection_detail(col_id):
     if request.method == "PATCH":
         data = request.get_json(force=True, silent=True) or {}
         campos = 0
+        renomeadas = []
         if "nome" in data:
             nome = (data.get("nome") or "").strip()
             if not nome:
@@ -624,6 +625,27 @@ def collection_detail(col_id):
             if any(c["nome"].lower() == nome.lower() and c["id"] != col_id
                    for c in _COLECOES):
                 return jsonify({"error": "Você já tem uma coleção com esse nome."}), 409
+
+            # Cascata nas pastas — SIMULADA, nada renomeado em disco. O mock
+            # precisa reproduzir isto: sem ele o frontend seria desenvolvido
+            # contra um comportamento que o backend real não tem.
+            antigo = col["nome"]
+            if data.get("renomear_pastas") and antigo != nome:
+                geradas = col.get("pastas_geradas") or []
+                for i, caminho in enumerate(list(geradas)):
+                    base = caminho.rsplit("\\", 1)[-1]
+                    mae = caminho.rsplit("\\", 1)[0]
+                    sufixo = base[len(antigo) + 1:] if base.startswith(antigo + "_") else ""
+                    novo_base = f"{nome}_{sufixo}" if sufixo else nome
+                    novo = mae + "\\" + novo_base
+                    geradas[i] = novo
+                    if col.get("pasta_vinculada") == caminho:
+                        col["pasta_vinculada"] = novo
+                    recebem = col.get("pastas_que_recebem") or []
+                    if caminho in recebem:
+                        recebem[recebem.index(caminho)] = novo
+                    renomeadas.append({"de": base, "para": novo_base})
+
             col["nome"] = nome
             campos += 1
         if data.get("criar_pasta_em"):
@@ -665,7 +687,9 @@ def collection_detail(col_id):
         return jsonify({"status": "ok", "id": col["id"], "nome": col["nome"],
                         "pasta_vinculada": col.get("pasta_vinculada"),
                         "pastas_que_recebem": col.get("pastas_que_recebem") or [],
-                        "modo_sync": col.get("modo_sync", "manual")})
+                        "modo_sync": col.get("modo_sync", "manual"),
+                        "pastas_renomeadas": renomeadas,
+                        "pastas_com_falha": []})
 
     itens = [_item(a) for a in (_por_id(i) for i in col["files"]) if a]
     return jsonify({"resultados": itens})
@@ -749,6 +773,51 @@ def collection_folders(col_id):
          "arquivos": len(col["files"])}
         for c in geradas
     ]})
+
+
+@app.route("/api/collections/<int:col_id>/folders", methods=["PATCH"])
+def collection_folder_rename(col_id):
+    """
+    Trocar o complemento do nome — SIMULADO. Nada é renomeado no disco.
+
+    Reproduz o contrato: prefixo continua sendo o nome da coleção, e nome já em
+    uso devolve 409 para o frontend exercitar esse caminho.
+    """
+    if not _logado():
+        return _nao_autenticado()
+
+    data = request.get_json(force=True, silent=True) or {}
+    caminho = str(data.get("caminho") or "").strip()
+    if not caminho:
+        return jsonify({"error": "Informe a pasta."}), 400
+    if "sufixo" not in data:
+        return jsonify({"error": "Informe o novo complemento."}), 400
+
+    col = next((c for c in _COLECOES if c["id"] == col_id), None)
+    if not col:
+        return jsonify({"error": "Coleção não encontrada."}), 404
+
+    geradas = col.get("pastas_geradas") or []
+    if caminho not in geradas:
+        return jsonify({"error": "Pasta não autorizada."}), 403
+
+    sufixo = str(data.get("sufixo") or "").strip()
+    novo_nome = f'{col["nome"]}_{sufixo}' if sufixo else col["nome"]
+    mae = caminho.rsplit("\\", 1)[0]
+    novo = mae + "\\" + novo_nome
+
+    if novo != caminho and novo in geradas:
+        return jsonify({"error": f'Já existe uma pasta chamada "{novo_nome}" nesse local.'}), 409
+
+    geradas[geradas.index(caminho)] = novo
+    if col.get("pasta_vinculada") == caminho:
+        col["pasta_vinculada"] = novo
+    recebem = col.get("pastas_que_recebem") or []
+    if caminho in recebem:
+        recebem[recebem.index(caminho)] = novo
+
+    return jsonify({"status": "ok", "caminho": novo,
+                    "nome": novo_nome, "sufixo": sufixo})
 
 
 @app.route("/api/collections/<int:col_id>/folders", methods=["DELETE"])
