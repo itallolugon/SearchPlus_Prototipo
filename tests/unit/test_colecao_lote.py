@@ -163,8 +163,12 @@ class TestIsolamentoPorUsuario:
 class TestRemocaoEmLote:
     def test_remove_varios_de_uma_vez(self, client_logado, db_roteado):
         db_roteado({
-            "FROM collections": {"fetchone": {"id": 1}},
+            # `nome` vem junto: depois do DELETE não há mais como saber que
+            # arquivo era, e é pelo nome que a cópia é achada na pasta espelho.
+            "SELECT nome FROM files": {"fetchall": [{"nome": "a.jpg"}, {"nome": "b.jpg"}]},
+            "FROM collections": {"fetchone": {"id": 1, "modo_sync": "manual"}},
             "FROM files":       {"fetchall": [{"id": 1}, {"id": 2}]},
+            "FROM collection_folders": {"fetchall": []},
             "DELETE FROM collection_files": {"fetchall": []},
         })
         corpo = client_logado.delete(
@@ -172,3 +176,5 @@ class TestRemocaoEmLote:
         ).get_json()
         assert corpo["acao"] == "removido"
         assert corpo["removidos"] == 2
+        assert corpo["nomes_removidos"] == ["a.jpg", "b.jpg"]
+        assert corpo["modo_sync"] == "manual"

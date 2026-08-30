@@ -707,8 +707,12 @@ def collection_files(col_id):
         for n in validos:
             if n in col["files"]:
                 col["files"].remove(n)
+        nomes = [a["nome"] for a in (_por_id(n) for n in validos) if a]
         return jsonify({"status": "ok", "acao": "removido",
-                        "removidos": len(validos)})
+                        "removidos": len(validos),
+                        "nomes_removidos": nomes,
+                        "modo_sync": col.get("modo_sync", "manual"),
+                        "pastas_que_recebem": col.get("pastas_que_recebem") or []})
 
     n_add, adicionados_ids = 0, []
     for n in validos:
@@ -787,16 +791,73 @@ def collection_folders_delete(col_id):
     return jsonify({"status": "ok", "apagadas": apagadas, "falhas": falhas})
 
 
-@app.route("/api/collections/<int:col_id>/sync", methods=["POST"])
+@app.route("/api/collections/<int:col_id>/sync_status")
+def collection_sync_status(col_id):
+    """
+    Diff coleção x pasta — SIMULADO, sem ler o disco.
+
+    Divide os arquivos da coleção em "já na pasta" e "faltando" de forma
+    determinística (índices pares/ímpares), para o frontend exercitar as duas
+    listas, a barra de progresso e o botão de copiar o que falta.
+    """
+    if not _logado():
+        return _nao_autenticado()
+    col = next((c for c in _COLECOES if c["id"] == col_id), None)
+    if not col:
+        return jsonify({"error": "Coleção não encontrada."}), 404
+
+    itens = [a for a in (_por_id(i) for i in col["files"]) if a]
+    recebem = col.get("pastas_que_recebem") or []
+    pastas = []
+    for idx, c in enumerate(col.get("pastas_geradas") or []):
+        # A primeira pasta fica completa; as demais, com metade — assim as duas
+        # situacoes aparecem na tela sem precisar montar cenario.
+        if idx == 0:
+            dentro, fora = itens, []
+        else:
+            dentro = [a for i, a in enumerate(itens) if i % 2 == 0]
+            fora = [a for i, a in enumerate(itens) if i % 2 == 1]
+        pastas.append({
+            "caminho": c, "nome": c.rstrip("\\/").split("\\")[-1],
+            "existe": True, "recebe": c in recebem,
+            "na_pasta": [{"id": a["id"], "nome": a["nome"]} for a in dentro],
+            "faltando": [{"id": a["id"], "nome": a["nome"]} for a in fora],
+            "extras": ["antiga.jpg"] if idx == 0 and itens else [],
+        })
+
+    return jsonify({"total_colecao": len(itens),
+                    "modo_sync": col.get("modo_sync", "manual"),
+                    "pastas": pastas})
+
+
+@app.route("/api/collections/<int:col_id>/sync", methods=["POST", "DELETE"])
 def collection_sync(col_id):
     """
     Sincronia com a pasta vinculada — SIMULADA.
 
-    Nenhuma pasta é criada e nenhum arquivo é copiado: o mock existe para
-    desenvolver a interface. Devolve contagens plausíveis para o frontend
-    exercitar os três modos e a mensagem de resultado.
+    Nenhuma pasta é criada e nenhum arquivo é copiado nem apagado: o mock
+    existe para desenvolver a interface. Devolve contagens plausíveis para o
+    frontend exercitar os três modos e as mensagens de resultado.
+
+    DELETE simula a remoção das cópias — sem tocar em disco nenhum.
     """
     if not _logado():
+        return _nao_autenticado()
+
+    if request.method == "DELETE":
+        data = request.get_json(force=True, silent=True) or {}
+        nomes = data.get("nomes")
+        if not isinstance(nomes, list) or not nomes:
+            return jsonify({"error": "Informe os nomes a remover."}), 400
+        col_ = next((c for c in _COLECOES if c["id"] == col_id), None)
+        if not col_:
+            return jsonify({"error": "Coleção não encontrada."}), 404
+        destinos_ = col_.get("pastas_que_recebem") or []
+        return jsonify({"status": "ok",
+                        "apagados": len(nomes) * len(destinos_),
+                        "falhas": [], "pastas": destinos_})
+
+    if False:
         return _nao_autenticado()
 
     col = next((c for c in _COLECOES if c["id"] == col_id), None)

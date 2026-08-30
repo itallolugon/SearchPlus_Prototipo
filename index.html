@@ -762,6 +762,18 @@
         </div>
     </div>
 
+    <!-- Modal: status — o que da coleção já está na pasta e o que falta -->
+    <div id="statusPastaModal" class="modal" style="z-index: 10005;">
+        <div class="modal-content" style="max-width: 640px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+                <h3 id="statusPastaTitulo" style="margin:0; color:var(--text-primary); font-size:1.3rem;">Status da pasta</h3>
+                <span class="close-btn" onclick="fecharStatusPasta()" style="position:static;">&times;</span>
+            </div>
+            <p id="statusPastaTexto" style="color:var(--text-secondary); font-size:0.92rem; line-height:1.5; margin:0 0 16px 0;"></p>
+            <div id="statusPastaCorpo"></div>
+        </div>
+    </div>
+
     <!-- Modal: configurações da coleção — quando enviar as fotos para a pasta -->
     <div id="configColecaoModal" class="modal" style="z-index: 10005;">
         <div class="modal-content" style="max-width: 540px;">
@@ -984,6 +996,9 @@
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px;">
                     <button class="action-btn" onclick="abrirColecoes()" style="margin:0; padding:8px 14px;">← Voltar às coleções</button>
                     <div style="display:flex; gap:8px;">
+                        <button id="btnStatusPasta" class="action-btn" onclick="abrirStatusPasta()"
+                                style="margin:0; padding:8px 14px; background:transparent; display:none;"
+                                title="Ver quais imagens já estão na pasta e quais faltam">🔍 Status da pasta</button>
                         <button id="btnConfigColecao" class="action-btn" onclick="abrirConfigColecao()"
                                 style="margin:0; padding:8px 14px; background:transparent;"
                                 title="Escolher quando as novas fotos vão para a pasta">⚙ Configurações</button>

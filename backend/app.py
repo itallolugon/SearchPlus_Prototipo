@@ -2904,13 +2904,28 @@ def api_collection_files(col_id):
             return jsonify({"error": "Coleção ou arquivo não encontrado."}), 404
 
         if request.method == "DELETE":
+            # Os NOMES vão na resposta porque, depois do DELETE, não há mais
+            # como o frontend saber que arquivo era — e é pelo nome que a
+            # cópia é localizada na pasta espelho.
+            nomes = [r["nome"] for r in conn.execute(
+                "SELECT nome FROM files WHERE id = ANY(%s) AND user_id = %s",
+                (ids_validos, uid)
+            ).fetchall()]
+
             conn.execute(
                 "DELETE FROM collection_files WHERE collection_id = %s AND file_id = ANY(%s)",
                 (col_id, ids_validos)
             )
             conn.commit()
+
+            vinc = conn.execute(
+                "SELECT modo_sync FROM collections WHERE id = %s", (col_id,)
+            ).fetchone()
             return jsonify({"status": "ok", "acao": "removido",
-                            "removidos": len(ids_validos)})
+                            "removidos": len(ids_validos),
+                            "nomes_removidos": nomes,
+                            "modo_sync": (dict(vinc).get("modo_sync") if vinc else None) or "manual",
+                            "pastas_que_recebem": _pastas_que_recebem(conn, col_id, uid)})
 
         # POST — adicionar. O ON CONFLICT deixa o banco garantir a ausência de
         # duplicata; o RETURNING diz quantas linhas realmente entraram, para a
@@ -3374,7 +3389,156 @@ def api_collection_folders_delete(col_id):
     return jsonify({"status": "ok", "apagadas": apagadas, "falhas": falhas})
 
 
-@app.route("/api/collections/<int:col_id>/sync", methods=["POST"])
+def _remover_das_pastas(col_id: int, uid: int):
+    """
+    Apaga das pastas espelho as cópias dos arquivos informados.
+
+    Apaga arquivo do disco, então vale o mesmo rigor do resto:
+
+    1. **Só dentro das pastas registradas** para esta coleção. O nome recebido
+       é sanitizado e reduzido a `basename` — `..\\..\\algo` não escapa.
+    2. **Só a cópia.** O original nas pastas monitoradas nunca é tocado: as
+       duas árvores são distintas e só a pasta espelho entra no laço.
+    3. **Nunca apaga diretório.** Se o nome casar com uma subpasta, é ignorado.
+
+    Diferente da exclusão de pastas, não exige confirmação no corpo: quem
+    chama já confirmou ao remover da coleção, e o que se apaga é uma cópia
+    gerada pelo próprio app — não um arquivo do usuário.
+    """
+    data = request.get_json(force=True) or {}
+    nomes = data.get("nomes")
+    if not isinstance(nomes, list) or not nomes:
+        return jsonify({"error": "Informe os nomes a remover."}), 400
+
+    conn = get_db()
+    try:
+        col = conn.execute(
+            "SELECT id FROM collections WHERE id = %s AND user_id = %s", (col_id, uid)
+        ).fetchone()
+        if not col:
+            return jsonify({"error": "Coleção não encontrada."}), 404
+        destinos = [c for c in _pastas_que_recebem(conn, col_id, uid) if os.path.isdir(c)]
+    finally:
+        conn.close()
+
+    if not destinos:
+        return jsonify({"status": "ok", "apagados": 0, "falhas": [], "pastas": []})
+
+    # basename + sanitização: o nome vem do banco, mas tratá-lo como caminho
+    # confiável seria assumir que ninguém adulterou a requisição.
+    alvos = []
+    for n in nomes:
+        limpo = os.path.basename(_sanitizar_nome(str(n), padrao=""))
+        if limpo:
+            alvos.append(limpo)
+
+    apagados, falhas = 0, []
+    for pasta in destinos:
+        for nome in alvos:
+            caminho = os.path.join(pasta, nome)
+            # Confere que o resultado continua DENTRO da pasta espelho
+            if os.path.dirname(os.path.abspath(caminho)) != os.path.abspath(pasta):
+                continue
+            if not os.path.isfile(caminho):     # inexistente ou é diretório
+                continue
+            try:
+                os.remove(caminho)
+                apagados += 1
+            except PermissionError:
+                falhas.append({"nome": nome, "motivo": "sem_permissao",
+                               "pasta": os.path.basename(pasta)})
+            except OSError as exc:
+                print(f"[SYNC-DEL] '{caminho}': {type(exc).__name__}: {exc}")
+                falhas.append({"nome": nome, "motivo": "erro_ao_apagar",
+                               "pasta": os.path.basename(pasta)})
+
+    return jsonify({"status": "ok", "apagados": apagados,
+                    "falhas": falhas, "pastas": destinos})
+
+
+@app.route("/api/collections/<int:col_id>/sync_status")
+def api_collection_sync_status(col_id):
+    """
+    Compara a coleção com o conteúdo de cada pasta espelho.
+
+    Responde a pergunta que o modo manual deixa em aberto: *quais* imagens já
+    foram copiadas e quais ainda não. Sem isto, quem copia manualmente não tem
+    como saber onde parou — só o número total de arquivos na pasta.
+
+    Três listas por pasta:
+      na_pasta  — está na coleção E na pasta
+      faltando  — está na coleção, não está na pasta
+      extras    — está na pasta, não está mais na coleção (removida depois)
+
+    `extras` é o que revela cópia órfã: o arquivo saiu da coleção mas ficou no
+    disco. Em modo manual isso é esperado; em auto, indica falha de remoção.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    conn = get_db()
+    try:
+        col = conn.execute(
+            "SELECT id, modo_sync FROM collections WHERE id = %s AND user_id = %s",
+            (col_id, uid),
+        ).fetchone()
+        if not col:
+            return jsonify({"error": "Coleção não encontrada."}), 404
+
+        arquivos = conn.execute(
+            """
+            SELECT f.id, f.nome
+            FROM collection_files cf
+            JOIN files f ON f.id = cf.file_id
+            WHERE cf.collection_id = %s AND f.user_id = %s
+            ORDER BY f.nome
+            """,
+            (col_id, uid),
+        ).fetchall()
+        caminhos = _pastas_da_colecao(conn, col_id, uid)
+        recebem = {os.path.normpath(c) for c in _pastas_que_recebem(conn, col_id, uid)}
+    finally:
+        conn.close()
+
+    # O nome no destino é o sanitizado — comparar com o nome cru daria
+    # "faltando" para todo arquivo cujo nome tenha caractere inválido.
+    da_colecao = [{"id": a["id"], "nome": a["nome"],
+                   "no_disco": _sanitizar_nome(a["nome"], padrao="arquivo")}
+                  for a in arquivos]
+
+    pastas = []
+    for c in caminhos:
+        if not os.path.isdir(c):
+            pastas.append({"caminho": c, "nome": os.path.basename(c), "existe": False,
+                           "recebe": os.path.normpath(c) in recebem,
+                           "na_pasta": [], "faltando": [], "extras": []})
+            continue
+
+        try:
+            no_disco = {n for n in os.listdir(c) if os.path.isfile(os.path.join(c, n))}
+        except OSError:
+            no_disco = set()
+
+        na_pasta = [a for a in da_colecao if a["no_disco"] in no_disco]
+        faltando = [a for a in da_colecao if a["no_disco"] not in no_disco]
+        esperados = {a["no_disco"] for a in da_colecao}
+        extras = sorted(n for n in no_disco if n not in esperados)
+
+        pastas.append({
+            "caminho": c, "nome": os.path.basename(c), "existe": True,
+            "recebe": os.path.normpath(c) in recebem,
+            "na_pasta": [{"id": a["id"], "nome": a["nome"]} for a in na_pasta],
+            "faltando": [{"id": a["id"], "nome": a["nome"]} for a in faltando],
+            "extras": extras,
+        })
+
+    return jsonify({"total_colecao": len(da_colecao),
+                    "modo_sync": col["modo_sync"] or "manual",
+                    "pastas": pastas})
+
+
+@app.route("/api/collections/<int:col_id>/sync", methods=["POST", "DELETE"])
 def api_collection_sync(col_id):
     """
     Copia arquivos da coleção para TODAS as pastas marcadas como destino.
@@ -3392,10 +3556,17 @@ def api_collection_sync(col_id):
 
     Arquivo que já existe no destino é pulado (`ja_existiam`), não duplicado
     com sufixo: aqui a intenção é espelhar, não acumular versões.
+
+    DELETE faz o caminho inverso: apaga da pasta as cópias dos arquivos
+    informados por `nomes`. Espelhar é nos dois sentidos — sem isso, remover
+    da coleção deixaria a pasta divergindo para sempre.
     """
     uid = _uid()
     if not uid:
         return jsonify({"error": "Não autenticado."}), 401
+
+    if request.method == "DELETE":
+        return _remover_das_pastas(col_id, uid)
 
     data = request.get_json(force=True) or {}
     brutos = data.get("file_ids")

@@ -2,7 +2,7 @@
 
 **Data:** 29/08/2026
 **Branch:** `feature/selecionar-todas-e-exportacao-imediata`
-**Requisitos:** RF-080 … RF-135 · CA-032 … CA-052 ·
+**Requisitos:** RF-080 … RF-146 · CA-032 … CA-055 ·
 [`../09-requisitos-funcionais.md`](../09-requisitos-funcionais.md)
 **Status:** implementado.
 
@@ -505,14 +505,84 @@ Com várias pastas, "todas" e "nenhuma" custariam N cliques. O controle no topo
 da lista alterna entre os dois, e some quando há uma pasta só — ali ele não
 significaria nada além do próprio item.
 
+### Espelho nos dois sentidos
+
+Adicionar copiava, remover não apagava — a pasta divergia da coleção para
+sempre. `DELETE /sync` fecha o ciclo, seguindo o mesmo modo:
+
+| Modo | Ao remover da coleção |
+|---|---|
+| `auto` | Apaga a cópia, sem perguntar |
+| `perguntar` | Confirma antes |
+| `manual` | Não toca na pasta |
+
+As descrições dos modos foram reescritas para dizer isso. "Enviar sempre, sem
+perguntar" virou **"Manter a pasta igual à coleção"** — quem escolhe precisa
+saber que remover também apaga, *antes* de escolher, não ao ver o arquivo
+sumir.
+
+**O que a remoção não faz.** Apaga arquivo do disco, então vale o mesmo rigor
+da exclusão de pastas — com uma diferença de gravidade: o alvo é uma **cópia**
+gerada pelo app, não um arquivo do usuário.
+
+| Trava | Efeito |
+|---|---|
+| Só dentro das pastas registradas | Nome reduzido a `basename` e sanitizado; `..\..lgo` não escapa |
+| Só a cópia | A árvore monitorada não entra no laço — o original nunca é tocado |
+| Nunca diretório | Nome que casar com subpasta é ignorado |
+
+Não exige `confirmar` no corpo, ao contrário do `DELETE /folders`: quem chama
+já confirmou ao remover da coleção.
+
+### Status da pasta
+
+O modo manual deixava uma pergunta em aberto: *quais* imagens já foram
+copiadas? A pasta mostrava "3 arquivos" e nada mais — sem saber onde parou, a
+cópia manual vira tentativa e erro.
+
+**🔍 Status da pasta** compara a coleção com cada pasta:
+
+```
+Status — Diff
+A coleção tem 4 imagens. Modo: envio manual.
+
+┌──────────────────────────────────────────────┐
+│ Diff        [recebe as fotos]                │
+│ D:\A\Diff                                    │
+│ ████████████████████░░░░░░░░░░               │
+│ ● 2 na pasta   ● 2 faltando                  │
+│ ▸ Já na pasta (2)                            │
+│ ▸ Faltando (2)                               │
+│ [ Copiar as 2 que faltam ]                   │
+└──────────────────────────────────────────────┘
+```
+
+Três listas, cada uma com os nomes:
+
+| Lista | Significa |
+|---|---|
+| **Já na pasta** | Está na coleção e na pasta |
+| **Faltando** | Está na coleção, não está na pasta |
+| **Fora da coleção** | Está na pasta, saiu da coleção — cópia órfã |
+
+A terceira é a que denuncia divergência: em modo manual é esperada; em `auto`,
+indica falha de remoção.
+
+A comparação usa o nome **sanitizado**, o mesmo que a cópia recebe no destino.
+Comparar com o nome cru marcaria como "faltando" todo arquivo cujo nome tenha
+caractere inválido no Windows.
+
+O botão "Copiar as N que faltam" existe porque é o motivo de abrir a tela no
+modo manual — descobrir o que falta e mandar.
+
 ---
 
 ## 8. Limitações
 
 | # | Limitação | Observação |
 |---|---|---|
-| **L-1** | A sincronia é **de mão única**: coleção → pasta. Apagar da pasta não remove da coleção, e vice-versa. | Espelhar nos dois sentidos exigiria vigiar o disco — ver a lacuna 2.1 do levantamento de jornada. |
-| **L-2** | Remover da coleção não remove da pasta. | Deliberado: a feature é estritamente aditiva. Apagar arquivo do usuário exigiria confirmação e lixeira. |
+| **L-1** | O espelho responde a ações **no app**: adicionar e remover da coleção refletem na pasta. O caminho inverso não existe — mexer na pasta pelo Explorer não altera a coleção. | Vigiar o disco exigiria `watchdog`; ver a lacuna 2.1 do levantamento de jornada. O "Status da pasta" mostra a divergência quando ela ocorre. |
+| **L-2** | A remoção apaga sem lixeira. | O alvo é sempre uma cópia gerada pelo app; o original fica intacto. Em `perguntar`, a confirmação diz isso explicitamente. |
 | **L-3** | Renomear a coleção não renomeia a pasta. | O vínculo é pelo caminho absoluto, não pelo nome. |
 | **L-4** | Sem histórico do que foi sincronizado. | O *toast* informa e some. |
 | **L-5** | O modo é por coleção, sem padrão global. | Quem quiser `auto` em tudo escolhe a cada criação. Um padrão em `config_json` resolveria. |

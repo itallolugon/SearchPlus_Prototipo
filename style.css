@@ -476,6 +476,35 @@ body {
 .barra-selecao #selecaoContador { color: var(--text-primary); font-weight: 600; white-space: nowrap; }
 .barra-selecao-acoes { display: flex; gap: 10px; }
 
+/* Status da pasta: o que já foi copiado e o que falta */
+.status-pasta-bloco {
+    background: rgba(0,0,0,0.2); border: 1px solid var(--border-light);
+    border-radius: 12px; padding: 16px; margin-bottom: 12px;
+}
+.status-pasta-cabecalho { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.status-pasta-nome { color: var(--text-primary); font-weight: 700; font-size: 0.98rem; word-break: break-word; }
+.status-pasta-caminho { color: var(--text-secondary); font-size: 0.76rem; word-break: break-all; margin-top: 2px; }
+.status-barra-trilha {
+    width: 100%; height: 8px; background: rgba(0,0,0,0.35); border-radius: 6px;
+    overflow: hidden; border: 1px solid var(--border-light); margin: 12px 0 10px;
+}
+.status-barra-preenchida { height: 100%; border-radius: 6px; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); transition: width 0.3s ease; }
+.status-contagem { display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.84rem; }
+.status-contagem b { color: var(--text-primary); }
+.status-lista { margin: 10px 0 0; }
+.status-lista summary { cursor: pointer; color: var(--text-secondary); font-size: 0.84rem; padding: 4px 0; }
+.status-lista summary:hover { color: var(--text-primary); }
+.status-nomes {
+    margin: 8px 0 0; padding: 10px 12px; list-style: none;
+    background: rgba(0,0,0,0.25); border-radius: 8px;
+    max-height: 160px; overflow-y: auto;
+}
+.status-nomes li { color: var(--text-secondary); font-size: 0.82rem; padding: 3px 0; word-break: break-all; }
+.status-ponto { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; vertical-align: middle; }
+.status-ponto-ok { background: #22c55e; }
+.status-ponto-falta { background: #f59e0b; }
+.status-ponto-extra { background: var(--text-secondary); }
+
 /* Estado vazio da busca — explica e oferece saída */
 .vazio-box {
     grid-column: 1 / -1; max-width: 620px; margin: 20px auto 0;

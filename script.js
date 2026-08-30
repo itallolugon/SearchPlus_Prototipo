@@ -2563,6 +2563,7 @@ document.addEventListener('keydown', (e) => {
         const ml = document.getElementById('menuLateral');
         if (ml && ml.classList.contains('aberto')) { fecharMenuLateral(); return; }
         const fechaveis = [
+            ['statusPastaModal', () => { if (typeof fecharStatusPasta === 'function') fecharStatusPasta(); }],
             ['configColecaoModal', () => { if (typeof fecharConfigColecao === 'function') fecharConfigColecao(); }],
             ['exportarDeNovoModal', () => { if (typeof fecharExportarDeNovo === 'function') fecharExportarDeNovo(); }],
             ['pastasExportadasModal', () => { if (typeof fecharPastasExportadas === 'function') fecharPastasExportadas(); }],
@@ -2991,6 +2992,8 @@ async function atualizarBotaoAbrirPasta(colId) {
     const btn = document.getElementById('btnAbrirPastaColecao');
     if (!btn) return;
     btn.style.display = 'none';
+    const stBtn = document.getElementById('btnStatusPasta');
+    if (stBtn) stBtn.style.display = 'none';
     try {
         const r = await fetch(`${API_BASE_URL}/api/collections/${colId}/folders`);
         if (!r.ok) return;
@@ -2999,6 +3002,8 @@ async function atualizarBotaoAbrirPasta(colId) {
 
         const alvo = pastas.find(p => p.vinculada) || pastas[0];
         btn.style.display = 'inline-block';
+        const st = document.getElementById('btnStatusPasta');
+        if (st) st.style.display = 'inline-block';
         btn.textContent = pastas.length > 1
             ? `📂 Abrir pasta exportada (${pastas.length})`
             : '📂 Abrir pasta exportada';
@@ -3087,17 +3092,167 @@ function renderizarPastasExportadas(pastas) {
     atualizarBotaoMarcarTodas();
 }
 
+// ── Status da pasta: o que já foi copiado e o que falta ────────────────────
+// Responde a pergunta que o modo manual deixa em aberto. Sem isto, quem copia
+// manualmente só vê "3 arquivos" na pasta e não sabe QUAIS — nem onde parou.
+
+async function abrirStatusPasta() {
+    if (!_colecaoAtual.id) return;
+    let d;
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/collections/${_colecaoAtual.id}/sync_status`);
+        if (!r.ok) { toastErro(await _erroDaResposta(r, 'Não foi possível ler o status.')); return; }
+        d = await r.json();
+    } catch (e) { console.error(e); toastErro('Erro de conexão.'); return; }
+
+    const pastas = (d.pastas || []).filter(p => p.existe);
+    document.getElementById('statusPastaTitulo').textContent = `Status — ${_colecaoAtual.nome}`;
+
+    const rotuloModo = { auto: 'envio automático', perguntar: 'perguntando antes', manual: 'envio manual' }[d.modo_sync] || d.modo_sync;
+    document.getElementById('statusPastaTexto').textContent =
+        `A coleção tem ${d.total_colecao} ${d.total_colecao === 1 ? 'imagem' : 'imagens'}. ` +
+        `Modo: ${rotuloModo}. Abaixo, o que já foi copiado para cada pasta.`;
+
+    const corpo = document.getElementById('statusPastaCorpo');
+    corpo.innerHTML = '';
+
+    if (pastas.length === 0) {
+        const p = document.createElement('p');
+        p.style.cssText = 'color:var(--text-secondary); font-size:0.92rem;';
+        p.textContent = 'Esta coleção ainda não tem pasta no computador. Use "Exportar coleção" para criar uma.';
+        corpo.appendChild(p);
+    } else {
+        pastas.forEach(p => corpo.appendChild(_blocoStatusPasta(p, d.total_colecao)));
+    }
+
+    document.getElementById('statusPastaModal').style.display = 'flex';
+}
+
+function _blocoStatusPasta(p, totalColecao) {
+    const bloco = document.createElement('div');
+    bloco.className = 'status-pasta-bloco';
+
+    const cab = document.createElement('div');
+    cab.className = 'status-pasta-cabecalho';
+    const esq = document.createElement('div');
+    const nome = document.createElement('div');
+    nome.className = 'status-pasta-nome';
+    nome.textContent = p.nome;
+    if (p.recebe) {
+        const selo = document.createElement('span');
+        selo.className = 'pasta-item-selo';
+        selo.textContent = 'recebe as fotos';
+        nome.appendChild(selo);
+    }
+    const caminho = document.createElement('div');
+    caminho.className = 'status-pasta-caminho';
+    caminho.textContent = p.caminho;
+    esq.append(nome, caminho);
+    cab.appendChild(esq);
+    bloco.appendChild(cab);
+
+    const dentro = p.na_pasta.length;
+    const pct = totalColecao > 0 ? Math.round((dentro / totalColecao) * 100) : 0;
+    const trilha = document.createElement('div');
+    trilha.className = 'status-barra-trilha';
+    trilha.setAttribute('role', 'progressbar');
+    trilha.setAttribute('aria-valuenow', String(dentro));
+    trilha.setAttribute('aria-valuemin', '0');
+    trilha.setAttribute('aria-valuemax', String(totalColecao));
+    trilha.setAttribute('aria-label', `${dentro} de ${totalColecao} imagens em ${p.nome}`);
+    const barra = document.createElement('div');
+    barra.className = 'status-barra-preenchida';
+    barra.style.width = pct + '%';
+    trilha.appendChild(barra);
+    bloco.appendChild(trilha);
+
+    const cont = document.createElement('div');
+    cont.className = 'status-contagem';
+    cont.append(
+        _contagem('status-ponto-ok', dentro, 'na pasta'),
+        _contagem('status-ponto-falta', p.faltando.length, 'faltando'),
+    );
+    if (p.extras.length > 0) {
+        cont.appendChild(_contagem('status-ponto-extra', p.extras.length, 'fora da coleção'));
+    }
+    bloco.appendChild(cont);
+
+    if (p.na_pasta.length)  bloco.appendChild(_listaNomes(`Já na pasta (${p.na_pasta.length})`, p.na_pasta.map(a => a.nome)));
+    if (p.faltando.length)  bloco.appendChild(_listaNomes(`Faltando (${p.faltando.length})`, p.faltando.map(a => a.nome)));
+    if (p.extras.length)    bloco.appendChild(_listaNomes(
+        `Na pasta mas fora da coleção (${p.extras.length})`, p.extras,
+        'Foram removidas da coleção depois de copiadas, ou vieram de outro lugar.'));
+
+    // Copiar o que falta, direto daqui — o motivo de a pessoa abrir esta tela
+    // no modo manual é justamente descobrir o que falta e mandar.
+    if (p.faltando.length > 0 && p.recebe) {
+        const b = document.createElement('button');
+        b.className = 'action-btn gradient-btn';
+        b.style.marginTop = '12px';
+        b.textContent = `Copiar as ${p.faltando.length} que faltam`;
+        b.onclick = async () => {
+            fecharStatusPasta();
+            await enviarParaPastaVinculada(_colecaoAtual.id, _colecaoAtual.nome,
+                                           p.faltando.map(a => a.id));
+        };
+        bloco.appendChild(b);
+    }
+    return bloco;
+}
+
+function _contagem(classePonto, n, rotulo) {
+    const s = document.createElement('span');
+    const ponto = document.createElement('span');
+    ponto.className = 'status-ponto ' + classePonto;
+    const b = document.createElement('b');
+    b.textContent = String(n);
+    s.append(ponto, b, document.createTextNode(' ' + rotulo));
+    return s;
+}
+
+function _listaNomes(titulo, nomes, nota) {
+    const det = document.createElement('details');
+    det.className = 'status-lista';
+    const sum = document.createElement('summary');
+    sum.textContent = titulo;
+    det.appendChild(sum);
+    if (nota) {
+        const p = document.createElement('p');
+        p.style.cssText = 'color:var(--text-secondary); font-size:0.79rem; margin:6px 0 0;';
+        p.textContent = nota;
+        det.appendChild(p);
+    }
+    const ul = document.createElement('ul');
+    ul.className = 'status-nomes';
+    nomes.forEach(n => {
+        const li = document.createElement('li');
+        li.textContent = n;
+        ul.appendChild(li);
+    });
+    det.appendChild(ul);
+    return det;
+}
+
+function fecharStatusPasta() {
+    document.getElementById('statusPastaModal').style.display = 'none';
+}
+
 // ── Configurações da coleção: QUANDO enviar ────────────────────────────────
 // O modo era escolhido só na criação e ficava sem como mudar. Aqui ele volta,
 // com a mesma ilustração — quem abre isto meses depois precisa reentender o
 // conceito, não só ver três opções soltas.
+// As descrições dizem o que acontece nos DOIS sentidos. A remoção era o ponto
+// cego: quem escolhia "enviar sempre" não imaginava que tirar da coleção também
+// apagaria a cópia — e precisa saber disso antes de escolher, não depois.
 const _MODOS = [
-    { id: 'auto',      titulo: 'Enviar sempre, sem perguntar',
-      desc: 'Toda foto que entrar na coleção vai para a(s) pasta(s) automaticamente.' },
-    { id: 'perguntar', titulo: 'Perguntar antes de cada envio',
-      desc: 'Você confirma a cada adição.' },
-    { id: 'manual',    titulo: 'Não enviar automaticamente',
-      desc: 'A coleção fica só no Search+ até você clicar em Exportar.' },
+    { id: 'auto',      titulo: 'Manter a pasta igual à coleção',
+      desc: 'Adicionar uma foto copia para a pasta; remover da coleção apaga a cópia. ' +
+            'Sem perguntar. O arquivo original nunca é tocado.' },
+    { id: 'perguntar', titulo: 'Perguntar antes de cada mudança',
+      desc: 'Você confirma a cada adição e a cada remoção.' },
+    { id: 'manual',    titulo: 'Não mexer na pasta automaticamente',
+      desc: 'Nada é copiado nem apagado sozinho. Use "Exportar coleção" e ' +
+            '"Status da pasta" para controlar na mão.' },
 ];
 
 async function abrirConfigColecao() {
@@ -3319,12 +3474,53 @@ async function removerDaColecao(fileId, nomeArquivo) {
             body: JSON.stringify({ file_id: fileId })
         });
         if (res.ok) {
+            const d = await res.json().catch(() => ({}));
             toastInfo(`"${nomeArquivo}" removido da coleção.`);
             verColecao(_colecaoAtual.id, _colecaoAtual.nome);  // recarrega a coleção
+            // Espelhar é nos dois sentidos: se a coleção manda na pasta, sair
+            // da coleção também tira da pasta.
+            await removerDasPastasSePreciso(d);
         } else {
             toastErro("Não foi possível remover.");
         }
     } catch (e) { console.error(e); toastErro("Erro de conexão."); }
+}
+
+// Aplica a remoção nas pastas espelho conforme o modo salvo na coleção.
+// Só apaga a CÓPIA — o original nas pastas monitoradas nunca é tocado.
+async function removerDasPastasSePreciso(d) {
+    const nomes = d.nomes_removidos || [];
+    const pastas = d.pastas_que_recebem || [];
+    const modo = d.modo_sync || 'manual';
+    if (modo === 'manual' || nomes.length === 0 || pastas.length === 0) return;
+
+    if (modo === 'perguntar') {
+        const n = nomes.length;
+        const ok = await confirmarAcao(
+            'Apagar também da pasta?',
+            `${n === 1 ? 'A cópia' : `As ${n} cópias`} em ` +
+            `${pastas.length === 1 ? `"${_nomeDaPasta(pastas[0])}"` : `${pastas.length} pastas`} ` +
+            `${n === 1 ? 'será apagada' : 'serão apagadas'}. ` +
+            `${n === 1 ? 'O arquivo original' : 'Os arquivos originais'} não ` +
+            `${n === 1 ? 'é afetado' : 'são afetados'}.`,
+            'Apagar da pasta', 'Manter na pasta');
+        if (!ok) return;
+    }
+
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/collections/${_colecaoAtual.id}/sync`, {
+            method: 'DELETE', headers: fetchOptions.headers,
+            body: JSON.stringify({ nomes })
+        });
+        if (!r.ok) { toastErro(await _erroDaResposta(r, 'Não foi possível apagar da pasta.')); return; }
+        const res = await r.json();
+        if (res.apagados > 0) {
+            toastOk(`${res.apagados} ${res.apagados === 1 ? 'cópia apagada' : 'cópias apagadas'} da pasta.`);
+        }
+        if ((res.falhas || []).length > 0) {
+            toastAviso(`${res.falhas.length} não ${res.falhas.length === 1 ? 'pôde' : 'puderam'} ser apagada(s) da pasta.`);
+        }
+    } catch (e) { console.error(e); toastErro('Erro de conexão.'); }
 }
 
 // Adicionar o arquivo aberto no painel lateral a uma coleção.

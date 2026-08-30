@@ -340,6 +340,27 @@ seguintes. Detalhes em
 | **RF-134** | A tela deve informar o destino atual e, quando não houver pasta ou nenhuma estiver marcada, dizer que o envio automático não tem para onde ir. | Implementado |
 | **RF-135** | A lista de pastas deve oferecer marcar/desmarcar **todas** de uma vez. Com uma pasta só, a ação não aparece — não significaria nada além do próprio item. | Implementado |
 
+### Espelho nos dois sentidos
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-136** | Remover uma imagem da coleção deve remover a **cópia** das pastas que recebem, conforme o modo: `auto` apaga sem perguntar, `perguntar` confirma, `manual` não toca. | Implementado |
+| **RF-137** | A remoção só pode apagar a cópia. O arquivo **original** nas pastas monitoradas nunca é tocado. | Implementado |
+| **RF-138** | A remoção deve ser confinada às pastas registradas: o nome é reduzido a `basename` e sanitizado, de modo que `..\..lgo` não escape. | Implementado |
+| **RF-139** | A remoção nunca pode apagar diretório. Nome que casar com subpasta é ignorado. | Implementado |
+| **RF-140** | Falha ao apagar da pasta **não** pode desfazer a remoção da coleção. As duas operações são independentes. | Implementado |
+| **RF-141** | As descrições dos modos devem explicar o comportamento nos **dois sentidos** — adição e remoção. Quem escolhe "enviar sempre" precisa saber que remover também apaga, antes de escolher. | Implementado |
+
+### Status da pasta
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-142** | A tela da coleção deve oferecer **Status da pasta**, mostrando por pasta quais imagens já foram copiadas e quais faltam — em número e em nome. | Implementado |
+| **RF-143** | O status deve listar também os **extras**: arquivos na pasta que não estão mais na coleção. Revela cópia órfã. | Implementado |
+| **RF-144** | A comparação deve usar o nome **sanitizado**, o mesmo que a cópia recebe no destino. Comparar com o nome cru marcaria como faltando todo arquivo com caractere inválido. | Implementado |
+| **RF-145** | O status deve permitir copiar as faltantes direto dali — é o motivo de abrir a tela no modo manual. | Implementado |
+| **RF-146** | Cada pasta deve exibir barra de progresso acessível (`role="progressbar"` com `aria-valuenow`/`min`/`max`). | Implementado |
+
 ---
 
 ## 5. Critérios de aceite
@@ -655,6 +676,27 @@ Então nada deve ser apagado no primeiro acionamento;
 E deve ser exibido o aviso com a contagem de pastas e arquivos;
 E só o segundo acionamento executa.
 *Cobre RF-105, RF-106.*
+
+**CA-053 — Remoção espelhada**
+Dado uma coleção em modo "manter a pasta igual";
+Quando o usuário remover uma imagem da coleção;
+Então a cópia deve ser apagada das pastas que recebem;
+E o arquivo original deve permanecer intacto;
+E em modo manual nada deve ser apagado.
+*Cobre RF-136, RF-137.*
+
+**CA-054 — Status mostra o que falta**
+Dado uma coleção de 4 imagens com 2 copiadas para a pasta;
+Quando o usuário abrir "Status da pasta";
+Então deve ver "2 na pasta" e "2 faltando", com os nomes;
+E deve poder copiar as faltantes dali.
+*Cobre RF-142, RF-145.*
+
+**CA-055 — Travessia de caminho recusada**
+Dado um pedido de remoção com o nome `..\importante.txt`;
+Quando ele for processado;
+Então nada fora da pasta espelho pode ser apagado.
+*Cobre RF-138.*
 
 **CA-051 — Trocar o modo depois**
 Dado uma coleção configurada como "perguntar antes";

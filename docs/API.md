@@ -491,6 +491,63 @@ A coleção **não** é excluída por esta rota. São operações separadas: dá
 apagar a pasta e manter a coleção, e vice-versa. Apagar a pasta vinculada
 desvincula a coleção e a devolve a `modo_sync: "manual"`.
 
+#### `GET /api/collections/<id>/sync_status`
+
+Compara a coleção com o conteúdo de cada pasta espelho. Responde a pergunta que
+o modo `manual` deixa em aberto: **quais** imagens já foram copiadas e quais
+ainda não.
+
+```json
+{
+  "total_colecao": 5,
+  "modo_sync": "manual",
+  "pastas": [
+    { "caminho": "D:\\Fotos\\Natureza", "nome": "Natureza",
+      "existe": true, "recebe": true,
+      "na_pasta": [ { "id": 1, "nome": "a.jpg" } ],
+      "faltando": [ { "id": 2, "nome": "b.jpg" } ],
+      "extras":   [ "antiga.jpg" ] }
+  ]
+}
+```
+
+| Lista | Significa |
+|---|---|
+| `na_pasta` | Está na coleção **e** na pasta |
+| `faltando` | Está na coleção, **não** está na pasta |
+| `extras` | Está na pasta, **não** está mais na coleção |
+
+`extras` é o que revela cópia órfã — o arquivo saiu da coleção mas ficou no
+disco. Em modo `manual` isso é esperado; em `auto`, indica falha de remoção.
+
+A comparação usa o nome **sanitizado**, o mesmo que a cópia recebe no destino.
+Comparar com o nome cru marcaria como "faltando" todo arquivo cujo nome tenha
+caractere inválido no Windows.
+
+#### `DELETE /api/collections/<id>/sync`
+
+Apaga das pastas espelho as cópias dos arquivos informados. É o caminho inverso
+do `POST` — espelhar vale nos dois sentidos.
+
+```json
+{ "nomes": ["a.jpg", "b.jpg"] }
+```
+
+→ `{"status": "ok", "apagados": 2, "falhas": [], "pastas": ["D:\\Fotos\\…"]}`
+· `400` sem `nomes` · `404`
+
+Três travas:
+
+| Trava | Efeito |
+|---|---|
+| Só dentro das pastas registradas | O nome é reduzido a `basename` e sanitizado; `..\..\algo` não escapa |
+| Só a cópia | O original nas pastas monitoradas nunca é tocado |
+| Nunca apaga diretório | Nome que casar com subpasta é ignorado |
+
+Não exige `confirmar` como a exclusão de pastas: quem chama já confirmou ao
+remover da coleção, e o que se apaga é uma cópia gerada pelo próprio app — não
+um arquivo do usuário.
+
 #### `POST /api/collections/<id>/sync`
 
 Copia arquivos da coleção para a pasta **já vinculada**. Difere de `/export`:
@@ -521,6 +578,11 @@ versões. `falhas` segue o mesmo formato de `/export`.
 { "file_id": 42 }
 ```
 → `{"status": "ok", "acao": "adicionado"}` ou `"removido"`
+
+O `DELETE` devolve também `nomes_removidos`, `modo_sync` e
+`pastas_que_recebem`. Os nomes vão na resposta porque, depois do `DELETE`, não
+há mais como o frontend saber que arquivo era — e é pelo nome que a cópia é
+localizada na pasta espelho.
 
 Adicionar duas vezes é idempotente (não duplica, não dá erro).
 
