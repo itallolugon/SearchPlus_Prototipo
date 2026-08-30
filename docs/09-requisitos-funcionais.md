@@ -330,6 +330,16 @@ seguintes. Detalhes em
 | **RF-129** | Após uma re-exportação, o usuário deve poder escolher entre atalhos (só a nova, todas, nenhuma) ou marcar exatamente quais. | Implementado |
 | **RF-130** | Coleções que usavam destino único devem migrar sem intervenção: a pasta apontada por `pasta_vinculada` vira o primeiro elemento do conjunto. | Implementado |
 
+### Configurações da coleção
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-131** | A tela da coleção deve oferecer **Configurações**, onde o modo de envio pode ser alterado a qualquer momento. Antes, ele só era escolhido na criação e ficava sem como mudar. | Implementado |
+| **RF-132** | A tela deve reapresentar a ilustração animada do fluxo coleção → pasta. Quem a abre meses depois precisa reentender o conceito, não só ver três opções soltas. | Implementado |
+| **RF-133** | O modo em vigor deve estar visualmente identificado entre as opções. | Implementado |
+| **RF-134** | A tela deve informar o destino atual e, quando não houver pasta ou nenhuma estiver marcada, dizer que o envio automático não tem para onde ir. | Implementado |
+| **RF-135** | A lista de pastas deve oferecer marcar/desmarcar **todas** de uma vez. Com uma pasta só, a ação não aparece — não significaria nada além do próprio item. | Implementado |
+
 ---
 
 ## 5. Critérios de aceite
@@ -645,6 +655,20 @@ Então nada deve ser apagado no primeiro acionamento;
 E deve ser exibido o aviso com a contagem de pastas e arquivos;
 E só o segundo acionamento executa.
 *Cobre RF-105, RF-106.*
+
+**CA-051 — Trocar o modo depois**
+Dado uma coleção configurada como "perguntar antes";
+Quando o usuário abrir Configurações;
+Então a opção em vigor deve estar marcada como atual;
+E escolher outra deve salvar e refletir nas adições seguintes.
+*Cobre RF-131, RF-133.*
+
+**CA-052 — Enviar para todas de uma vez**
+Dado uma coleção com duas pastas e apenas uma marcada;
+Quando o usuário acionar "Enviar para todas as pastas";
+Então as duas devem passar a receber;
+E o mesmo controle deve então oferecer desmarcar todas.
+*Cobre RF-135.*
 
 **CA-048 — Espelhar em duas pastas**
 Dado uma coleção com duas pastas exportadas, ambas marcadas para receber;

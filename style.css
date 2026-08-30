@@ -471,6 +471,22 @@ body {
 .barra-selecao #selecaoContador { color: var(--text-primary); font-weight: 600; white-space: nowrap; }
 .barra-selecao-acoes { display: flex; gap: 10px; }
 
+/* Configurações da coleção */
+.config-rodape {
+    color: var(--text-secondary); font-size: 0.83rem; line-height: 1.45;
+    margin: 16px 0 0; padding-top: 14px; border-top: 1px solid var(--border-light);
+}
+.vincular-opcao.is-atual {
+    border-color: var(--accent-primary);
+    background: rgba(168,85,247,0.12);
+}
+.vincular-opcao-atual-selo {
+    display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 20px;
+    font-size: 0.68rem; font-weight: 700;
+    background: var(--accent-primary); color: var(--btn-text-color);
+}
+.pastas-exp-acoes-topo { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+
 /* Exportar de novo: nome da pasta e destino das próximas fotos */
 .exp-novo-rotulo { color: var(--text-primary); font-weight: 600; font-size: 0.92rem; margin: 0 0 10px; display: block; }
 .exp-novo-linha { display: flex; align-items: center; gap: 8px; }

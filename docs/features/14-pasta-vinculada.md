@@ -2,7 +2,7 @@
 
 **Data:** 29/08/2026
 **Branch:** `feature/selecionar-todas-e-exportacao-imediata`
-**Requisitos:** RF-080 … RF-130 · CA-032 … CA-050 ·
+**Requisitos:** RF-080 … RF-135 · CA-032 … CA-052 ·
 [`../09-requisitos-funcionais.md`](../09-requisitos-funcionais.md)
 **Status:** implementado.
 
@@ -469,6 +469,41 @@ Ou escolha exatamente quais:
 
 Os atalhos existem porque "só a nova" é o caso mais frequente e, sem eles,
 custaria desmarcar as outras uma a uma.
+
+### Aba de Configurações
+
+O modo era escolhido **uma vez**, na criação, e depois não havia como mudar —
+lacuna real: quem escolhesse "não enviar" no começo ficava preso a isso.
+
+A tela da coleção ganhou **⚙ Configurações**, com os mesmos três modos e a
+**mesma ilustração animada**. Ela é clonada do modal de vínculo, não duplicada:
+o SVG tem uma origem só. Reapresentá-la é deliberado — quem abre essa tela
+meses depois precisa reentender o conceito, não só ver três opções soltas.
+
+O modo em vigor aparece destacado com o selo "atual". O rodapé diz o destino e,
+quando não há pasta ou nenhuma está marcada, avisa que o envio automático não
+tem para onde ir — evita a configuração que não faz nada.
+
+```
+⚙ Configurações — TESTE
+
+  ┌────┐   ● ● ●  ───▶   ┌──────┐
+  └────┘                 └──────┘
+  Coleção                 Pasta
+
+Quando eu adicionar fotos a esta coleção:
+  [ Enviar sempre, sem perguntar            ]
+  [ Perguntar antes de cada envio    (atual) ]
+  [ Não enviar automaticamente              ]
+
+Destino: TESTE. Para mudar, use "Abrir pasta exportada".
+```
+
+### Marcar todas as pastas
+
+Com várias pastas, "todas" e "nenhuma" custariam N cliques. O controle no topo
+da lista alterna entre os dois, e some quando há uma pasta só — ali ele não
+significaria nada além do próprio item.
 
 ---
 

@@ -762,6 +762,26 @@
         </div>
     </div>
 
+    <!-- Modal: configurações da coleção — quando enviar as fotos para a pasta -->
+    <div id="configColecaoModal" class="modal" style="z-index: 10005;">
+        <div class="modal-content" style="max-width: 540px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
+                <h3 id="configColecaoTitulo" style="margin:0; color:var(--text-primary); font-size:1.3rem;">Configurações</h3>
+                <span class="close-btn" onclick="fecharConfigColecao()" style="position:static;">&times;</span>
+            </div>
+            <p id="configColecaoTexto" style="color:var(--text-secondary); font-size:0.92rem; line-height:1.5; margin:0 0 16px 0;"></p>
+
+            <!-- A ilustração é clonada da que existe no modal de vínculo, para
+                 o SVG ter uma origem só. -->
+            <div id="configIlustracao"></div>
+
+            <p class="exp-novo-rotulo">Quando eu adicionar fotos a esta coleção:</p>
+            <div class="vincular-opcoes" id="configColecaoOpcoes"></div>
+
+            <p id="configColecaoRodape" class="config-rodape"></p>
+        </div>
+    </div>
+
     <!-- Modal: pastas exportadas — abrir e escolher qual recebe as fotos -->
     <div id="pastasExportadasModal" class="modal" style="z-index: 10005;">
         <div class="modal-content" style="max-width: 580px;">
@@ -769,7 +789,11 @@
                 <h3 style="margin:0; color:var(--text-primary); font-size:1.3rem;">Pastas exportadas</h3>
                 <span class="close-btn" onclick="fecharPastasExportadas()" style="position:static;">&times;</span>
             </div>
-            <p id="pastasExpTexto" style="color:var(--text-secondary); font-size:0.92rem; line-height:1.5; margin:0 0 16px 0;"></p>
+            <p id="pastasExpTexto" style="color:var(--text-secondary); font-size:0.92rem; line-height:1.5; margin:0 0 12px 0;"></p>
+            <div id="pastasExpAcoes" class="pastas-exp-acoes-topo">
+                <button type="button" id="btnMarcarTodasPastas" class="action-btn"
+                        onclick="alternarTodasAsPastas()" style="margin:0; padding:7px 14px; font-size:0.84rem; background:transparent;"></button>
+            </div>
             <div id="pastasExpLista" class="pastas-lista"></div>
         </div>
     </div>
@@ -960,6 +984,9 @@
                 <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px;">
                     <button class="action-btn" onclick="abrirColecoes()" style="margin:0; padding:8px 14px;">← Voltar às coleções</button>
                     <div style="display:flex; gap:8px;">
+                        <button id="btnConfigColecao" class="action-btn" onclick="abrirConfigColecao()"
+                                style="margin:0; padding:8px 14px; background:transparent;"
+                                title="Escolher quando as novas fotos vão para a pasta">⚙ Configurações</button>
                         <button id="btnAbrirPastaColecao" class="action-btn" onclick="abrirPastaDaColecao()"
                                 style="margin:0; padding:8px 14px; background:transparent; display:none;"
                                 title="Abrir no Explorer a pasta exportada desta coleção">📂 Abrir pasta exportada</button>

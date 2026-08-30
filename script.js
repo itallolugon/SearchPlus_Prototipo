@@ -2416,6 +2416,7 @@ document.addEventListener('keydown', (e) => {
         const ml = document.getElementById('menuLateral');
         if (ml && ml.classList.contains('aberto')) { fecharMenuLateral(); return; }
         const fechaveis = [
+            ['configColecaoModal', () => { if (typeof fecharConfigColecao === 'function') fecharConfigColecao(); }],
             ['exportarDeNovoModal', () => { if (typeof fecharExportarDeNovo === 'function') fecharExportarDeNovo(); }],
             ['pastasExportadasModal', () => { if (typeof fecharPastasExportadas === 'function') fecharPastasExportadas(); }],
             ['pastasColecaoModal', () => { if (typeof fecharPastasColecao === 'function') fecharPastasColecao(); }],
@@ -2936,6 +2937,128 @@ function renderizarPastasExportadas(pastas) {
         item.append(cb, info, acoes);
         lista.appendChild(item);
     });
+    atualizarBotaoMarcarTodas();
+}
+
+// ── Configurações da coleção: QUANDO enviar ────────────────────────────────
+// O modo era escolhido só na criação e ficava sem como mudar. Aqui ele volta,
+// com a mesma ilustração — quem abre isto meses depois precisa reentender o
+// conceito, não só ver três opções soltas.
+const _MODOS = [
+    { id: 'auto',      titulo: 'Enviar sempre, sem perguntar',
+      desc: 'Toda foto que entrar na coleção vai para a(s) pasta(s) automaticamente.' },
+    { id: 'perguntar', titulo: 'Perguntar antes de cada envio',
+      desc: 'Você confirma a cada adição.' },
+    { id: 'manual',    titulo: 'Não enviar automaticamente',
+      desc: 'A coleção fica só no Search+ até você clicar em Exportar.' },
+];
+
+async function abrirConfigColecao() {
+    if (!_colecaoAtual.id) return;
+
+    let modo = 'manual', pastas = [];
+    try {
+        const [rc, rf] = await Promise.all([
+            fetch(`${API_BASE_URL}/api/collections`),
+            fetch(`${API_BASE_URL}/api/collections/${_colecaoAtual.id}/folders`),
+        ]);
+        if (rc.ok) {
+            const c = ((await rc.json()).colecoes || []).find(x => x.id === _colecaoAtual.id);
+            if (c) modo = c.modo_sync || 'manual';
+        }
+        if (rf.ok) pastas = ((await rf.json()).pastas || []).filter(p => p.existe);
+    } catch (e) { console.error(e); toastErro('Erro de conexão.'); return; }
+
+    document.getElementById('configColecaoTitulo').textContent = `Configurações — ${_colecaoAtual.nome}`;
+    document.getElementById('configColecaoTexto').textContent =
+        'Escolha o que acontece quando você adicionar fotos a esta coleção. ' +
+        'Pode mudar quando quiser.';
+
+    // Clona a ilustração do modal de vínculo: o SVG tem uma origem só.
+    const box = document.getElementById('configIlustracao');
+    box.innerHTML = '';
+    const original = document.querySelector('#vincularPastaModal .vincular-ilustracao');
+    if (original) box.appendChild(original.cloneNode(true));
+
+    const opcoes = document.getElementById('configColecaoOpcoes');
+    opcoes.innerHTML = '';
+    _MODOS.forEach(m => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'vincular-opcao' + (m.id === modo ? ' is-atual' : '');
+        btn.setAttribute('aria-pressed', m.id === modo ? 'true' : 'false');
+        const t = document.createElement('span');
+        t.className = 'vincular-opcao-titulo';
+        t.textContent = m.titulo;
+        if (m.id === modo) {
+            const selo = document.createElement('span');
+            selo.className = 'vincular-opcao-atual-selo';
+            selo.textContent = 'atual';
+            t.appendChild(selo);
+        }
+        const d = document.createElement('span');
+        d.className = 'vincular-opcao-desc';
+        d.textContent = m.desc;
+        btn.append(t, d);
+        btn.onclick = () => salvarModoDaColecao(m.id);
+        opcoes.appendChild(btn);
+    });
+
+    // Sem pasta marcada, os modos 'auto' e 'perguntar' não têm para onde
+    // enviar — dizer isso evita a configuração que não faz nada.
+    const rodape = document.getElementById('configColecaoRodape');
+    if (pastas.length === 0) {
+        rodape.textContent = 'Esta coleção ainda não tem pasta no computador. ' +
+            'Use "Exportar coleção" para criar uma — só então o envio automático tem destino.';
+    } else {
+        const recebendo = pastas.filter(p => p.recebe);
+        rodape.textContent = recebendo.length === 0
+            ? `${pastas.length} ${pastas.length === 1 ? 'pasta criada' : 'pastas criadas'}, mas nenhuma marcada para receber. ` +
+              'Escolha em "Abrir pasta exportada".'
+            : `Destino: ${recebendo.map(p => p.nome).join(', ')}. ` +
+              'Para mudar, use "Abrir pasta exportada".';
+    }
+
+    document.getElementById('configColecaoModal').style.display = 'flex';
+}
+
+async function salvarModoDaColecao(modo) {
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/collections/${_colecaoAtual.id}`, {
+            method: 'PATCH', headers: fetchOptions.headers,
+            body: JSON.stringify({ modo_sync: modo })
+        });
+        if (!r.ok) { toastErro(await _erroDaResposta(r, 'Não foi possível salvar.')); return; }
+        const rotulo = (_MODOS.find(m => m.id === modo) || {}).titulo || modo;
+        toastOk(`Configuração salva: ${rotulo.toLowerCase()}.`);
+        fecharConfigColecao();
+    } catch (e) { console.error(e); toastErro('Erro de conexão.'); }
+}
+
+function fecharConfigColecao() {
+    document.getElementById('configColecaoModal').style.display = 'none';
+}
+
+// Marca ou desmarca todas de uma vez. Com muitas pastas, "todas" e "nenhuma"
+// são os dois casos que custariam N cliques.
+async function alternarTodasAsPastas() {
+    const caixas = [...document.querySelectorAll('#pastasExpLista input[type="checkbox"]')];
+    if (caixas.length === 0) return;
+    const marcarTodas = caixas.some(cb => !cb.checked);
+    caixas.forEach(cb => { cb.checked = marcarTodas; });
+    await aplicarPastasQueRecebem();
+}
+
+function atualizarBotaoMarcarTodas() {
+    const btn = document.getElementById('btnMarcarTodasPastas');
+    const acoes = document.getElementById('pastasExpAcoes');
+    if (!btn || !acoes) return;
+    const caixas = [...document.querySelectorAll('#pastasExpLista input[type="checkbox"]')];
+    // Com uma pasta só, "marcar todas" não significa nada além do próprio item.
+    acoes.style.display = caixas.length > 1 ? 'flex' : 'none';
+    btn.textContent = caixas.some(cb => !cb.checked)
+        ? '☑ Enviar para todas as pastas'
+        : '☐ Não enviar para nenhuma';
 }
 
 // Envia o conjunto inteiro a cada mudança: o backend recebe a lista completa,
