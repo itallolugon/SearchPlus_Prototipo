@@ -1669,11 +1669,81 @@ function atualizarListaModalPastas(pastas) {
                 </div>
             </div>
             <div style="display:flex; gap:6px; align-items:center; margin-top:5px;">
+                <button class="btn-verificar-pasta" id="btnVerificar${fId}"
+                        onclick="verificarPasta(${fId})"
+                        title="Procura arquivos novos, alterados ou apagados nesta pasta">Verificar</button>
                 <button class="btn-config-folder" onclick="abrirConfigPasta(${fId}, '${escapedPath}')">Config</button>
                 <button class="btn-remover" onclick="removerPasta('${escapedPath}')">Excluir</button>
             </div>
         </div>`;
     });
+}
+
+// ==========================================
+// VERIFICAR ALTERACOES NUMA PASTA INDEXADA
+// ==========================================
+// O Search+ indexa a pasta uma vez. Depois disso o usuario continua mexendo
+// nos arquivos, e ate agora o app so sabia somar: arquivo editado nunca era
+// relido, e arquivo apagado continuava aparecendo na busca -- levando a um
+// clique que nao abre nada.
+async function verificarPasta(folderId) {
+    const btn = document.getElementById(`btnVerificar${folderId}`);
+    const rotulo = btn ? btn.textContent : 'Verificar';
+    if (btn) { btn.disabled = true; btn.textContent = 'Verificando...'; }
+
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/folders/${folderId}/verificar`, {
+            method: 'POST', headers: fetchOptions.headers
+        });
+
+        if (!r.ok) {
+            toastErro(await _erroDaResposta(r, 'Não foi possível verificar a pasta'));
+            return;
+        }
+
+        const d = await r.json();
+        mostrarResultadoDaVerificacao(d.resumo, d);
+    } catch (e) {
+        toastErro('Não foi possível verificar a pasta. O servidor respondeu?');
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = rotulo; }
+    }
+}
+
+function mostrarResultadoDaVerificacao(resumo, detalhe) {
+    const partes = [];
+    if (resumo.novos)       partes.push(`${resumo.novos} ${resumo.novos === 1 ? 'arquivo novo' : 'arquivos novos'}`);
+    if (resumo.modificados) partes.push(`${resumo.modificados} ${resumo.modificados === 1 ? 'alterado' : 'alterados'}`);
+    if (resumo.ausentes)    partes.push(`${resumo.ausentes} que não está mais na pasta`);
+    if (resumo.voltaram)    partes.push(`${resumo.voltaram} que reapareceu`);
+
+    if (partes.length === 0) {
+        toastOk('Nada mudou nesta pasta desde a última vez.');
+        return;
+    }
+
+    // Dizer o que foi achado e parar ali deixaria o usuario sem saber se
+    // precisa fazer mais alguma coisa. Novos e alterados ja entraram na fila;
+    // o ausente e o unico que fica so marcado, e vale dizer por que.
+    let msg = `Encontrei ${partes.join(', ')}.`;
+    if (resumo.novos || resumo.modificados) {
+        msg += ' Já comecei a analisar.';
+    }
+    if (resumo.ausentes) {
+        msg += ' Os que sumiram ficaram marcados, não apaguei nada — se estiverem'
+             + ' num disco desconectado, é só reconectar e verificar de novo.';
+    }
+    toastInfo(msg);
+
+    const listar = (rotulo, nomes) => nomes.length
+        ? `${rotulo}: ${nomes.slice(0, 8).join(', ')}${nomes.length > 8 ? ` e mais ${nomes.length - 8}` : ''}`
+        : '';
+    console.log([
+        listar('Novos', detalhe.novos || []),
+        listar('Alterados', detalhe.modificados || []),
+        listar('Fora da pasta', detalhe.ausentes || []),
+        listar('Reapareceram', detalhe.voltaram || []),
+    ].filter(Boolean).join('\n'));
 }
 
 async function adicionarPasta() {

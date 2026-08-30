@@ -44,6 +44,23 @@ CREATE TABLE IF NOT EXISTS files (
     UNIQUE (user_id, caminho)
 );
 
+-- Assinatura do arquivo no disco, para o "verificar alterações".
+-- mtime + tamanho é o par mais barato que distingue um arquivo editado de um
+-- intocado: não precisa abrir nem ler o conteúdo. Hash seria mais exato, mas
+-- custaria ler byte a byte de toda a pasta a cada verificação.
+--
+-- Ficam NULL nos arquivos indexados antes desta coluna existir. NULL aqui
+-- significa "nunca soube como era", e não "não mudou" — a verificação grava a
+-- assinatura desses sem acusar alteração, porque não há com o que comparar.
+ALTER TABLE files ADD COLUMN IF NOT EXISTS mtime   DOUBLE PRECISION;
+ALTER TABLE files ADD COLUMN IF NOT EXISTS tamanho BIGINT;
+
+-- Arquivo que sumiu do disco: fica marcado, não é apagado. O registro guarda
+-- descrição, embeddings e as coleções de que participa; apagar por causa de um
+-- HD externo desconectado jogaria fora trabalho de IA que não volta sozinho.
+-- Volta a NULL sozinho quando o arquivo reaparece.
+ALTER TABLE files ADD COLUMN IF NOT EXISTS ausente_em TIMESTAMPTZ;
+
 -- Índices: HNSW pra busca rápida por similaridade (pgvector >= 0.5)
 -- cosine_ops corresponde ao operador <=> (cosine distance)
 CREATE INDEX IF NOT EXISTS files_embedding_idx

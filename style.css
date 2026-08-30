@@ -496,6 +496,7 @@ body {
    descrição da IA (.trecho-preview) e o conteúdo do painel lateral. */
 .action-btn,
 .btn-renomear,
+.btn-verificar-pasta,
 .btn-fav-abs,
 .btn-fav-icon,
 .btn-sel-abs,
@@ -815,6 +816,19 @@ body {
     transition: 0.3s; margin-left: 8px;
 }
 .btn-config-folder:hover { border-color: var(--accent-primary); color: var(--accent-primary); }
+
+/* Verificar alterações — mesma família visual do Config, sem margem à esquerda
+   porque é o primeiro botão da linha. Fica desativado durante a verificação:
+   o clique repetido dispararia duas varreduras da mesma pasta ao mesmo tempo. */
+.btn-verificar-pasta {
+    background: transparent; border: 1px solid var(--border-light); color: var(--text-secondary);
+    border-radius: 20px; padding: 5px 12px; font-size: 0.75rem; cursor: pointer;
+    transition: 0.3s;
+}
+.btn-verificar-pasta:hover:not(:disabled) {
+    border-color: var(--accent-primary); color: var(--accent-primary);
+}
+.btn-verificar-pasta:disabled { opacity: 0.55; cursor: default; }
 
 /* Seção de config dentro do modal */
 .indexacao-config-section {

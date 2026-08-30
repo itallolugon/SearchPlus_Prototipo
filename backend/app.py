@@ -4521,6 +4521,305 @@ _EXT_ALL = (
 )
 
 
+def _blacklist_do_usuario(config_json) -> list[str]:
+    r"""
+    Pastas que o usuário mandou ignorar, normalizadas para comparação.
+
+    Devolve caminhos em minúsculas porque o Windows não diferencia caixa: sem
+    isso, ignorar "C:\Temp" deixaria passar tudo que estivesse em "c:\temp".
+    """
+    cfg = _safe_json_loads(config_json, {}) or {}
+    return [
+        os.path.normpath(p.strip()).lower()
+        for p in (cfg.get("pastas_ignoradas") or "").split(",")
+        if p.strip()
+    ]
+
+
+def _esta_na_blacklist(caminho: str, blacklist: list[str]) -> bool:
+    cam = os.path.normpath(caminho).lower()
+    return any(cam.startswith(b) for b in blacklist)
+
+
+def _percorrer_arquivos(pasta: str, blacklist: list[str]):
+    """
+    Gera (caminho, nome, extensão) de cada arquivo indexável sob `pasta`.
+
+    A varredura e a verificação de alterações precisam enxergar exatamente o
+    mesmo conjunto de arquivos. Enquanto eram dois laços separados, bastava um
+    deles ganhar um filtro para a verificação passar a acusar como "novo" algo
+    que a varredura ignorava de propósito — e o usuário veria um número que
+    nunca zerava.
+    """
+    for root, _, filenames in os.walk(pasta):
+        # Pula diretórios inteiros que estão na blacklist
+        if _esta_na_blacklist(root, blacklist):
+            continue
+        for fname in filenames:
+            ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
+            if ext not in _EXT_ALL:
+                continue
+
+            fpath = os.path.join(root, fname)
+            if _esta_na_blacklist(fpath, blacklist):
+                continue
+
+            yield fpath, fname, ext
+
+
+def _assinatura_no_disco(caminho: str) -> tuple[float | None, int | None]:
+    """
+    (mtime, tamanho) do arquivo, ou (None, None) se não der para ler.
+
+    Um arquivo pode sumir entre listar a pasta e consultar seus dados, e um
+    arquivo aberto por outro programa pode recusar o stat. Nos dois casos a
+    resposta honesta é "não sei" — devolver 0 faria a verificação seguinte
+    entender que o arquivo encolheu para zero byte e reprocessá-lo à toa.
+    """
+    try:
+        st = os.stat(caminho)
+        return st.st_mtime, st.st_size
+    except OSError:
+        return None, None
+
+
+def _mudou_no_disco(mtime_gravado, tamanho_gravado, mtime_atual, tamanho_atual) -> bool:
+    """
+    Decide se o arquivo mudou desde a última vez que o Search+ o leu.
+
+    Arquivo indexado antes destas colunas existirem tem assinatura NULL. NULL
+    aqui é "nunca soube como era", não "não mudou": acusar alteração nesse caso
+    mandaria a biblioteca inteira do usuário para a fila da IA na primeira
+    verificação, cobrando uma reanálise completa por uma coluna nova. Esses
+    ganham a assinatura em silêncio e passam a ser comparáveis da próxima vez.
+    """
+    if mtime_gravado is None and tamanho_gravado is None:
+        return False
+    if mtime_atual is None:
+        return False        # não deu para ler agora; não dá para afirmar nada
+
+    if tamanho_gravado is not None and tamanho_atual != tamanho_gravado:
+        return True
+
+    # Tolerância de 2s no mtime: FAT32 e pendrives guardam a hora com resolução
+    # de 2 segundos, e copiar a mesma foto para lá e de volta desloca o mtime
+    # sem que um byte tenha mudado.
+    if mtime_gravado is not None and abs(mtime_atual - mtime_gravado) > 2:
+        return True
+
+    return False
+
+
+def _verificar_pasta(uid: int, folder_id: int, caminho_pasta: str) -> dict:
+    """
+    Compara o que está no disco com o que está indexado, e concilia os dois.
+
+    Existe porque a indexação é um retrato do momento em que a pasta foi
+    varrida. O usuário continua mexendo nos arquivos depois: renomeia, edita,
+    apaga, esvazia a lixeira. Até agora o Search+ só sabia somar — arquivo novo
+    entrava, mas arquivo editado nunca era relido (a varredura pula tudo que
+    está `processado = 1`) e arquivo apagado continuava aparecendo na busca
+    para sempre.
+
+    Três resultados, e nenhum deles apaga nada:
+
+    - novo:        está no disco, não está no banco  → indexa
+    - modificado:  assinatura mudou                  → reindexa (a descrição
+                   antiga descreve um arquivo que não existe mais)
+    - ausente:     está no banco, sumiu do disco     → marca, não apaga
+
+    O ausente não vira DELETE de propósito. O caminho mais comum de um arquivo
+    "sumir" é um HD externo desconectado ou uma pasta de rede fora do ar — e
+    apagar o registro jogaria fora a descrição da IA, os embeddings e a
+    participação do arquivo em coleções, tudo por causa de um cabo solto.
+    Marcado, ele volta sozinho quando o arquivo reaparece.
+    """
+    conn = get_db()
+    cfg_row = conn.execute(
+        "SELECT config_json FROM users WHERE id = %s", (uid,)
+    ).fetchone()
+    indexados = conn.execute(
+        "SELECT id, caminho, nome, mtime, tamanho, ausente_em "
+        "FROM files WHERE user_id = %s AND folder_id = %s",
+        (uid, folder_id),
+    ).fetchall()
+    conn.close()
+
+    blacklist = _blacklist_do_usuario(cfg_row["config_json"] if cfg_row else None)
+
+    # O Windows não diferencia caixa: o mesmo arquivo pode estar gravado como
+    # "C:\Fotos\A.JPG" e voltar do os.walk como "C:\Fotos\a.jpg". Comparar cru
+    # marcaria o arquivo como ausente e novo ao mesmo tempo.
+    por_caminho = {os.path.normpath(r["caminho"]).lower(): r for r in indexados}
+    vistos = set()
+
+    novos, modificados, voltaram = [], [], []
+
+    for fpath, fname, ext in _percorrer_arquivos(caminho_pasta, blacklist):
+        chave = os.path.normpath(fpath).lower()
+        vistos.add(chave)
+        registro = por_caminho.get(chave)
+        mtime, tamanho = _assinatura_no_disco(fpath)
+
+        if registro is None:
+            novos.append({"caminho": fpath, "nome": fname, "tipo": ext,
+                          "mtime": mtime, "tamanho": tamanho})
+            continue
+
+        if _mudou_no_disco(registro["mtime"], registro["tamanho"], mtime, tamanho):
+            modificados.append({"id": registro["id"], "caminho": fpath,
+                                "nome": fname, "tipo": ext,
+                                "mtime": mtime, "tamanho": tamanho})
+        elif registro["ausente_em"]:
+            voltaram.append({"id": registro["id"], "caminho": fpath,
+                             "nome": registro["nome"]})
+        elif registro["mtime"] is None:
+            # Indexado antes das colunas de assinatura existirem. Não é
+            # alteração — é a primeira vez que dá para registrar como ele está.
+            modificados.append({"id": registro["id"], "caminho": fpath,
+                                "nome": fname, "tipo": ext, "mtime": mtime,
+                                "tamanho": tamanho, "so_assinatura": True})
+
+    ausentes = [
+        {"id": r["id"], "caminho": r["caminho"], "nome": r["nome"]}
+        for chave, r in por_caminho.items()
+        if chave not in vistos and not r["ausente_em"]
+    ]
+
+    return {"novos": novos, "modificados": modificados,
+            "ausentes": ausentes, "voltaram": voltaram}
+
+
+def _aplicar_verificacao(uid: int, folder_id: int, achados: dict) -> None:
+    """
+    Grava o resultado da conciliação e enfileira o que precisa de IA.
+
+    O que muda de estado no banco:
+
+    - novo         → INSERT com a assinatura já gravada, e vai para a fila
+    - modificado   → assinatura atualizada; se o conteúdo mudou de verdade,
+                     descrição e embedding SBERT são zerados e ele volta à fila
+    - ausente      → ganha `ausente_em`; nada é apagado
+    - voltou       → perde o `ausente_em`
+    """
+    agora = datetime.now(timezone.utc).isoformat()
+    conn = get_db()
+    try:
+        for n in achados["novos"]:
+            try:
+                conn.execute(
+                    """INSERT INTO files
+                       (folder_id, user_id, nome, caminho, tipo,
+                        data_adicionado, favorito, processado, mtime, tamanho)
+                       VALUES (%s, %s, %s, %s, %s, %s, 0, 0, %s, %s)""",
+                    (folder_id, uid, n["nome"], n["caminho"], n["tipo"],
+                     agora, n["mtime"], n["tamanho"]),
+                )
+                conn.commit()
+            except psycopg2.errors.UniqueViolation:
+                # O arquivo pertence a outra pasta indexada (pastas aninhadas,
+                # ou o scan automático chegou primeiro). Já está no banco.
+                conn.rollback()
+
+        for m in achados["modificados"]:
+            if m.get("so_assinatura"):
+                # Só preenche a assinatura que faltava. Zerar a descrição aqui
+                # mandaria a biblioteca inteira para a fila da IA na primeira
+                # verificação depois da atualização.
+                conn.execute(
+                    "UPDATE files SET mtime = %s, tamanho = %s "
+                    "WHERE id = %s AND user_id = %s",
+                    (m["mtime"], m["tamanho"], m["id"], uid),
+                )
+            else:
+                conn.execute(
+                    "UPDATE files SET mtime = %s, tamanho = %s, processado = 0, "
+                    "descricao_ia = '', embedding = NULL, ausente_em = NULL "
+                    "WHERE id = %s AND user_id = %s",
+                    (m["mtime"], m["tamanho"], m["id"], uid),
+                )
+        conn.commit()
+
+        if achados["ausentes"]:
+            conn.execute(
+                "UPDATE files SET ausente_em = %s WHERE user_id = %s AND id = ANY(%s)",
+                (agora, uid, [a["id"] for a in achados["ausentes"]]),
+            )
+        if achados["voltaram"]:
+            conn.execute(
+                "UPDATE files SET ausente_em = NULL WHERE user_id = %s AND id = ANY(%s)",
+                (uid, [v["id"] for v in achados["voltaram"]]),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    para_fila = list(achados["novos"]) + [
+        m for m in achados["modificados"] if not m.get("so_assinatura")
+    ]
+    for f in para_fila:
+        _queue.put({"path": f["caminho"], "nome": f["nome"], "ext": f["tipo"],
+                    "uid": uid, "folder_id": folder_id})
+
+
+@app.route("/api/folders/<int:folder_id>/verificar", methods=["POST"])
+def api_verificar_pasta(folder_id):
+    """
+    Confere uma pasta indexada contra o disco e devolve o que mudou.
+
+    Síncrono de propósito: o usuário clicou em "verificar alterações" e está
+    olhando para a tela esperando um número. Uma resposta "estou verificando,
+    volte depois" devolveria a ele a mesma dúvida que o fez clicar. O trabalho
+    caro (descrever com IA) continua indo para a fila em segundo plano.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    conn = get_db()
+    pasta = conn.execute(
+        "SELECT id, path FROM folders WHERE id = %s AND user_id = %s",
+        (folder_id, uid),
+    ).fetchone()
+    conn.close()
+
+    if not pasta:
+        return jsonify({"error": "Pasta não encontrada."}), 404
+
+    if not os.path.isdir(pasta["path"]):
+        # A pasta inteira sumiu. Marcar todos os arquivos como ausentes seria
+        # tecnicamente correto e péssimo na prática: um HD externo desconectado
+        # apagaria a pasta inteira da busca de uma vez. Melhor avisar e não
+        # tocar em nada.
+        return jsonify({
+            "error": "Não foi possível abrir esta pasta. Ela pode ter sido "
+                     "movida, renomeada, ou estar num disco desconectado.",
+            "pasta_sumiu": True,
+        }), 409
+
+    achados = _verificar_pasta(uid, pasta["id"], pasta["path"])
+    _aplicar_verificacao(uid, pasta["id"], achados)
+
+    # `so_assinatura` é contabilidade interna — o usuário não mudou esse
+    # arquivo, o Search+ só passou a saber como ele estava.
+    modificados = [m for m in achados["modificados"] if not m.get("so_assinatura")]
+
+    return jsonify({
+        "status": "ok",
+        "pasta": pasta["path"],
+        "novos": [n["nome"] for n in achados["novos"]],
+        "modificados": [m["nome"] for m in modificados],
+        "ausentes": [a["nome"] for a in achados["ausentes"]],
+        "voltaram": [v["nome"] for v in achados["voltaram"]],
+        "resumo": {
+            "novos": len(achados["novos"]),
+            "modificados": len(modificados),
+            "ausentes": len(achados["ausentes"]),
+            "voltaram": len(achados["voltaram"]),
+        },
+    })
+
+
 def _scan_folder(folder_path: str, uid: int) -> None:
     global _status
     with _lock:
@@ -4537,58 +4836,40 @@ def _scan_folder(folder_path: str, uid: int) -> None:
     ).fetchone()
     conn.close()
 
-    cfg = _safe_json_loads(cfg_row["config_json"] if cfg_row else None, {}) or {}
-    blacklist = [
-        os.path.normpath(p.strip()).lower()
-        for p in (cfg.get("pastas_ignoradas") or "").split(",")
-        if p.strip()
-    ]
+    blacklist = _blacklist_do_usuario(cfg_row["config_json"] if cfg_row else None)
 
-    def _esta_na_blacklist(caminho: str) -> bool:
-        cam = os.path.normpath(caminho).lower()
-        return any(cam.startswith(b) for b in blacklist)
+    for fpath, fname, ext in _percorrer_arquivos(folder_path, blacklist):
+        conn = get_db()
+        existing = conn.execute(
+            "SELECT processado FROM files WHERE user_id = %s AND caminho = %s",
+            (uid, fpath),
+        ).fetchone()
 
-    for root, _, filenames in os.walk(folder_path):
-        # Pula diretórios inteiros que estão na blacklist
-        if _esta_na_blacklist(root):
-            continue
-        for fname in filenames:
-            ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
-            if ext not in _EXT_ALL:
-                continue
-
-            fpath = os.path.join(root, fname)
-            if _esta_na_blacklist(fpath):
-                continue
-
-            conn = get_db()
-            existing = conn.execute(
-                "SELECT processado FROM files WHERE user_id = %s AND caminho = %s",
-                (uid, fpath),
-            ).fetchone()
-
-
-
-            if existing and existing["processado"]:
-                conn.close()
-                continue
-
-            if not existing:
-                try:
-                    conn.execute(
-                        """INSERT INTO files
-                           (folder_id, user_id, nome, caminho, tipo,
-                            data_adicionado, favorito, processado)
-                           VALUES (%s, %s, %s, %s, %s, %s, 0, 0)""",
-                        (folder_id, uid, fname, fpath, ext,
-                         datetime.now(timezone.utc).isoformat()),
-                    )
-                    conn.commit()
-                except psycopg2.errors.UniqueViolation:
-                    conn.rollback()
+        if existing and existing["processado"]:
             conn.close()
+            continue
 
-            _queue.put({"path": fpath, "nome": fname, "ext": ext, "uid": uid, "folder_id": folder_id})
+        if not existing:
+            # A assinatura vai junto do INSERT: é aqui que o arquivo ganha a
+            # linha de base contra a qual o "verificar alterações" vai comparar
+            # depois. Sem ela o arquivo entra cego e a primeira verificação não
+            # teria como saber se ele mudou.
+            mtime, tamanho = _assinatura_no_disco(fpath)
+            try:
+                conn.execute(
+                    """INSERT INTO files
+                       (folder_id, user_id, nome, caminho, tipo,
+                        data_adicionado, favorito, processado, mtime, tamanho)
+                       VALUES (%s, %s, %s, %s, %s, %s, 0, 0, %s, %s)""",
+                    (folder_id, uid, fname, fpath, ext,
+                     datetime.now(timezone.utc).isoformat(), mtime, tamanho),
+                )
+                conn.commit()
+            except psycopg2.errors.UniqueViolation:
+                conn.rollback()
+        conn.close()
+
+        _queue.put({"path": fpath, "nome": fname, "ext": ext, "uid": uid, "folder_id": folder_id})
 
     with _lock:
         if _queue.empty():

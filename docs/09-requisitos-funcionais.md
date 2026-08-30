@@ -370,6 +370,31 @@ seguintes. Detalhes em
 | **RF-149** | Os glifos devem ser caracteres de **texto**, não emoji. O emoji `🤍` traz cor própria e ignora `color`, o que impedia a regra `.is-fav` de pintá-lo. | Corrigido |
 | **RF-150** | O botão deve ser `<button type="button">` com `aria-pressed` e `aria-label` que acompanham o estado. | Corrigido |
 
+### Verificar alterações numa pasta
+
+A indexação é um retrato do momento da varredura. Até aqui o Search+ só sabia
+somar: arquivo editado nunca era relido (a varredura pula tudo que já está
+processado) e arquivo apagado continuava aparecendo na busca para sempre,
+levando a um clique que não abre nada.
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-154** | Cada pasta monitorada deve oferecer **Verificar**, que compara a pasta no disco com o que está indexado. | Implementado |
+| **RF-155** | A comparação deve usar **data de modificação e tamanho**. É o par mais barato que distingue arquivo editado de intocado sem precisar abrir o arquivo. | Implementado |
+| **RF-156** | Arquivo que está no disco e não no índice é **novo**: entra no índice e vai para a fila de análise. | Implementado |
+| **RF-157** | Arquivo cuja assinatura mudou é **alterado**: perde a descrição antiga e é reanalisado. A descrição anterior descrevia um conteúdo que não existe mais. | Implementado |
+| **RF-158** | Arquivo que sumiu do disco é **marcado**, nunca apagado. O motivo mais comum de um arquivo sumir é um disco externo desconectado; apagar o registro jogaria fora a descrição da IA, os embeddings e a participação do arquivo em coleções. | Implementado |
+| **RF-159** | Arquivo marcado como ausente que reaparece deve ser **desmarcado** sozinho na verificação seguinte. | Implementado |
+| **RF-160** | Arquivo já marcado como ausente não pode ser recontado a cada verificação — senão o número nunca zera. | Implementado |
+| **RF-161** | A comparação de caminhos deve ignorar caixa. No Windows `C:\Fotos\A.JPG` e `C:\fotos\a.jpg` são o mesmo arquivo; comparar cru o marcaria como ausente **e** novo ao mesmo tempo. | Implementado |
+| **RF-162** | Arquivo indexado antes das colunas de assinatura existirem tem assinatura nula. Nulo significa "nunca soube como era", não "mudou": ele ganha a assinatura em silêncio e **não** é reanalisado. Tratar como alteração mandaria a biblioteca inteira para a fila da IA na primeira verificação depois da atualização. | Implementado |
+| **RF-163** | A diferença de data deve tolerar **2 segundos**. FAT32 e pendrives guardam a hora com essa resolução, e copiar a mesma foto para lá e de volta desloca a data sem que um byte mude. | Implementado |
+| **RF-164** | Se a pasta inteira não puder ser aberta, a verificação deve **avisar e não marcar nada**. Marcar todos os arquivos tiraria a biblioteca inteira da busca por causa de um cabo solto. | Implementado |
+| **RF-165** | O resultado deve ser exibido em contagem e nomes: novos, alterados, ausentes e reaparecidos. | Implementado |
+| **RF-166** | A verificação deve responder de forma síncrona. Quem clicou está olhando para a tela esperando um número; só a análise de IA corre em segundo plano. | Implementado |
+| **RF-167** | A varredura da indexação e a da verificação devem enxergar **o mesmo conjunto de arquivos** (mesmas extensões, mesma lista de pastas ignoradas). Divergir faria a verificação acusar como novo algo que a indexação ignora de propósito, e o contador nunca zeraria. | Implementado |
+| **RF-168** | A verificação não pode acontecer por GET. Um link ou um prefetch do navegador dispararia reindexação sozinho. | Implementado |
+
 ### Capa das coleções
 
 | ID | Requisito | Situação |

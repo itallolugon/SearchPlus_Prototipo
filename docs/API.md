@@ -286,6 +286,45 @@ Remove a pasta **e os arquivos dela** do índice.
 #### `DELETE /api/folders/<id>`
 Mesma coisa, por ID.
 
+#### `POST /api/folders/<id>/verificar`
+Confere a pasta contra o disco e concilia o índice. Sem corpo.
+
+```json
+{
+  "status": "ok",
+  "pasta": "C:\\Users\\Demo\\Imagens",
+  "novos": ["foto-nova.jpg"],
+  "modificados": ["praia.jpg"],
+  "ausentes": ["apagada.png"],
+  "voltaram": [],
+  "resumo": { "novos": 1, "modificados": 1, "ausentes": 1, "voltaram": 0 }
+}
+```
+
+O que cada lista significa, e o que o servidor faz com ela:
+
+| Lista | Situação | Efeito |
+|---|---|---|
+| `novos` | no disco, fora do índice | indexa e manda para a fila de análise |
+| `modificados` | data ou tamanho mudaram | reindexa: a descrição antiga descrevia outro conteúdo |
+| `ausentes` | no índice, sumiu do disco | **marca**, não apaga |
+| `voltaram` | estava marcado como ausente e reapareceu | desmarca |
+
+O arquivo ausente é marcado em vez de apagado porque o motivo mais comum de um
+arquivo "sumir" é um disco externo desconectado. Apagar o registro jogaria fora
+a descrição gerada pela IA e a participação do arquivo em coleções por causa de
+um cabo solto.
+
+A resposta é síncrona — quem clicou está esperando o número. Só a análise de
+IA dos arquivos novos e modificados corre em segundo plano.
+
+Erros:
+
+- `404` — a pasta não é sua ou não existe mais no índice
+- `409` com `"pasta_sumiu": true` — a pasta inteira não pôde ser aberta (movida,
+  renomeada ou em disco desconectado). Nada é marcado nesse caso: seria a
+  biblioteca inteira saindo da busca de uma vez.
+
 #### `POST /api/folders/update_config`
 ```json
 { "id": 1, "perfil_analise": "deep" }

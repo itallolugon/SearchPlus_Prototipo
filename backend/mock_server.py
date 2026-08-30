@@ -402,6 +402,43 @@ def delete_folder(folder_id):
     return jsonify({"status": "ok", "pastas": _PASTAS})
 
 
+# Pastas ja verificadas nesta execucao do mock. A verificacao concilia o que
+# achou, entao rodar de novo na mesma pasta tem que vir limpo -- e e justamente
+# o estado "nada mudou" que o front precisa saber desenhar.
+_PASTAS_VERIFICADAS: set[int] = set()
+
+
+@app.route("/api/folders/<int:folder_id>/verificar", methods=["POST"])
+def verificar_pasta(folder_id):
+    if not _logado():
+        return _nao_autenticado()
+
+    pasta = next((p for p in _PASTAS if p["id"] == folder_id), None)
+    if not pasta:
+        return jsonify({"error": "Pasta não encontrada."}), 404
+
+    if folder_id in _PASTAS_VERIFICADAS:
+        achados = {"novos": [], "modificados": [], "ausentes": [], "voltaram": []}
+    else:
+        # O mock não tem disco: entrega um resultado plausível uma vez, para o
+        # front conseguir desenhar a tela de "achei isto aqui" sem depender de
+        # alguém ir mexer em arquivo de verdade.
+        _PASTAS_VERIFICADAS.add(folder_id)
+        achados = {
+            "novos": ["foto-nova.jpg", "orcamento-revisado.pdf"],
+            "modificados": ["praia-por-do-sol.jpg"],
+            "ausentes": ["arquivo-apagado.png"],
+            "voltaram": [],
+        }
+
+    return jsonify({
+        "status": "ok",
+        "pasta": pasta["path"],
+        **achados,
+        "resumo": {chave: len(lista) for chave, lista in achados.items()},
+    })
+
+
 @app.route("/api/folders/update_config", methods=["GET", "POST"])
 def update_folder_config():
     if not _logado():
