@@ -727,9 +727,23 @@ const url = `/api/file/${encodeURIComponent(arquivo.caminho)}`;
 
 O `403` é proposital: só arquivos dentro das pastas monitoradas do próprio usuário são servidos.
 
-#### `GET /api/open_location?caminho=<path>`
+#### `GET /api/open_location?path=<caminho>`
 
 Abre o Explorer do Windows com o arquivo selecionado. Roda **no servidor**.
+
+→ `{"status": "ok"}` · `400` caminho vazio · `403` fora das pastas monitoradas
+· `404` não existe · `501` fora do Windows
+
+Só abre arquivo dentro de uma **pasta monitorada do usuário** — a mesma regra
+de `GET /api/file`. A validação resolve links (`realpath`) antes de comparar:
+um atalho dentro da pasta monitorada apontando para fora passaria por uma
+comparação puramente textual, porque o caminho *escrito* continua dentro.
+
+> Não confundir com [`GET /api/open_folder`](#pastas-monitoradas), que abre uma
+> **pasta** e valida contra as pastas **geradas** pelo app (`collection_folders`).
+> São listas de autorização diferentes de propósito: uma cobre o acervo
+> indexado, a outra o que a exportação criou. Unificá-las daria a cada rota
+> permissão que ela não deveria ter.
 
 #### `GET /api/choose_folder` · `GET /api/choose_image`
 

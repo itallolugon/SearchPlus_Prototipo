@@ -4150,17 +4150,45 @@ def api_clear_cache():
 
 @app.route("/api/open_location")
 def api_open_location():
+    """
+    Abre o Explorer com o arquivo selecionado.
+
+    Só abre arquivo dentro de uma pasta monitorada do usuário. Antes bastava
+    o caminho existir: `?path=C:\\Users\\x\\.ssh\\id_rsa` abria o Explorer ali,
+    e o próprio `/api/file` — que serve o mesmo tipo de recurso — já recusava
+    isso. A rota era a única porta sem tranca.
+
+    A validação usa `realpath`, não `normpath`: um symlink dentro da pasta
+    monitorada apontando para fora passaria pela comparação textual, porque o
+    caminho *escrito* fica dentro. Resolver primeiro elimina essa classe.
+    """
     uid = _uid()
     if not uid:
         return jsonify({"error": "Não autenticado."}), 401
 
-    filepath = unquote(request.args.get("path", "")).strip()
-    filepath = os.path.normpath(filepath)
+    bruto = unquote(request.args.get("path", "")).strip()
+    if not bruto:
+        return jsonify({"error": "Caminho não informado."}), 400
+
+    filepath = os.path.realpath(bruto)
+
+    conn = get_db()
+    try:
+        pastas = [r["path"] for r in conn.execute(
+            "SELECT path FROM folders WHERE user_id = %s", (uid,)
+        ).fetchall()]
+    finally:
+        conn.close()
+
+    if not _dentro_das_pastas(filepath, pastas):
+        return jsonify({"error": "Arquivo fora das pastas monitoradas."}), 403
 
     if not os.path.exists(filepath):
         return jsonify({"error": "Arquivo não encontrado."}), 404
 
-    # Abre o Explorer com o arquivo selecionado
+    if os.name != "nt":
+        return jsonify({"error": "Disponível apenas no Windows."}), 501
+
     subprocess.Popen(["explorer", "/select,", filepath])
     return jsonify({"status": "ok"})
 

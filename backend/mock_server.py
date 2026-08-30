@@ -1113,8 +1113,21 @@ def choose_image():
 
 @app.route("/api/open_location")
 def open_location():
+    """
+    Abrir no Explorer — SIMULADO, nada é aberto.
+
+    Reproduz o CONTRATO de validação do backend real: caminho vazio dá 400.
+    A checagem contra as pastas monitoradas não é reproduzida porque o mock não
+    tem pastas de verdade — mas o frontend precisa exercitar o 400 e o 403.
+    """
     if not _logado():
         return _nao_autenticado()
+    caminho = (request.args.get("path") or "").strip()
+    if not caminho:
+        return jsonify({"error": "Caminho não informado."}), 400
+    # Caminho fora do acervo de exemplo: mesma recusa do backend real.
+    if not any(caminho.startswith(b) for b in (_BASE, _DOCS)):
+        return jsonify({"error": "Arquivo fora das pastas monitoradas."}), 403
     return jsonify({"status": "ok"})
 
 
