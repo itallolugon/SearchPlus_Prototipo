@@ -11,7 +11,6 @@ let tempConfig = {};
 
 let cropper;
 let targetCropInput = '';
-let searchHistoryExists = false;
 
 window.resultadosAtuais = [];
 window.ultimoTempoBusca = 0;
@@ -410,6 +409,26 @@ async function loginBemSucedido(username) {
 
     document.getElementById('authOverlay').style.display = 'none';
     verificarOnboarding();
+    mostrarHome();
+}
+
+// A home é a galeria por categoria (Pessoas, Animais, Lugares…). Ela precisa
+// aparecer JÁ no login: é o que mostra ao usuário o que existe indexado antes
+// de ele pensar no que pesquisar. Antes disso ficava escondida atrás de
+// `searchHistoryExists`, que só virava true depois da primeira busca — quem
+// entrava pela primeira vez via uma tela vazia, e clicar no logo não trazia
+// nada de volta.
+function mostrarHome() {
+    const dash = document.getElementById('dashboardView');
+    if (!dash) return;
+    dash.style.display = 'block';
+    dash.classList.remove('fade-out');
+    // Reflow forçado em vez de requestAnimationFrame: o rAF não dispara em aba
+    // em segundo plano, e a home ficaria com opacity 0 — visível no DOM, em
+    // branco na tela. O reflow libera a transição de forma síncrona.
+    void dash.offsetHeight;
+    dash.style.opacity = '1';
+    carregarFavoritosDash();
     carregarGaleria();
 }
 
@@ -1418,15 +1437,10 @@ function voltarParaHomeSmooth() {
         wrapper.classList.remove('layout-top');
         wrapper.classList.add('layout-centered');
 
-        if (searchHistoryExists) {
-            document.getElementById('dashboardView').style.display = 'block';
-            carregarFavoritosDash();
-            carregarGaleria();
-            setTimeout(() => {
-                document.getElementById('dashboardView').classList.remove('fade-out');
-                document.getElementById('dashboardView').style.opacity = '1';
-            }, 50);
-        }
+        // Sem condição: clicar no logo sempre devolve a home. Antes isso era
+        // guardado por `searchHistoryExists` e, antes da primeira busca, o
+        // clique só apagava os resultados e deixava a tela em branco.
+        mostrarHome();
     }, 400);
 }
 
@@ -1501,7 +1515,6 @@ async function realizarBusca() {
     // Contexto novo: não faz sentido carregar a seleção da busca anterior
     if (typeof limparSelecao === 'function') limparSelecao();
 
-    searchHistoryExists = true;
 
     document.getElementById('dashboardView').classList.add('fade-out');
     fecharPainelLateral();
@@ -1695,7 +1708,10 @@ function renderizarResultados() {
         document.getElementById('tituloMelhores').style.display = 'none';
         // Sem resultados não há o que selecionar: a barra de ações some (CA-005).
         atualizarAcoesResultados();
-        mGrid.innerHTML = '<p style="text-align:center; width:100%; color:var(--text-secondary);">Nada encontrado.</p>'; return;
+        mGrid.innerHTML = '';
+        montarEstadoVazio(mGrid);
+        atualizarAcoesResultados();
+        return;
     }
 
     // Lista única, ordenada do melhor pro pior. O Claude já garante que todos
@@ -1728,6 +1744,137 @@ function renderizarResultados() {
     mGrid.innerHTML = ordenados.map(buildCard).join('');
     oGrid.innerHTML = '';
     atualizarAcoesResultados();
+}
+
+// ==========================================
+// ESTADO VAZIO DA BUSCA
+// ==========================================
+// "Nada encontrado." sozinho faz o usuário achar que escreveu errado. Numa
+// busca semântica ele não tem como saber se o problema foi a frase, o filtro,
+// a pasta que não está indexada, ou se realmente não existe. Aqui a tela diz
+// qual dos quatro é — e oferece um caminho de saída clicável.
+
+async function montarEstadoVazio(grid) {
+    const consulta = (document.getElementById('searchInput').value || '').trim();
+    const box = document.createElement('div');
+    box.className = 'vazio-box';
+
+    const titulo = document.createElement('h3');
+    titulo.className = 'vazio-titulo';
+    const motivo = document.createElement('p');
+    motivo.className = 'vazio-motivo';
+    box.append(titulo, motivo);
+
+    // Causa 1 — o filtro escondeu tudo. Detectável na hora, sem rede: há
+    // resultados, mas nenhum sobrevive ao filtro ativo.
+    const totalSemFiltro = (window.resultadosAtuais || []).length;
+    const rotuloFiltro = { imagem: 'Imagens', documento: 'Documentos', midia: 'Áudio / Vídeo' }[filtroAtual];
+    if (totalSemFiltro > 0 && rotuloFiltro) {
+        titulo.textContent = `Nenhum resultado em "${rotuloFiltro}"`;
+        motivo.textContent =
+            `A busca por "${consulta}" encontrou ${totalSemFiltro} ` +
+            `${totalSemFiltro === 1 ? 'item' : 'itens'}, mas ${totalSemFiltro === 1 ? 'ele não é' : 'nenhum é'} ` +
+            `do tipo ${rotuloFiltro.toLowerCase()}.`;
+        box.appendChild(_botaoVazio('Ver todos os tipos', () => {
+            const tudo = document.querySelector('.filter-tag[data-filter="all"]');
+            if (tudo) tudo.click();
+        }));
+        grid.appendChild(box);
+        return;
+    }
+
+    titulo.textContent = `Nada encontrado para "${consulta}"`;
+    motivo.textContent = 'Carregando sugestões…';
+    grid.appendChild(box);
+
+    // Causa 2 — não há nada indexado. Sem isso, qualquer busca falharia, e
+    // sugerir termos seria enganoso.
+    let indexados = null, categorias = [];
+    try {
+        const [rs, rg] = await Promise.all([
+            fetch(`${API_BASE_URL}/api/stats`),
+            fetch(`${API_BASE_URL}/api/gallery`),
+        ]);
+        if (rs.ok) indexados = ((await rs.json()).total_arquivos ?? null);
+        if (rg.ok) categorias = ((await rg.json()).grupos || []).filter(c => c.total > 0);
+    } catch (e) { console.error(e); }
+
+    if (indexados === 0) {
+        titulo.textContent = 'Nenhum arquivo indexado ainda';
+        motivo.textContent =
+            'O Search+ só encontra o que já analisou. Adicione uma pasta do seu ' +
+            'computador para ele começar a indexar as imagens e documentos.';
+        box.appendChild(_botaoVazio('Gerenciar pastas', () => {
+            if (typeof abrirModalPastas === 'function') abrirModalPastas();
+        }));
+        return;
+    }
+
+    // Causa 3 — há acervo, a frase é que não casou. Sugere o que EXISTE:
+    // categorias com conteúdo levam a resultado garantido, ao contrário de um
+    // "você quis dizer" adivinhado que também não acharia nada.
+    motivo.textContent = indexados
+        ? `Há ${indexados} ${indexados === 1 ? 'arquivo indexado' : 'arquivos indexados'}, ` +
+          'mas nenhum corresponde a essa descrição. Tente palavras mais gerais — ' +
+          'a busca entende o significado, não o nome do arquivo.'
+        : 'Tente palavras mais gerais — a busca entende o significado da imagem, ' +
+          'não o nome do arquivo.';
+
+    if (categorias.length > 0) {
+        box.appendChild(_secaoSugestoes(
+            'Talvez você queira dizer:',
+            categorias.slice(0, 6).map(c => {
+                const meta = _CAT_GALERIA[c.categoria] || { icone: '📁', nome: c.categoria };
+                return { rotulo: `${meta.icone} ${meta.nome}`, badge: c.total, termo: meta.nome };
+            })));
+    }
+
+    const recentes = (_historicoCache || []).filter(q => q.toLowerCase() !== consulta.toLowerCase());
+    if (recentes.length > 0) {
+        box.appendChild(_secaoSugestoes(
+            'Ou uma busca recente:',
+            recentes.slice(0, 5).map(q => ({ rotulo: q, termo: q }))));
+    }
+}
+
+function _secaoSugestoes(titulo, itens) {
+    const sec = document.createElement('div');
+    sec.className = 'vazio-secao';
+    const h = document.createElement('p');
+    h.className = 'vazio-secao-titulo';
+    h.textContent = titulo;
+    const lista = document.createElement('div');
+    lista.className = 'vazio-chips';
+    itens.forEach(it => {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'vazio-chip';
+        chip.textContent = it.rotulo;
+        if (it.badge != null) {
+            const b = document.createElement('span');
+            b.className = 'vazio-chip-badge';
+            b.textContent = it.badge;
+            chip.appendChild(b);
+        }
+        chip.onclick = () => {
+            document.getElementById('searchInput').value = it.termo;
+            atualizarBotaoLimpar();
+            realizarBusca();
+        };
+        lista.appendChild(chip);
+    });
+    sec.append(h, lista);
+    return sec;
+}
+
+function _botaoVazio(rotulo, aoClicar) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'action-btn gradient-btn';
+    b.style.marginTop = '18px';
+    b.textContent = rotulo;
+    b.onclick = aoClicar;
+    return b;
 }
 
 // ==========================================
@@ -3830,8 +3977,7 @@ async function _renderBuscaVisual(corpo) {
         window.resultadosAtuais = d.resultados || [];
 
         // Garante que a view de resultados está visível (caso venha do dashboard)
-        searchHistoryExists = true;
-        const wrapper = document.getElementById('mainAppWrapper');
+            const wrapper = document.getElementById('mainAppWrapper');
         wrapper.classList.remove('layout-centered');
         wrapper.classList.add('layout-top');
         document.getElementById('dashboardView').style.display = 'none';

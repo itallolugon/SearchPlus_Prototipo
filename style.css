@@ -59,8 +59,13 @@ body {
 
 /* LOGO PRINCIPAL (GOOGLE STYLE) */
 .main-logo {
-    font-size: 6.5rem; 
+    font-size: 6.5rem;
     cursor: pointer;
+    /* O logo é um BOTÃO, não texto. Sem isto o navegador o trata como conteúdo
+       selecionável: mostra cursor de I-beam piscando e deixa copiar "SEARCH+"
+       ao arrastar — o clique parece uma seleção acidental em vez de uma ação. */
+    user-select: none;
+    -webkit-user-select: none;
     margin: 0 auto 30px auto;
     margin-top: 30px;
     transition: all 0.5s ease-in-out;
@@ -470,6 +475,31 @@ body {
 .barra-selecao.visivel { display: flex; }
 .barra-selecao #selecaoContador { color: var(--text-primary); font-weight: 600; white-space: nowrap; }
 .barra-selecao-acoes { display: flex; gap: 10px; }
+
+/* Estado vazio da busca — explica e oferece saída */
+.vazio-box {
+    grid-column: 1 / -1; max-width: 620px; margin: 20px auto 0;
+    text-align: center; padding: 32px 28px;
+    background: rgba(0,0,0,0.18); border: 1px solid var(--border-light); border-radius: 16px;
+}
+.vazio-titulo { margin: 0 0 10px; color: var(--text-primary); font-size: 1.25rem; font-weight: 700; word-break: break-word; }
+.vazio-motivo { margin: 0; color: var(--text-secondary); font-size: 0.95rem; line-height: 1.6; }
+.vazio-secao { margin-top: 24px; }
+.vazio-secao-titulo { margin: 0 0 10px; color: var(--text-primary); font-size: 0.88rem; font-weight: 600; }
+.vazio-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.vazio-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 8px 16px; border-radius: 30px; cursor: pointer;
+    background: transparent; border: 1px solid var(--border-light);
+    color: var(--text-primary); font-size: 0.88rem; font-weight: 600;
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+.vazio-chip:hover { border-color: var(--accent-primary); background: rgba(168,85,247,0.1); }
+.vazio-chip:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.vazio-chip-badge {
+    background: var(--border-light); color: var(--text-secondary);
+    border-radius: 20px; padding: 1px 8px; font-size: 0.72rem; font-weight: 700;
+}
 
 /* Configurações da coleção */
 .config-rodape {
