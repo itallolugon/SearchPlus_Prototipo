@@ -444,7 +444,15 @@ body {
     cursor: pointer; transition: 0.3s; font-size: 1.1rem;
 }
 .btn-fav-abs:hover { background: var(--surface); border-color: var(--accent-secondary); transform: scale(1.1); }
-.btn-fav-abs.is-fav { color: var(--accent-secondary); border-color: var(--accent-secondary); }
+.btn-fav-abs:focus-visible { outline: 2px solid var(--accent-secondary); outline-offset: 2px; }
+/* Favoritado: coração cheio, cor de destaque e fundo tingido. A diferença não
+   pode ser só de cor — o glifo muda de ♡ para ♥ para quem não distingue cores. */
+.btn-fav-abs.is-fav {
+    color: var(--accent-secondary);
+    border-color: var(--accent-secondary);
+    background: rgba(232, 121, 249, 0.22);
+    font-size: 1.25rem;
+}
 
 /* Seleção para coleção. Diferente do favorito por FORMA (quadrado x círculo)
    e por POSIÇÃO (esquerda x direita), não só por cor — cor sozinha exclui

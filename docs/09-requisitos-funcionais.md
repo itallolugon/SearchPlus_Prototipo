@@ -361,6 +361,15 @@ seguintes. Detalhes em
 | **RF-145** | O status deve permitir copiar as faltantes direto dali — é o motivo de abrir a tela no modo manual. | Implementado |
 | **RF-146** | Cada pasta deve exibir barra de progresso acessível (`role="progressbar"` com `aria-valuenow`/`min`/`max`). | Implementado |
 
+### Estado do favorito
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-147** | O botão de favorito deve indicar visualmente o estado **favoritado**. Antes ele renderizava conteúdo vazio: um círculo em branco, sem informação nenhuma. | Corrigido |
+| **RF-148** | A distinção não pode ser só de cor: o glifo muda de `♡` (vazado) para `♥` (cheio). | Corrigido |
+| **RF-149** | Os glifos devem ser caracteres de **texto**, não emoji. O emoji `🤍` traz cor própria e ignora `color`, o que impedia a regra `.is-fav` de pintá-lo. | Corrigido |
+| **RF-150** | O botão deve ser `<button type="button">` com `aria-pressed` e `aria-label` que acompanham o estado. | Corrigido |
+
 ---
 
 ## 5. Critérios de aceite
@@ -676,6 +685,14 @@ Então nada deve ser apagado no primeiro acionamento;
 E deve ser exibido o aviso com a contagem de pastas e arquivos;
 E só o segundo acionamento executa.
 *Cobre RF-105, RF-106.*
+
+**CA-056 — Favorito visível**
+Dado um resultado não favoritado exibindo `♡`;
+Quando o usuário clicar no botão;
+Então ele deve passar a exibir `♥` preenchido, em cor de destaque e com fundo tingido;
+E `aria-pressed` deve virar `true`;
+E clicar de novo deve voltar ao estado anterior.
+*Cobre RF-147, RF-148, RF-150.*
 
 **CA-053 — Remoção espelhada**
 Dado uma coleção em modo "manter a pasta igual";

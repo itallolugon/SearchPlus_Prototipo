@@ -1729,8 +1729,10 @@ function renderizarResultados() {
         let trecho = r.trecho && r.trecho !== "Nenhum conteúdo..." ? `<div class="trecho-preview">"${r.trecho}"</div>` : '';
 
         const favClass = r.favorito ? 'is-fav' : '';
-        const favIcon = r.favorito ? '' : '🤍';
-        const favBtn = `<div class="btn-fav-abs ${favClass}" onclick="toggleFavorito(event, ${r.id}, this)">${favIcon}</div>`;
+        const favBtn = `<button type="button" class="btn-fav-abs ${favClass}" ` +
+            `aria-pressed="${!!r.favorito}" aria-label="${r.favorito ? 'Remover dos favoritos' : 'Favoritar'}" ` +
+            `title="${r.favorito ? 'Remover dos favoritos' : 'Favoritar'}" ` +
+            `onclick="toggleFavorito(event, ${r.id}, this)">${r.favorito ? ICONE_FAV.sim : ICONE_FAV.nao}</button>`;
 
         // Seleção ≠ favorito: caixa quadrada à esquerda, coração à direita.
         // O estado vem do Set em memória, não do DOM — o grid é reconstruído
@@ -2023,7 +2025,7 @@ async function carregarFavoritos() {
                         <span>Adicionado: ${dataAdd}</span>
                     </div>
                     <div class="fav-actions">
-                        <button class="btn-fav-icon" onclick="toggleFavorito(event, ${r.id}, null, true)"></button>
+                        <button type="button" class="btn-fav-icon" aria-label="Remover dos favoritos" title="Remover dos favoritos" onclick="toggleFavorito(event, ${r.id}, null, true)">${ICONE_FAV.sim}</button>
                     </div>
                 </div>`;
                 list.innerHTML += card;
@@ -2034,6 +2036,22 @@ async function carregarFavoritos() {
     } catch (e) {
         list.innerHTML = '<p style="text-align:center; color: red;">Erro ao carregar favoritos.</p>';
     }
+}
+
+// Coração vazado x preenchido. São glifos de TEXTO, não emoji: o emoji 🤍 vem
+// com cor própria e ignora `color`, então a regra `.is-fav` não conseguia
+// pintá-lo. O favoritado chegava a renderizar string vazia — um círculo em
+// branco, sem indicação nenhuma de que estava favoritado.
+const ICONE_FAV = { sim: '♥', nao: '♡' };
+
+function aplicarEstadoFavorito(btn, isFav) {
+    if (!btn) return;
+    btn.classList.toggle('is-fav', !!isFav);
+    btn.textContent = isFav ? ICONE_FAV.sim : ICONE_FAV.nao;
+    btn.setAttribute('aria-pressed', isFav ? 'true' : 'false');
+    const rotulo = isFav ? 'Remover dos favoritos' : 'Favoritar';
+    btn.setAttribute('aria-label', rotulo);
+    btn.title = rotulo;
 }
 
 async function toggleFavorito(event, id, btnElement, fromModal = false) {
@@ -2055,15 +2073,7 @@ async function toggleFavorito(event, id, btnElement, fromModal = false) {
                 });
             }
 
-            if (btnElement) {
-                if (isFav) {
-                    btnElement.classList.add('is-fav');
-                    btnElement.innerText = '';
-                } else {
-                    btnElement.classList.remove('is-fav');
-                    btnElement.innerText = '🤍';
-                }
-            }
+            if (btnElement) aplicarEstadoFavorito(btnElement, isFav);
 
             if (fromModal && !isFav) {
                 const card = document.getElementById(`favCard_${id}`);
@@ -2119,7 +2129,7 @@ async function carregarFavoritosDash() {
                         ${midia}
                     </div>
                     <p style="pointer-events: auto;">${r.nome}</p>
-                    <button class="btn-fav-abs is-fav" onclick="event.stopPropagation(); toggleFavorito(event, ${r.id}, this, true)" style="top:5px; right:5px; width:30px; height:30px; pointer-events: auto;"></button>
+                    <button type="button" class="btn-fav-abs is-fav" aria-pressed="true" aria-label="Remover dos favoritos" title="Remover dos favoritos" onclick="event.stopPropagation(); toggleFavorito(event, ${r.id}, this, true)" style="top:5px; right:5px; width:30px; height:30px; pointer-events: auto;">${ICONE_FAV.sim}</button>
                 </div>`;
 
                 grid.innerHTML += cardBox;
