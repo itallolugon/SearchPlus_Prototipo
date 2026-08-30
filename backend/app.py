@@ -10,6 +10,7 @@ import hashlib
 import bcrypt
 import mimetypes
 import queue
+import secrets
 import shutil
 import subprocess
 import threading
@@ -163,12 +164,69 @@ except ImportError:
 # em serve_static(), logo abaixo.
 app = Flask(__name__, static_folder=None)
 
-# Chave de sessão: vem do .env em produção. O fallback só existe para o
-# desenvolvimento local não exigir configuração — trocar a chave invalida todas
-# as sessões abertas, então em produção ela PRECISA ser fixa e secreta.
-app.secret_key = os.environ.get("SECRET_KEY", "").strip() or "searchplus_dev_only_key"
-if app.secret_key == "searchplus_dev_only_key":
-    print("[Auth] SECRET_KEY não definida no .env — usando chave de desenvolvimento.")
+ARQUIVO_SEGREDO = BASE_DIR / ".secret_key"
+
+
+def _restringir_ao_dono(caminho: Path) -> None:
+    """
+    Deixa o arquivo legível só pelo dono.
+
+    No Windows `os.chmod` só mexe no bit de somente-leitura — o modo 0600 é
+    praticamente inócuo lá. Quem de fato restringe é o `icacls`: remove a
+    herança e concede acesso apenas ao usuário atual. Em POSIX, `chmod` basta.
+    """
+    try:
+        if os.name == "nt":
+            usuario = os.environ.get("USERNAME") or ""
+            if usuario:
+                subprocess.run(
+                    ["icacls", str(caminho), "/inheritance:r",
+                     "/grant:r", f"{usuario}:F"],
+                    capture_output=True, check=False,
+                )
+        else:
+            os.chmod(caminho, 0o600)
+    except Exception as exc:
+        print(f"[Auth] não foi possível restringir {caminho.name}: "
+              f"{type(exc).__name__}: {exc}")
+
+
+def _resolver_secret_key() -> str:
+    """
+    Chave de sessão, em ordem de precedência: ambiente → arquivo → gerar.
+
+    Antes existia só o primeiro passo, com um literal de desenvolvimento como
+    fallback — e como o literal era o mesmo em toda execução, a sessão até
+    sobrevivia. O problema era outro: uma chave conhecida e versionada permite
+    forjar cookie de sessão. Gerar e guardar resolve os dois lados: a chave
+    passa a ser secreta E estável entre reinícios.
+    """
+    do_ambiente = os.environ.get("SECRET_KEY", "").strip()
+    if do_ambiente:
+        return do_ambiente
+
+    if ARQUIVO_SEGREDO.exists():
+        try:
+            guardada = ARQUIVO_SEGREDO.read_text(encoding="utf-8").strip()
+            if guardada:
+                return guardada
+        except OSError as exc:
+            print(f"[Auth] não foi possível ler .secret_key: {exc}")
+
+    nova = secrets.token_hex(32)
+    try:
+        ARQUIVO_SEGREDO.write_text(nova, encoding="utf-8")
+        _restringir_ao_dono(ARQUIVO_SEGREDO)
+        print("[Auth] SECRET_KEY gerada e salva em backend/.secret_key")
+    except OSError as exc:
+        # Disco somente-leitura: a chave vale para esta execução. Avisar é o
+        # que importa — sem isso o usuário só notaria pelo relogin.
+        print(f"[Auth] não foi possível salvar .secret_key ({exc}). "
+              "A sessão será perdida ao reiniciar.")
+    return nova
+
+
+app.secret_key = _resolver_secret_key()
 
 # ── Origens liberadas no CORS ───────────────────────────────────────────────
 # O front pode ser servido pelo próprio Flask (same-origin, porta 5000) ou por
