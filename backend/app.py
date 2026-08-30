@@ -796,6 +796,10 @@ _DEFAULT_CFG = {
     "modo_privado": False,
     "pastas_ignoradas": "",
     "modo_desempenho": "economico",
+    # Último diretório usado para exportar. Pré-preenche o seletor nativo na
+    # próxima vez — quem sempre exporta para o mesmo lugar reescolhia o caminho
+    # a cada exportação. Vazio = seletor abre onde o sistema decidir.
+    "ultima_pasta_exportacao": "",
 }
 
 
@@ -1315,7 +1319,7 @@ def api_serve_file(filepath):
 # Diálogos nativos do Windows (tkinter)
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _tk_pick(mode: str):
+def _tk_pick(mode: str, inicial: str = ""):
     """Abre seletor nativo. mode='image' | 'folder'. Retorna path ou None."""
     import tkinter as tk
     from tkinter import filedialog
@@ -1336,7 +1340,12 @@ def _tk_pick(mode: str):
             ],
         )
     else:
-        path = filedialog.askdirectory(title="Selecionar Pasta")
+        # `initialdir` inexistente faz o tkinter cair no padrão sozinho, sem
+        # erro — daí só checar isdir e deixar o resto com ele.
+        kwargs = {"title": "Selecionar Pasta"}
+        if inicial and os.path.isdir(inicial):
+            kwargs["initialdir"] = inicial
+        path = filedialog.askdirectory(**kwargs)
 
     root.destroy()
     return os.path.normpath(path) if path else None
@@ -1382,7 +1391,7 @@ def api_choose_folder():
     if not _uid():
         return jsonify({"status": "erro", "mensagem": "Não autenticado."}), 401
     try:
-        path = _tk_pick("folder")
+        path = _tk_pick("folder", inicial=_ultima_pasta_exportacao(_uid()))
         if path:
             return jsonify({"status": "sucesso", "pasta": path})
         return jsonify({"status": "cancelado"})
@@ -2599,6 +2608,55 @@ def api_collections():
 _MODOS_SYNC = {"auto", "perguntar", "manual"}
 
 
+def _ultima_pasta_exportacao(uid) -> str:
+    """
+    Último diretório de exportação do usuário, se ainda existir.
+
+    Devolve "" quando a pasta sumiu (HD desconectado, pasta apagada) — o
+    seletor então abre no padrão do sistema, sem erro. Preferência que aponta
+    para o vazio não pode virar obstáculo.
+    """
+    if not uid:
+        return ""
+    try:
+        conn = get_db()
+        try:
+            row = conn.execute(
+                "SELECT config_json FROM users WHERE id = %s", (uid,)
+            ).fetchone()
+        finally:
+            conn.close()
+    except Exception:
+        return ""     # sem banco, o seletor ainda tem de abrir
+
+    cfg = _safe_json_loads(row["config_json"] if row else None, {}) or {}
+    caminho = (cfg.get("ultima_pasta_exportacao") or "").strip()
+    return caminho if caminho and os.path.isdir(caminho) else ""
+
+
+def _lembrar_pasta_exportacao(uid, destino: str) -> None:
+    """Guarda a pasta-mãe escolhida. Falha aqui não pode quebrar a exportação."""
+    if not uid or not destino:
+        return
+    try:
+        conn = get_db()
+        try:
+            row = conn.execute(
+                "SELECT config_json FROM users WHERE id = %s", (uid,)
+            ).fetchone()
+            cfg = _safe_json_loads(row["config_json"] if row else None, {}) or {}
+            if cfg.get("ultima_pasta_exportacao") == destino:
+                return                      # nada mudou, evita escrita à toa
+            cfg["ultima_pasta_exportacao"] = destino
+            conn.execute("UPDATE users SET config_json = %s WHERE id = %s",
+                         (json.dumps(cfg), uid))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:
+        print(f"[EXPORT] não foi possível lembrar a pasta: {type(exc).__name__}: {exc}")
+
+
 def _registrar_pasta(conn, col_id: int, uid: int, caminho: str) -> None:
     """
     Guarda uma pasta gerada para a coleção, sem duplicar.
@@ -2718,6 +2776,7 @@ def _atualizar_colecao(col_id: int, uid: int):
                                      "Escolha outra pasta."}), 400
 
         pasta_criada = alvo
+        _lembrar_pasta_exportacao(uid, destino)
         campos.append("pasta_vinculada = %s")
         valores.append(alvo)
 
@@ -3208,6 +3267,8 @@ def api_collection_export(col_id):
     #   ausente → só vincula se ainda não houver pasta vinculada
     #   true    → passa a apontar para esta
     #   false   → mantém o vínculo atual
+    _lembrar_pasta_exportacao(uid, destino)
+
     conn = get_db()
     try:
         _registrar_pasta(conn, col_id, uid, pasta_final)

@@ -226,6 +226,7 @@ Devolve as preferências **e** as pastas monitoradas. Funciona sem login (retorn
   "modo_privado": false,
   "pastas_ignoradas": "",
   "modo_desempenho": "economico",
+  "ultima_pasta_exportacao": "",
   "pastas": [],
   "historico_pastas": false
 }
@@ -746,6 +747,11 @@ comparação puramente textual, porque o caminho *escrito* continua dentro.
 > permissão que ela não deveria ter.
 
 #### `GET /api/choose_folder` · `GET /api/choose_image`
+
+O seletor de pastas abre no **último diretório usado para exportar**, guardado
+em `ultima_pasta_exportacao` dentro do `config_json` do usuário. Se essa pasta
+não existir mais, o diálogo abre no padrão do sistema — sem erro. O contrato da
+resposta não muda.
 
 ```json
 { "status": "sucesso", "pasta": "C:\\Users\\Demo\\Downloads" }
