@@ -38,6 +38,38 @@ class TestPatchDaColecao:
         db_roteado({})
         assert client_logado.patch("/api/collections/1", json={"nome": "   "}).status_code == 400
 
+    def test_nome_duplicado_da_409_com_motivo(self, client_logado, db_roteado, app_module):
+        """
+        O usuário precisa do MOTIVO, não de "erro ao renomear". A UI mantém o
+        campo aberto com essa mensagem para ele corrigir sem redigitar.
+        """
+        import psycopg2
+
+        conexao = db_roteado({"FROM collections": {"fetchone": {"id": 1}}})
+
+        def _explode(sql, params=None):
+            if "UPDATE collections" in str(sql):
+                raise psycopg2.errors.UniqueViolation()
+            cur = conexao.execute.side_effect_original(sql, params)
+            return cur
+
+        conexao.execute.side_effect_original = conexao.execute.side_effect
+        conexao.execute.side_effect = _explode
+
+        r = client_logado.patch("/api/collections/1", json={"nome": "Repetido"})
+        assert r.status_code == 409
+        assert "esse nome" in r.get_json()["error"]
+
+    def test_nome_muito_longo_e_truncado_ou_aceito(self, client_logado, db_roteado):
+        """Nome longo não pode derrubar a requisição com 500."""
+        db_roteado({
+            "FROM collections": {"fetchone": {"id": 1, "nome": "x" * 200,
+                                              "pasta_vinculada": None,
+                                              "modo_sync": "manual"}},
+        })
+        r = client_logado.patch("/api/collections/1", json={"nome": "x" * 200})
+        assert r.status_code in (200, 400)
+
     def test_recusa_modo_invalido(self, client_logado, db_roteado):
         db_roteado({})
         r = client_logado.patch("/api/collections/1", json={"modo_sync": "turbo"})

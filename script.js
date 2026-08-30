@@ -2741,6 +2741,9 @@ let _fileIdAtual = null;
 async function abrirColecoes() {
     document.getElementById('colecoesModal').style.display = 'flex';
     document.getElementById('colecoesTitulo').innerText = 'Minhas Coleções';
+    if (typeof cancelarRenomearColecao === 'function') cancelarRenomearColecao();
+    const btnR = document.getElementById('btnRenomearColecao');
+    if (btnR) btnR.style.display = 'none';
     document.getElementById('colecaoConteudo').style.display = 'none';
     document.getElementById('colecoesLista').style.display = 'grid';
     document.getElementById('colecoesCriar').style.display = 'flex';
@@ -3102,6 +3105,70 @@ function renderizarPastasExportadas(pastas) {
     atualizarBotaoMarcarTodas();
 }
 
+// ── Renomear coleção ───────────────────────────────────────────────────────
+// Edição no próprio cabeçalho: o nome já está ali, e abrir um modal para trocar
+// uma palavra seria desproporcional. `_renomeando` evita que o `onblur` dispare
+// uma segunda vez enquanto a primeira ainda está no ar.
+let _renomeando = false;
+
+function iniciarRenomearColecao() {
+    if (!_colecaoAtual.id) return;
+    const campo = document.getElementById('colecaoNomeEdit');
+    const titulo = document.getElementById('colecoesTitulo');
+    const botao = document.getElementById('btnRenomearColecao');
+
+    campo.value = _colecaoAtual.nome;
+    titulo.parentElement.style.display = 'none';
+    campo.style.display = 'block';
+    campo.focus();
+    campo.select();
+    if (botao) botao.style.display = 'none';
+}
+
+function cancelarRenomearColecao() {
+    const campo = document.getElementById('colecaoNomeEdit');
+    campo.value = '';                       // impede o onblur de tentar salvar
+    _fecharEdicaoDeNome();
+}
+
+function _fecharEdicaoDeNome() {
+    document.getElementById('colecaoNomeEdit').style.display = 'none';
+    document.getElementById('colecoesTitulo').parentElement.style.display = 'flex';
+    const botao = document.getElementById('btnRenomearColecao');
+    if (botao) botao.style.display = 'inline-block';
+}
+
+async function confirmarRenomearColecao() {
+    if (_renomeando) return;
+    const campo = document.getElementById('colecaoNomeEdit');
+    if (campo.style.display === 'none') return;
+
+    const novo = campo.value.trim();
+    if (!novo || novo === _colecaoAtual.nome) { _fecharEdicaoDeNome(); return; }
+
+    _renomeando = true;
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/collections/${_colecaoAtual.id}`, {
+            method: 'PATCH', headers: fetchOptions.headers,
+            body: JSON.stringify({ nome: novo })
+        });
+        if (!r.ok) {
+            // 409 traz o motivo real ("já tem uma coleção com esse nome"). Manter
+            // o campo aberto deixa o usuário corrigir sem redigitar tudo.
+            toastErro(await _erroDaResposta(r, 'Não foi possível renomear.'));
+            campo.focus();
+            return;
+        }
+        const d = await r.json();
+        _colecaoAtual.nome = d.nome;
+        document.getElementById('colecoesTitulo').textContent = d.nome;
+        _fecharEdicaoDeNome();
+        toastOk(`Coleção renomeada para "${d.nome}".`);
+        carregarColecoes();
+    } catch (e) { console.error(e); toastErro('Erro de conexão.'); }
+    finally { _renomeando = false; }
+}
+
 // ── Status da pasta: o que já foi copiado e o que falta ────────────────────
 // Responde a pergunta que o modo manual deixa em aberto. Sem isto, quem copia
 // manualmente só vê "3 arquivos" na pasta e não sabe QUAIS — nem onde parou.
@@ -3286,6 +3353,13 @@ async function abrirConfigColecao() {
         'Escolha o que acontece quando você adicionar fotos a esta coleção. ' +
         'Pode mudar quando quiser.';
 
+    // Renomear também daqui: quem abre "Configurações" espera achar o nome
+    // entre as coisas configuráveis, não só no lápis do cabeçalho.
+    const acaoNome = document.getElementById('configRenomear');
+    if (acaoNome) {
+        acaoNome.onclick = () => { fecharConfigColecao(); iniciarRenomearColecao(); };
+    }
+
     // Clona a ilustração do modal de vínculo: o SVG tem uma origem só.
     const box = document.getElementById('configIlustracao');
     box.innerHTML = '';
@@ -3425,6 +3499,8 @@ let _colecaoAtual = { id: null, nome: '' };
 async function verColecao(id, nome) {
     _colecaoAtual = { id, nome };
     document.getElementById('colecoesTitulo').innerText = nome;
+    const btnRen = document.getElementById('btnRenomearColecao');
+    if (btnRen) btnRen.style.display = 'inline-block';
     document.getElementById('colecoesLista').style.display = 'none';
     document.getElementById('colecoesCriar').style.display = 'none';
     document.getElementById('colecaoConteudo').style.display = 'block';

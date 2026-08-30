@@ -484,6 +484,17 @@ body {
 .barra-selecao #selecaoContador { color: var(--text-primary); font-weight: 600; white-space: nowrap; }
 .barra-selecao-acoes { display: flex; gap: 10px; }
 
+/* Renomear coleção — edição no próprio cabeçalho */
+.btn-renomear {
+    background: transparent; border: 1px solid var(--border-light); border-radius: 8px;
+    color: var(--text-secondary); cursor: pointer; flex-shrink: 0;
+    width: 32px; height: 32px; font-size: 0.95rem; line-height: 1;
+    transition: border-color 0.2s ease, color 0.2s ease;
+}
+.btn-renomear:hover { border-color: var(--accent-primary); color: var(--text-primary); }
+.btn-renomear:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.colecao-nome-edit { font-size: 1.3rem; font-weight: 700; margin: 0; width: 100%; max-width: 420px; }
+
 /* Status da pasta: o que já foi copiado e o que falta */
 .status-pasta-bloco {
     background: rgba(0,0,0,0.2); border: 1px solid var(--border-light);

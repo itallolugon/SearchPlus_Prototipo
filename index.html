@@ -787,6 +787,12 @@
                  o SVG ter uma origem só. -->
             <div id="configIlustracao"></div>
 
+            <p class="exp-novo-rotulo">Nome da coleção</p>
+            <button type="button" id="configRenomear" class="vincular-opcao" style="margin-bottom:20px;">
+                <span class="vincular-opcao-titulo">✎ Renomear coleção</span>
+                <span class="vincular-opcao-desc">O nome aparece no app e é usado nas pastas exportadas.</span>
+            </button>
+
             <p class="exp-novo-rotulo">Quando eu adicionar fotos a esta coleção:</p>
             <div class="vincular-opcoes" id="configColecaoOpcoes"></div>
 
@@ -980,7 +986,15 @@
     <div id="colecoesModal" class="modal" style="z-index: 10001;">
         <div class="modal-content" style="max-width: 720px;">
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
-                <h3 class="gradient-text" id="colecoesTitulo" style="margin:0; font-size:1.8rem; font-family:'Inter',sans-serif;">Minhas Coleções</h3>
+                <div style="display:flex; align-items:center; gap:10px; min-width:0;">
+                    <h3 class="gradient-text" id="colecoesTitulo" style="margin:0; font-size:1.8rem; font-family:'Inter',sans-serif; word-break:break-word;">Minhas Coleções</h3>
+                    <button type="button" id="btnRenomearColecao" class="btn-renomear" onclick="iniciarRenomearColecao()"
+                            style="display:none;" aria-label="Renomear coleção" title="Renomear coleção">✎</button>
+                </div>
+                <input type="text" id="colecaoNomeEdit" class="settings-input colecao-nome-edit" maxlength="80"
+                       style="display:none;" aria-label="Novo nome da coleção"
+                       onkeydown="if(event.key==='Enter') confirmarRenomearColecao(); if(event.key==='Escape') cancelarRenomearColecao();"
+                       onblur="confirmarRenomearColecao()">
                 <span class="close-btn" onclick="fecharColecoes()" style="position:static;">&times;</span>
             </div>
 
