@@ -370,6 +370,14 @@ seguintes. Detalhes em
 | **RF-149** | Os glifos devem ser caracteres de **texto**, não emoji. O emoji `🤍` traz cor própria e ignora `color`, o que impedia a regra `.is-fav` de pintá-lo. | Corrigido |
 | **RF-150** | O botão deve ser `<button type="button">` com `aria-pressed` e `aria-label` que acompanham o estado. | Corrigido |
 
+### Capa das coleções
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-151** | A listagem de coleções deve disparar um número de consultas **constante**, independente de quantas coleções o usuário tenha. Antes era uma consulta por coleção para montar o mosaico da capa: 51 idas ao banco remoto para 50 coleções. | Corrigido |
+| **RF-152** | A ordem das capas dentro de uma coleção deve ser estável entre recarregamentos. Sem ordenação explícita o mosaico mudava de arranjo sem nada ter mudado. | Corrigido |
+| **RF-153** | A consulta das capas parte de uma tabela sem dono e precisa filtrar pelo usuário. Sem isso a capa de uma coleção alheia entraria no mosaico, expondo caminho de arquivo de outra pessoa. | Corrigido |
+
 ---
 
 ## 5. Critérios de aceite
