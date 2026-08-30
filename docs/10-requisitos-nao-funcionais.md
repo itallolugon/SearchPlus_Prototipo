@@ -1,7 +1,8 @@
-# Requisitos Não Funcionais — Limpar busca e Coleções/Exportação
+# Requisitos Não Funcionais — Busca, Coleções e Pastas
 
-**Data:** 25/08/2026
-**Escopo:** atributos de qualidade das duas features especificadas em
+**Data:** 25/08/2026 · seções 9-A e 9-B em 30/08/2026
+**Escopo:** atributos de qualidade das features de busca, seleção, coleções,
+exportação e pastas vinculadas — especificadas em
 [`09-requisitos-funcionais.md`](09-requisitos-funcionais.md).
 **Status:** **implementado**. Escrito como especificação, antes do código —
 o tempo verbal ("deve", "deverá") descreve o contrato que a implementação
@@ -135,6 +136,124 @@ recomendação é ampliá-lo, não inventar outro.
 | **RNF-051** | A listagem de coleções não pode degradar de forma linear com o número de coleções. **Débito conhecido:** `GET /api/collections` (`backend/app.py:2508`) executa **uma consulta de capas por coleção** dentro de um laço — clássico N+1. Com 50 coleções, são 51 idas ao Postgres remoto (Supabase). A feature não introduz esse problema, mas o agrava ao tornar as coleções mais usadas. | `EXPLAIN`/contagem de consultas; medir com 50 coleções. |
 | **RNF-052** | A tela de conteúdo de uma coleção deve permanecer utilizável com centenas de itens. Hoje `verColecao()` (`script.js:2502`) renderiza **todos** os itens de uma vez, sem paginação nem virtualização. Deve haver, no mínimo, `loading="lazy"` nas imagens — padrão que `carregarColecoes()` já aplica nas capas (`script.js:2440`). | Abrir coleção com 300 itens. |
 | **RNF-053** | O modelo de dados **não** precisa mudar para suportar as features. Nenhuma migração de schema é exigida por RF-001…RF-060. Qualquer coluna nova (ex.: *hash* de conteúdo, decisão `D-4`) é opcional e deve ser tratada como escopo separado. | Diff de `backend/schema.sql` deve ficar vazio. |
+
+---
+
+## 9-A. Pastas vinculadas, sincronia e exclusão
+
+Atributos de qualidade das features de coleção↔pasta (RF-080 … RF-135).
+
+### Segurança da operação destrutiva
+
+`DELETE /api/collections/<id>/folders` apaga diretório do computador com
+`shutil.rmtree`, **sem lixeira**. É a única operação irreversível do produto, e
+os requisitos abaixo são o que a torna aceitável.
+
+| ID | Requisito | Como verificar |
+|---|---|---|
+| **RNF-059** | A exclusão só pode aceitar caminho **registrado em `collection_folders` para aquela coleção e aquele usuário**. Caminho arbitrário que exista no disco deve ser recusado com `nao_autorizada`. | `tests/unit/test_pastas_geradas.py::TestExclusaoRecusada` |
+| **RNF-060** | A exclusão deve exigir `confirmar: true` **booleano**. A string `"true"` não pode ser aceita — coerção acidental não é confirmação. | Teste com `"confirmar": "true"`. |
+| **RNF-061** | Não pode existir "apagar todas" implícito: a lista de caminhos é obrigatória e uma lista vazia é recusada. | Teste com corpo sem `caminhos`. |
+| **RNF-062** | O raio de ação do `rmtree` deve parar na pasta alvo. Nada fora dela pode ser tocado. | Teste com arquivo vizinho ao diretório apagado. |
+| **RNF-063** | A interface deve exigir **duas etapas**: o primeiro acionamento apresenta quantas pastas e quantos arquivos serão apagados e que não vão para a Lixeira; só o segundo executa. | Verificação manual no navegador. |
+| **RNF-064** | Apagar pastas e excluir a coleção devem permanecer operações independentes — uma pode acontecer sem a outra, nos dois sentidos. | Revisão de código: a rota de pastas não toca `collections`. |
+| **RNF-065** | `GET /api/open_folder` deve autorizar apenas caminhos registrados para o usuário. Nunca um caminho arbitrário. | `tests/unit/test_pastas_geradas.py::TestAbrirPasta` |
+
+### Integridade dos dados
+
+| ID | Requisito | Como verificar |
+|---|---|---|
+| **RNF-066** | A sincronia é estritamente **aditiva**: só `shutil.copy2` e `os.makedirs`. Nenhum `remove`, `unlink`, `rmtree` ou `move` no caminho de cópia. | Revisão do diff. |
+| **RNF-067** | Falha de sincronia **não** pode desfazer a adição à coleção. As duas operações são independentes e a adição já foi confirmada pelo banco quando a cópia começa. | Simular erro de disco e conferir `collection_files`. |
+| **RNF-068** | O `PATCH` da coleção deve ser **parcial**: mandar só `modo_sync` não pode apagar a pasta vinculada. | `test_pasta_vinculada.py::test_patch_parcial_nao_apaga_a_pasta` |
+| **RNF-069** | A migração do destino único para o conjunto (`collection_folders.recebe`) deve ser **idempotente**: roda a cada boot via `schema.sql` e, depois da primeira vez, nenhuma linha casa. | Reiniciar o backend duas vezes e comparar o estado. |
+| **RNF-070** | `collections.pasta_vinculada` é mantido como espelho do primeiro elemento do conjunto. Não pode divergir — duas verdades sobre o mesmo assunto viram bug. | Revisão de `_definir_pastas_que_recebem()`. |
+| **RNF-071** | O código deve ler as colunas de vínculo de forma **tolerante**. `init_db()` apenas registra falhas de DDL em vez de abortar; sem tolerância, uma migração falha derrubaria toda adição a coleção com HTTP 500 em vez de só desativar a sincronia. | Revisão de código: acesso via `dict(...).get(...)`. |
+
+### Performance
+
+| ID | Requisito | Como verificar |
+|---|---|---|
+| **RNF-072** | `GET /api/collections/<id>/folders` é caminho quente — chamado toda vez que uma coleção abre. Lê o disco (`isdir` + `listdir` por pasta), então é o endpoint de coleção mais sensível a I/O. p95 deve respeitar `MAX_P95_MS`. | Tarefa `abrir_colecao_e_listar_pastas` no `locustfile.py`. |
+| **RNF-073** | A sincronia deve copiar apenas os `file_ids` recebidos. Adicionar 1 imagem a uma coleção de 300 copia 1 arquivo, não 301. | `ids_adicionados` na resposta de `/files`; RF-091. |
+| **RNF-074** | `POST /files` deve devolver o estado de sincronia junto, para o frontend decidir sem um `GET` extra a cada adição. | Revisão do contrato. |
+| **RNF-075** | A sincronia não usa job em background nem barra de progresso: copia o que acabou de ser adicionado, tipicamente de 1 a 20 arquivos. Uma barra apareceria e sumiria antes de ser lida. | Decisão de projeto — ver `features/14-pasta-vinculada.md` §5.3. |
+| **RNF-076** | Marcar/desmarcar pastas envia o **conjunto completo** a cada mudança, não deltas. Elimina estado parcial e ordem de operações a coordenar. | Revisão de `aplicarPastasQueRecebem()`. |
+
+### Robustez
+
+| ID | Requisito | Como verificar |
+|---|---|---|
+| **RNF-077** | Perder um destino não pode bloquear os demais: se uma pasta do conjunto sumiu do disco, a cópia prossegue nas restantes. Só falha com 409 quando **nenhuma** resta. | `test_uma_pasta_sumida_nao_impede_as_outras` |
+| **RNF-078** | Falha do arquivo (ausente, fora das pastas monitoradas) deve ser contada **uma vez**, não uma por destino. Contá-la por pasta faria o resumo multiplicar o mesmo problema. | `test_falha_do_arquivo_conta_uma_vez_so` |
+| **RNF-079** | O sistema **nunca** desvincula uma pasta sozinho por ela ter sumido do disco. Um HD externo desconectado não pode destruir configuração. | `test_todas_as_pastas_sumiram_do_disco`: 409 e vínculo mantido. |
+| **RNF-080** | Mensagens de erro devem distinguir servidor desatualizado (404/405) de falha real. Um `PATCH` que o servidor não conhece precisa dizer "reinicie", não "não foi possível criar a pasta". | `_erroDaResposta()` em `script.js`. |
+| **RNF-081** | O frontend não pode ser servido com cache. `index.html` referencia `script.js?v=<string fixa>`; sem `no-store`, o navegador serve JS velho indefinidamente e o sintoma aparece como erro de backend. | `curl -D -` em `/script.js` deve trazer `Cache-Control: no-store`. |
+
+### Compatibilidade e manutenção
+
+| ID | Requisito | Como verificar |
+|---|---|---|
+| **RNF-082** | Nenhuma dependência nova. `shutil`, `os`, `threading`, `uuid` são biblioteca padrão. | Diff de `requirements.txt` vazio. |
+| **RNF-083** | Coleções criadas antes das features devem continuar funcionando sem intervenção. `modo_sync` tem `DEFAULT 'manual'`, que reproduz o comportamento anterior. | Abrir uma coleção antiga após a migração. |
+| **RNF-084** | `backend/app.py`, `backend/mock_server.py` e `docs/API.md` devem permanecer em sincronia — inclusive nas rotas de pasta. | `tests/integration/test_paridade_mock.py` |
+| **RNF-085** | O mock **não** pode criar pasta nem apagar diretório no disco de quem desenvolve. As travas de contrato são reproduzidas; o efeito colateral, não. | Revisão de `mock_server.py`. |
+| **RNF-086** | O SVG da ilustração deve ter uma origem única. A tela de Configurações **clona** o nó do modal de vínculo em vez de duplicar a marcação. | Revisão de `abrirConfigColecao()`. |
+
+### Acessibilidade
+
+| ID | Requisito | Como verificar |
+|---|---|---|
+| **RNF-087** | A ilustração animada é decorativa e deve ter `aria-hidden="true"`. O texto ao lado já comunica o conceito; anunciar um desenho seria ruído. | Inspeção do DOM. |
+| **RNF-088** | A animação deve respeitar `prefers-reduced-motion`: sem movimento, os pontos viram marcas fixas na trilha e a ideia se mantém. | DevTools → emular a preferência. |
+| **RNF-089** | Cada opção de modo e cada pasta devem ser controles reais (`<button type="button">`, `<input type="checkbox">`), com `aria-pressed` ou `aria-label` conforme o caso. | Navegação apenas por teclado. |
+| **RNF-090** | O modo em vigor não pode ser comunicado **só** por cor: precisa de rótulo textual ("atual") além do destaque. | Simulação de daltonismo. |
+
+---
+
+## 9-B. Resultado dos testes de carga
+
+Executado em 30/08/2026 contra `backend/mock_server.py`, com os três perfis do
+`locustfile.py`. O mock isola a medição da latência do Supabase e do tempo de
+IA — o que se mede aqui é a camada de aplicação.
+
+| Perfil | Usuários | Requisições | Falhas | p95 geral |
+|---|---|---|---|---|
+| `smoke` | 12 | 717 | **0** | 270 ms |
+| `load` | rampa até 20 | 3 052 | **0** | 260 ms |
+| `stress` | rampa até 150 | 11 384 | **0** | 280 ms |
+
+Todos os limites (`MAX_TAXA_ERRO` 1%, `MAX_P95_MS` 1 s, `MAX_P95_IA_MS` 5 s)
+foram respeitados nos três.
+
+**p95 por rota de coleção**, no perfil `stress`:
+
+| Rota | p95 |
+|---|---|
+| `GET /api/collections/[id]/folders` | ~25 ms |
+| `POST /api/collections/[id]/sync` | ~27 ms |
+| `POST /api/collections/[id]/files (lote)` | ~37 ms |
+| `PATCH /api/collections/[id]` | ~17 ms |
+| `POST /api/collections/[id]/export` | ~14 ms |
+| `DELETE /api/collections/[id]/folders` | ~27 ms |
+| `GET /api/collections/export/[job]` | ~26 ms |
+
+O `/api/search` domina o tempo (p95 ~280 ms) por ser o único que faz trabalho
+real de busca; as rotas de coleção ficam uma ordem de grandeza abaixo.
+
+**Uma correção no próprio teste.** A primeira execução do perfil `load` acusou
+2 falhas: `404` em `/api/collections/[id]` e `/folders`. Não era defeito do
+produto — é a corrida esperada num teste multiusuário, onde uma tarefa lista as
+coleções e outra exclui uma delas antes do `GET` chegar. O backend respondeu
+corretamente. A tarefa passou a tratar `404` como sucesso nesse ponto: contá-lo
+como erro faria a taxa de falha medir a concorrência do próprio teste em vez do
+produto.
+
+> **Aviso para rodar contra o backend real.** `SEARCHPLUS_LOAD_SYNC_DIR`
+> aponta a pasta-mãe usada pelas tarefas de exportação. Contra `app.py`, o
+> Python **cria subpastas de verdade** ali. Aponte para um diretório
+> descartável. As tarefas limpam o que criam, mas uma execução interrompida
+> pode deixar resíduo.
 
 ---
 

@@ -269,6 +269,127 @@ class UsuarioDoSearchPlus(HttpUser):
         self.client.delete(f"/api/collections/{col_id}",
                            name="/api/collections/[id] (excluir)")
 
+    @task(4)
+    def abrir_colecao_e_listar_pastas(self):
+        """
+        Caminho quente: `/folders` é chamado toda vez que uma coleção abre.
+
+        Alimenta o botão "Abrir pasta exportada" e o modal de pastas. Ele lê o
+        disco (os.path.isdir + os.listdir por pasta), então é o endpoint de
+        coleção mais sensível a I/O — o que justifica o peso maior que as
+        tarefas de escrita.
+        """
+        r = self.client.get("/api/collections", name="/api/collections")
+        if r.status_code != 200:
+            return
+        colecoes = (r.json() or {}).get("colecoes", [])
+        if not colecoes:
+            return
+
+        # 404 aqui é resposta CORRETA, não falha: entre listar e abrir, outro
+        # usuário virtual pode ter excluído a coleção. Marcar como erro faria a
+        # taxa de falha medir a concorrência do próprio teste, não o produto.
+        col = colecoes[UsuarioDoSearchPlus._contador % len(colecoes)]
+        with self.client.get(f"/api/collections/{col['id']}", catch_response=True,
+                             name="/api/collections/[id]") as det:
+            if det.status_code in (200, 404):
+                det.success()
+            else:
+                det.failure(f"HTTP {det.status_code}")
+
+        with self.client.get(
+            f"/api/collections/{col['id']}/folders",
+            catch_response=True,
+            name="/api/collections/[id]/folders",
+        ) as pf:
+            if pf.status_code == 404:
+                pf.success()                       # coleção excluída no meio
+            elif pf.status_code != 200:
+                pf.failure(f"HTTP {pf.status_code}")
+            elif "pastas" not in (pf.json() or {}):
+                pf.failure("resposta sem o campo 'pastas'")
+            else:
+                pf.success()
+
+    @task(1)
+    def exportar_colecao_e_acompanhar(self):
+        """
+        Exportação completa: dispara o job, acompanha o progresso e limpa.
+
+        É a operação mais cara do produto — copia arquivo a arquivo em thread
+        separada. O polling entra na medição porque o frontend consulta a cada
+        400 ms enquanto a barra está na tela.
+
+        A limpeza no fim usa DELETE /folders, que só aceita caminho registrado
+        para a própria coleção: a carga não consegue apagar nada além do que
+        ela mesma criou.
+        """
+        col = self.client.post(
+            "/api/collections",
+            json={"nome": f"carga-exp-{UsuarioDoSearchPlus._contador}-{time.time_ns()}"},
+            name="/api/collections (criar)",
+        )
+        if col.status_code != 200:
+            return
+        col_id = (col.json() or {}).get("id")
+        if not col_id:
+            return
+
+        consulta = CONSULTAS[UsuarioDoSearchPlus._contador % len(CONSULTAS)]
+        r = self.client.post(
+            "/api/search", json={"query": consulta, "filtro": "all"}, name="/api/search"
+        )
+        ids = ([i["id"] for i in (r.json() or {}).get("resultados", []) if i.get("id")]
+               if r.status_code == 200 else [])
+        if ids:
+            self.client.post(f"/api/collections/{col_id}/files", json={"file_ids": ids},
+                             name="/api/collections/[id]/files (lote)")
+
+        exp = self.client.post(
+            f"/api/collections/{col_id}/export",
+            json={"destino": DESTINO_SYNC},
+            catch_response=True,
+            name="/api/collections/[id]/export",
+        )
+        with exp:
+            if exp.status_code == 400:
+                # Coleção vazia ou destino ausente no alvo: não é falha do teste.
+                exp.success()
+                self.client.delete(f"/api/collections/{col_id}",
+                                   name="/api/collections/[id] (excluir)")
+                return
+            if exp.status_code != 200:
+                exp.failure(f"HTTP {exp.status_code}")
+                self.client.delete(f"/api/collections/{col_id}",
+                                   name="/api/collections/[id] (excluir)")
+                return
+            exp.success()
+
+        job = (exp.json() or {}).get("job_id")
+        # Acompanha até concluir, com teto: um job travado não pode prender o
+        # usuário virtual para sempre.
+        for _ in range(25):
+            st = self.client.get(f"/api/collections/export/{job}",
+                                 name="/api/collections/export/[job]")
+            if st.status_code != 200:
+                break
+            if (st.json() or {}).get("estado") != "executando":
+                break
+            time.sleep(0.4)
+
+        pf = self.client.get(f"/api/collections/{col_id}/folders",
+                             name="/api/collections/[id]/folders")
+        caminhos = ([p["caminho"] for p in (pf.json() or {}).get("pastas", [])]
+                    if pf.status_code == 200 else [])
+        if caminhos:
+            self.client.delete(
+                f"/api/collections/{col_id}/folders",
+                json={"caminhos": caminhos, "confirmar": True},
+                name="/api/collections/[id]/folders (apagar)",
+            )
+        self.client.delete(f"/api/collections/{col_id}",
+                           name="/api/collections/[id] (excluir)")
+
     @task(2)
     def readicionar_lote_ja_existente(self):
         """
