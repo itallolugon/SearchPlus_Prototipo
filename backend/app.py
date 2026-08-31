@@ -2877,6 +2877,11 @@ def api_files_validos():
     return jsonify({"ids": [r["id"] for r in linhas]})
 
 
+# O valor que o front manda para dizer "nenhuma pasta". Precisa ser uma palavra
+# e não uma lista vazia: lista vazia é indistinguível de "não escolhi nada".
+VALOR_NENHUMA_PASTA = "nenhuma"
+
+
 @app.route("/api/gallery")
 def api_gallery():
     """
@@ -2888,16 +2893,31 @@ def api_gallery():
     if not uid:
         return jsonify({"error": "Não autenticado."}), 401
 
-    # Quais pastas mostrar. Vazio = todas — quem nunca escolheu vê tudo, que é
-    # o que sempre aconteceu; o filtro é opcional por definição.
+    # Quais pastas mostrar. São TRÊS estados, e confundir dois deles foi um
+    # erro que já custou uma correção:
+    #
+    #   parâmetro ausente  → todas. Quem nunca escolheu vê tudo, que é o que
+    #                        sempre aconteceu.
+    #   "nenhuma"          → nenhuma. Quem desmarcou tudo quer a home limpa,
+    #                        para usar só a busca. Antes isso voltava para
+    #                        "todas" e a escolha era ignorada.
+    #   "1,2"              → essas.
+    #
+    # A primeira versão usava lista vazia para "todas", e aí não havia como
+    # dizer "nenhuma" — a diferença entre "não escolhi" e "escolhi zero"
+    # precisa existir no protocolo, não só na cabeça de quem clicou.
+    bruto = (request.args.get("pastas") or "").strip()
+    mostrar_nenhuma = (bruto.lower() == VALOR_NENHUMA_PASTA)
+
     pastas_pedidas = []
-    for pedaco in (request.args.get("pastas") or "").split(","):
-        pedaco = pedaco.strip()
-        if pedaco:
-            try:
-                pastas_pedidas.append(int(pedaco))
-            except ValueError:
-                continue
+    if not mostrar_nenhuma:
+        for pedaco in bruto.split(","):
+            pedaco = pedaco.strip()
+            if pedaco:
+                try:
+                    pastas_pedidas.append(int(pedaco))
+                except ValueError:
+                    continue
 
     conn = get_db()
 
@@ -2917,15 +2937,21 @@ def api_gallery():
         (list(_EXT_IMG), uid)
     ).fetchall()
 
-    sql = ("SELECT id, nome, caminho, tipo, descricao_ia, data_adicionado, favorito "
-           "FROM files WHERE user_id = %s AND processado = 1 AND tipo = ANY(%s)")
-    params = [uid, list(_EXT_IMG)]
+    # "Nenhuma" não consulta arquivo nenhum: seria trazer a biblioteca inteira
+    # do banco remoto para descartar tudo em seguida.
+    if mostrar_nenhuma:
+        rows = []
+    else:
+        sql = ("SELECT id, nome, caminho, tipo, descricao_ia, data_adicionado, favorito "
+               "FROM files WHERE user_id = %s AND processado = 1 AND tipo = ANY(%s)")
+        params = [uid, list(_EXT_IMG)]
 
-    if pastas_pedidas:
-        sql += " AND folder_id = ANY(%s)"
-        params.append(pastas_pedidas)
+        if pastas_pedidas:
+            sql += " AND folder_id = ANY(%s)"
+            params.append(pastas_pedidas)
 
-    rows = conn.execute(sql + " ORDER BY data_adicionado DESC", tuple(params)).fetchall()
+        rows = conn.execute(sql + " ORDER BY data_adicionado DESC",
+                            tuple(params)).fetchall()
     conn.close()
 
     grupos = {k: [] for k in _CATEGORIAS_STATS}
@@ -2959,6 +2985,11 @@ def api_gallery():
                     "caminho": p["path"], "imagens": p["imagens"]}
                    for p in pastas_rows],
         "pastas_ativas": pastas_pedidas,
+        # O front redesenha o seletor a partir disto. Sem o campo, ele não teria
+        # como distinguir "todas" de "nenhuma" — nos dois casos `pastas_ativas`
+        # vem vazio.
+        "mostrando": ("nenhuma" if mostrar_nenhuma
+                      else ("algumas" if pastas_pedidas else "todas")),
     })
 
 

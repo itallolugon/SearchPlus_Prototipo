@@ -669,16 +669,24 @@ def gallery():
     if not _logado():
         return _nao_autenticado()
 
+    # Tres estados, iguais aos do backend real: ausente = todas,
+    # "nenhuma" = nenhuma, "1,2" = essas.
+    bruto = (request.args.get("pastas") or "").strip()
+    mostrar_nenhuma = (bruto.lower() == "nenhuma")
+
     pedidas = []
-    for pedaco in (request.args.get("pastas") or "").split(","):
-        pedaco = pedaco.strip()
-        if pedaco:
-            try:
-                pedidas.append(int(pedaco))
-            except ValueError:
-                continue
+    if not mostrar_nenhuma:
+        for pedaco in bruto.split(","):
+            pedaco = pedaco.strip()
+            if pedaco:
+                try:
+                    pedidas.append(int(pedaco))
+                except ValueError:
+                    continue
 
     def visivel(arq):
+        if mostrar_nenhuma:
+            return False
         return not pedidas or _pasta_do_arquivo(arq) in pedidas
 
     grupos = []
@@ -710,6 +718,8 @@ def gallery():
         "total_imagens": len([a for a in imagens if visivel(a)]),
         "pastas": pastas,
         "pastas_ativas": pedidas,
+        "mostrando": ("nenhuma" if mostrar_nenhuma
+                      else ("algumas" if pedidas else "todas")),
     })
 
 

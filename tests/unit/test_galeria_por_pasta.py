@@ -7,9 +7,16 @@ importadas — as fotos do celular e o arquivo do trabalho, por exemplo — as d
 caem no mesmo "Pessoas", e não havia nem como saber de onde cada imagem veio,
 nem como olhar uma pasta de cada vez.
 
-A regra que atravessa o arquivo: **vazio significa todas**. Quem nunca escolheu
-vê tudo, que é o que sempre aconteceu — o filtro é opcional por definição, e
-uma lista vazia nunca pode ser lida como "não mostre nada".
+São **três** estados, e confundir dois deles já custou uma correção:
+
+    parâmetro ausente   todas      quem nunca escolheu vê tudo
+    "nenhuma"           nenhuma    quem desmarcou tudo quer a home limpa
+    "1,2"               essas
+
+A primeira versão usava lista vazia para "todas", e por isso desmarcar a última
+pasta voltava para "todas" — a escolha do usuário era simplesmente ignorada.
+Quem desmarca tudo quer usar só a busca. A diferença entre "não escolhi" e
+"escolhi zero" precisa existir no protocolo, não só na cabeça de quem clicou.
 """
 
 import pytest
@@ -87,6 +94,72 @@ class TestComFiltro:
 
         assert corpo["pastas_ativas"] == []
         assert not any("folder_id = ANY" in q for q in _sqls(conexao))
+
+
+class TestNenhumaPasta:
+    """
+    O caso que a primeira versão ignorava: às vezes a pessoa quer a home limpa
+    e só a barra de busca.
+    """
+
+    def test_nenhuma_nao_traz_imagem(self, client_logado, db_roteado):
+        db_roteado(_rotas(arquivos=[_imagem(1), _imagem(2)]))
+        corpo = client_logado.get("/api/gallery?pastas=nenhuma").get_json()
+
+        assert corpo["grupos"] == []
+        assert corpo["total_imagens"] == 0
+
+    def test_nenhuma_nao_consulta_arquivo_nenhum(self, client_logado, db_roteado):
+        """
+        Trazer a biblioteca inteira do banco remoto para descartar tudo em
+        seguida seria pagar o custo da consulta sem usar nada dela.
+        """
+        conexao = db_roteado(_rotas(arquivos=[_imagem(1)]))
+        client_logado.get("/api/gallery?pastas=nenhuma")
+
+        assert not any("FROM files WHERE user_id" in q for q in _sqls(conexao))
+
+    def test_nenhuma_ainda_lista_as_pastas(self, client_logado, db_roteado):
+        """
+        O seletor continua na tela e precisa dos nomes — é por ele que a
+        pessoa desfaz a escolha.
+        """
+        db_roteado(_rotas(pastas=[_pasta(1, "Fotos", 612)]))
+        corpo = client_logado.get("/api/gallery?pastas=nenhuma").get_json()
+
+        assert [p["nome"] for p in corpo["pastas"]] == ["Fotos"]
+
+    def test_a_resposta_distingue_os_tres_estados(self, client_logado, db_roteado):
+        """
+        `pastas_ativas` vem vazio tanto em "todas" quanto em "nenhuma". Sem um
+        campo próprio, o front não teria como saber qual dos dois desenhar.
+        """
+        db_roteado(_rotas(arquivos=[_imagem(1)]))
+        assert client_logado.get("/api/gallery").get_json()["mostrando"] == "todas"
+
+        db_roteado(_rotas(arquivos=[_imagem(1)]))
+        assert client_logado.get(
+            "/api/gallery?pastas=nenhuma").get_json()["mostrando"] == "nenhuma"
+
+        db_roteado(_rotas(arquivos=[_imagem(1)]))
+        assert client_logado.get(
+            "/api/gallery?pastas=3").get_json()["mostrando"] == "algumas"
+
+    def test_nenhuma_ignora_caixa(self, client_logado, db_roteado):
+        db_roteado(_rotas(arquivos=[_imagem(1)]))
+        assert client_logado.get(
+            "/api/gallery?pastas=NENHUMA").get_json()["total_imagens"] == 0
+
+    def test_uma_pasta_chamada_nenhuma_nao_confunde(self, client_logado, db_roteado):
+        """
+        O valor é comparado com a palavra inteira, não procurado dentro da
+        lista: `?pastas=1,2` com uma pasta chamada "nenhuma" não some com tudo.
+        """
+        conexao = db_roteado(_rotas(arquivos=[_imagem(1)]))
+        corpo = client_logado.get("/api/gallery?pastas=1,2").get_json()
+
+        assert corpo["mostrando"] == "algumas"
+        assert any("FROM files WHERE user_id" in q for q in _sqls(conexao))
 
 
 class TestPastasDisponiveis:

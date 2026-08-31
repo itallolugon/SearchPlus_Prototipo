@@ -604,14 +604,34 @@ Ids não numéricos são descartados; o limite é de 5.000 por chamada. `400` se
     { "id": 1, "nome": "Imagens", "caminho": "C:\\Users\\Demo\\Imagens", "imagens": 612 },
     { "id": 2, "nome": "Documentos", "caminho": "C:\\Users\\Demo\\Documentos", "imagens": 0 }
   ],
-  "pastas_ativas": [1]
+  "pastas_ativas": [1],
+  "mostrando": "algumas"
 }
 ```
 Só imagens. **Um arquivo pode aparecer em mais de um grupo** (um desenho de cachorro entra em `animais` e `desenhos`) — não assuma unicidade ao montar a grade.
 
-**Filtrar por pasta.** `pastas` é uma lista de ids separados por vírgula. Sem o
-parâmetro — ou com ele vazio — vêm todas: **lista vazia significa todas**, nunca
-"nenhuma". Quem nunca escolheu vê tudo, que é o que sempre aconteceu.
+**Filtrar por pasta.** São **três** estados, e o campo `mostrando` na resposta
+diz qual está valendo:
+
+| `pastas` | `mostrando` | O que vem |
+|---|---|---|
+| ausente (ou vazio) | `todas` | tudo — quem nunca escolheu vê tudo |
+| `nenhuma` | `nenhuma` | nada; a home fica limpa |
+| `1,2` | `algumas` | só o conteúdo dessas pastas |
+
+A primeira versão usava lista vazia para "todas", e por isso não havia como
+dizer "nenhuma" — desmarcar a última pasta voltava para "todas" e a escolha do
+usuário era ignorada. Às vezes a pessoa quer a home limpa e só a barra de
+busca. A diferença entre "não escolhi" e "escolhi zero" precisa existir no
+protocolo.
+
+`pastas_ativas` vem vazio tanto em `todas` quanto em `nenhuma`; é o `mostrando`
+que os separa.
+
+Com `nenhuma`, o servidor **não consulta arquivo nenhum** — trazer a biblioteca
+inteira do banco remoto para descartar tudo em seguida seria pagar o custo da
+consulta sem usar nada dela. A lista de `pastas` continua vindo: o seletor
+segue na tela, e é por ele que a pessoa desfaz a escolha.
 
 Ids não numéricos são descartados em silêncio; o parâmetro vem da URL e pode
 chegar torto, e isso não pode virar erro na primeira tela que o usuário vê.

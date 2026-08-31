@@ -1199,8 +1199,11 @@ async function carregarConfiguracoesUX() {
 
         // Quais pastas a home mostra. Vem da conta, não do navegador: quem
         // separou as pastas de trabalho das pessoais espera reencontrar isso.
+        // Ausente é `null` ("mostra todas"), NÃO lista vazia — que agora
+        // significa "não mostra nada". Trocar os dois faria a home nascer
+        // vazia para quem nunca mexeu no seletor.
         _pastasVisiveis = Array.isArray(currentConfig.pastas_visiveis)
-            ? currentConfig.pastas_visiveis : [];
+            ? currentConfig.pastas_visiveis : null;
 
         // #AB5AF7, e não o #A855F7 de antes: como TEXTO sobre a superfície dos
         // cards, o tom anterior media 4,38:1 e não passava no mínimo de
@@ -3222,10 +3225,15 @@ function desenharSeletorDePastas(pastas) {
     window._pastasDaGaleria = pastas;
 
     const btn = document.getElementById('seletorPastasBotao');
-    const ativas = _pastasVisiveis.length ? _pastasVisiveis.length : pastas.length;
-    btn.textContent = ativas === pastas.length
-        ? `📁 Todas as pastas (${pastas.length})`
-        : `📁 ${ativas} de ${pastas.length} pastas`;
+    if (!Array.isArray(_pastasVisiveis)) {
+        btn.textContent = `📁 Todas as pastas (${pastas.length})`;
+    } else if (_pastasVisiveis.length === 0) {
+        btn.textContent = '📁 Nenhuma pasta';
+    } else if (_pastasVisiveis.length === pastas.length) {
+        btn.textContent = `📁 Todas as pastas (${pastas.length})`;
+    } else {
+        btn.textContent = `📁 ${_pastasVisiveis.length} de ${pastas.length} pastas`;
+    }
     btn.setAttribute('aria-expanded', 'false');
 }
 
@@ -3244,7 +3252,9 @@ function alternarSeletorDePastas() {
     menu.innerHTML = '';
 
     pastas.forEach(p => {
-        const marcada = !_pastasVisiveis.length || _pastasVisiveis.includes(p.id);
+        // `null` (nunca escolheu) marca todas; `[]` (escolheu zero) marca nenhuma.
+        const marcada = !Array.isArray(_pastasVisiveis)
+            || _pastasVisiveis.includes(p.id);
 
         const linha = document.createElement('label');
         linha.className = 'pasta-opcao';
@@ -3272,12 +3282,26 @@ function alternarSeletorDePastas() {
     todas.className = 'pasta-opcao-todas';
     todas.textContent = 'Mostrar todas';
     todas.onclick = async () => {
-        _pastasVisiveis = [];
+        _pastasVisiveis = null;         // volta a "todas"
         fecharSeletorDePastas();
         await salvarPastasVisiveis();
         carregarGaleria();
     };
     menu.appendChild(todas);
+
+    // Desmarcar quatro pastas uma a uma para limpar a home é trabalho que o
+    // botão poupa — e é o pedido que motivou esta correção.
+    const nenhuma = document.createElement('button');
+    nenhuma.type = 'button';
+    nenhuma.className = 'pasta-opcao-todas';
+    nenhuma.textContent = 'Não mostrar nenhuma';
+    nenhuma.onclick = async () => {
+        _pastasVisiveis = [];
+        fecharSeletorDePastas();
+        await salvarPastasVisiveis();
+        carregarGaleria();
+    };
+    menu.appendChild(nenhuma);
 
     menu.style.display = 'block';
     btn.setAttribute('aria-expanded', 'true');
@@ -3296,10 +3320,10 @@ function alternarSeletorDePastas() {
 async function escolherPastaDaGaleria(pastaId, marcada) {
     const pastas = window._pastasDaGaleria || [];
 
-    // Lista vazia significa "todas". Ao desmarcar a primeira, precisamos
-    // materializar a lista completa antes de tirar uma — senão desmarcar uma
-    // pasta não mudaria nada.
-    if (!_pastasVisiveis.length) _pastasVisiveis = pastas.map(p => p.id);
+    // `null` significa "nunca escolheu, mostra todas". Ao mexer na primeira
+    // caixa, materializa a lista completa antes de tirar uma — senão desmarcar
+    // uma pasta não mudaria nada.
+    if (!Array.isArray(_pastasVisiveis)) _pastasVisiveis = pastas.map(p => p.id);
 
     if (marcada) {
         if (!_pastasVisiveis.includes(pastaId)) _pastasVisiveis.push(pastaId);
@@ -3307,10 +3331,13 @@ async function escolherPastaDaGaleria(pastaId, marcada) {
         _pastasVisiveis = _pastasVisiveis.filter(id => id !== pastaId);
     }
 
-    // Desmarcar tudo esconderia a home inteira sem dizer por quê. Voltar a
-    // "todas" é o que a pessoa quis dizer ao tirar a última.
-    if (_pastasVisiveis.length === 0) _pastasVisiveis = [];
-    if (_pastasVisiveis.length === pastas.length) _pastasVisiveis = [];
+    // Zero pastas continua sendo zero pastas. A versão anterior voltava para
+    // "todas" aqui, achando que esconder a home seria pior — mas quem desmarca
+    // tudo quer justamente a home limpa, para usar só a busca.
+    //
+    // Marcar todas também continua sendo uma escolha explícita, e não vira
+    // `null`: o rótulo do botão já diz "Todas as pastas", e reescrever o
+    // estado só criaria uma diferença invisível entre dois cliques iguais.
 
     // Fecha ao escolher. Um menu que fica aberto por cima do resultado esconde
     // justamente a mudança que a pessoa acabou de pedir para ver.
@@ -3338,20 +3365,29 @@ async function salvarPastasVisiveis() {
     } catch (e) { /* preferência de exibição: não vale um alarme na tela */ }
 }
 
-// Quais pastas a galeria está mostrando. Vazio = todas.
+// Quais pastas a galeria está mostrando. TRÊS estados:
 //
-// A home mostra as categorias misturando tudo que foi indexado. Com duas
-// pastas importadas — as fotos do celular e o arquivo do trabalho, por
-// exemplo — as duas caem no mesmo "Pessoas", e não havia nem como saber de
-// onde cada imagem veio, nem como olhar uma pasta de cada vez.
-let _pastasVisiveis = [];
+//     null    nunca escolheu  → mostra todas
+//     []      escolheu zero   → mostra nenhuma
+//     [1, 2]  escolheu essas
+//
+// A primeira versão usava lista vazia para "todas", e por isso desmarcar a
+// última pasta voltava para "todas" — a escolha do usuário era simplesmente
+// ignorada. Quem desmarca tudo quer a home limpa, para usar só a busca. A
+// diferença entre "não escolhi" e "escolhi zero" precisa existir no dado, não
+// só na cabeça de quem clicou.
+let _pastasVisiveis = null;
 
 async function carregarGaleria() {
     const container = document.getElementById('galeriaCategorias');
     if (!container) return;
     try {
-        const filtro = _pastasVisiveis.length
-            ? `?pastas=${_pastasVisiveis.join(',')}` : '';
+        let filtro = '';
+        if (Array.isArray(_pastasVisiveis)) {
+            filtro = _pastasVisiveis.length
+                ? `?pastas=${_pastasVisiveis.join(',')}`
+                : '?pastas=nenhuma';
+        }
         const res = await fetch(`${API_BASE_URL}/api/gallery${filtro}`,
                                 { headers: fetchOptions.headers });
         const d = await res.json();
@@ -3361,12 +3397,15 @@ async function carregarGaleria() {
 
         container.innerHTML = '';
         if (grupos.length === 0) {
-            // Filtrou tanto que não sobrou nada: sem esta mensagem a home fica
-            // vazia e parece que a indexação sumiu.
-            if (_pastasVisiveis.length) {
+            // Sem esta mensagem a home fica vazia e parece que a indexação
+            // sumiu. E os dois motivos de estar vazia pedem textos diferentes:
+            // num deles a pessoa escolheu isso, no outro não.
+            if (Array.isArray(_pastasVisiveis)) {
                 const vazio = document.createElement('p');
-                vazio.style.cssText = 'text-align:center; color:var(--text-secondary);';
-                vazio.textContent = 'Nenhuma imagem nas pastas escolhidas.';
+                vazio.className = 'galeria-vazia';
+                vazio.textContent = _pastasVisiveis.length
+                    ? 'Nenhuma imagem nas pastas escolhidas.'
+                    : 'A home está limpa. Use a busca acima, ou escolha uma pasta para ver as categorias.';
                 container.appendChild(vazio);
             }
             return;

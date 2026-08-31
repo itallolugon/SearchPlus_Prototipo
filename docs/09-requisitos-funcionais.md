@@ -610,12 +610,15 @@ mesmo "Pessoas", e não havia como olhar uma pasta de cada vez.
 | ID | Requisito | Situação |
 |---|---|---|
 | **RF-234** | A home deve ter, no canto, um seletor de **quais pastas** aparecem nas categorias. | Implementado |
-| **RF-235** | **Lista vazia significa todas**, nunca "nenhuma". Quem nunca escolheu vê tudo — o filtro é opcional por definição. | Implementado |
-| **RF-236** | Desmarcar a última pasta volta para "todas". Esconder a home inteira sem dizer por quê seria pior que ignorar o clique. | Implementado |
+| **RF-235** | São **três** estados: nunca escolheu (todas), escolheu zero (nenhuma) e escolheu algumas. Quem nunca escolheu vê tudo — o filtro é opcional por definição. | Implementado |
+| **RF-236** | Desmarcar **todas** as pastas mostra **nenhuma**, e a home fica limpa. A primeira versão voltava para "todas" aqui, achando que esconder a home seria pior — mas quem desmarca tudo quer justamente isso, para usar só a busca. | Corrigido |
+| **RF-236a** | O menu oferece "Não mostrar nenhuma" como atalho: desmarcar quatro pastas uma a uma para limpar a home é trabalho que o botão poupa. | Implementado |
+| **RF-236b** | Com nenhuma pasta escolhida, o servidor não consulta arquivo nenhum. | Implementado |
+| **RF-236c** | A resposta diz qual dos três estados está valendo. A lista de pastas ativas vem vazia em dois deles, e o front precisa distingui-los. | Implementado |
 | **RF-237** | Com uma pasta só, o seletor não aparece — viraria decoração. | Implementado |
 | **RF-238** | O seletor mostra o **nome e a contagem de imagens** de cada pasta, e o caminho completo ao passar o mouse. | Implementado |
 | **RF-239** | Pasta sem imagem continua na lista. Sumindo, quem importou e ainda não analisou acharia que o app perdeu a pasta. | Implementado |
-| **RF-240** | Se o filtro não deixar nada, a tela **diz isso** em vez de ficar vazia parecendo que a indexação sumiu. | Implementado |
+| **RF-240** | Se o filtro não deixar nada, a tela **diz isso** em vez de ficar vazia parecendo que a indexação sumiu. As duas razões para estar vazia têm textos diferentes: numa delas a pessoa escolheu isso, na outra não. | Implementado |
 | **RF-241** | A escolha é guardada na **conta**, não no navegador. Quem separou trabalho de pessoal espera reencontrar amanhã. | Implementado |
 | **RF-242** | Id inválido na URL é descartado em silêncio — não pode virar erro na primeira tela que o usuário vê. | Implementado |
 | **RF-243** | Pedir a pasta de outra pessoa devolve vazio: o filtro é um `AND` sobre consulta que já exige o dono. | Implementado |
