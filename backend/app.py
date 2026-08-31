@@ -166,10 +166,19 @@ _MODELOS_RESOLVIDOS = threading.Event()
 
 
 def _marcar_modelo(qual: str, estado: str, motivo: str = "") -> None:
+    """
+    Grava estado e motivo JUNTOS: o motivo explica o estado atual, não o
+    histórico. Marcar sem motivo apaga o que havia — senão um texto de falha
+    sobrevive a um "pronto" posterior, e o /api/health passa a afirmar as duas
+    coisas ao mesmo tempo. A tela mostraria o erro de uma tentativa que já deu
+    certo, e a pessoa reinstalaria o programa por causa de um aviso vencido.
+    """
     with _lock_modelos:
         _estado_modelos[qual] = estado
         if motivo:
             _motivo_modelos[qual] = motivo
+        else:
+            _motivo_modelos.pop(qual, None)
 
 
 def estado_dos_modelos() -> dict:

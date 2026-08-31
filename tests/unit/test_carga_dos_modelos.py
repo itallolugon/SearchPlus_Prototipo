@@ -65,6 +65,31 @@ class TestEstadoDosModelos:
             app_module._estado_modelos.clear(); app_module._estado_modelos.update(estado)
             app_module._motivo_modelos.clear(); app_module._motivo_modelos.update(motivo)
 
+    def test_pronto_apaga_o_motivo_de_uma_falha_anterior(self, app_module):
+        """
+        O teste acima só pega isto por acaso — e só quando a thread de carga
+        já marcou uma falha antes dele rodar, o que depende de quanto a suíte
+        demorou até aqui. Rodando o arquivo sozinho, passava mesmo quebrado.
+
+        Aqui a falha é montada de propósito: um "indisponivel" com motivo,
+        seguido de um "pronto". Sem apagar, o /api/health responde
+        `estado: pronto` com o texto do erro junto, e a tela mostra o aviso de
+        uma tentativa que já deu certo.
+        """
+        estado = dict(app_module._estado_modelos)
+        motivo = dict(app_module._motivo_modelos)
+        try:
+            app_module._marcar_modelo("texto", "indisponivel", "faltou memória")
+            assert app_module.estado_dos_modelos()["texto"] == {
+                "estado": "indisponivel", "motivo": "faltou memória"}
+
+            app_module._marcar_modelo("texto", "pronto")
+            assert app_module.estado_dos_modelos()["texto"] == {
+                "estado": "pronto", "motivo": ""}
+        finally:
+            app_module._estado_modelos.clear(); app_module._estado_modelos.update(estado)
+            app_module._motivo_modelos.clear(); app_module._motivo_modelos.update(motivo)
+
     def test_estado_e_copia(self, app_module):
         """Mexer no que o /api/health devolveu não pode alterar o estado real."""
         copia = app_module.estado_dos_modelos()

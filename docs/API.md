@@ -486,8 +486,10 @@ acontece justamente na tela de login, antes de qualquer sessão existir.
 ```
 
 `estado` é `carregando`, `pronto` ou `indisponivel`; `motivo` só vem preenchido
-em `indisponivel`. `busca_pronta` acompanha o modelo de **texto**, que é o que
-destrava a busca escrita.
+em `indisponivel`, e descreve o estado **atual** — nunca uma tentativa
+anterior. Um `pronto` acompanhado do texto de um erro faria a tela avisar
+sobre uma falha que já passou. `busca_pronta` acompanha o modelo de **texto**,
+que é o que destrava a busca escrita.
 
 O servidor responde desde o primeiro instante e carrega os modelos em segundo
 plano. Antes eles eram carregados na importação, e por ~30 segundos o navegador
