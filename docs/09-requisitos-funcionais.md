@@ -431,6 +431,24 @@ cabeça: dá tempo de almoçar?
 | **RF-207** | Com a fila drenando e o ritmo constante, o texto **nunca volta atrás**. Estimativa que sobe sozinha destrói a confiança na barra. | Implementado |
 | **RF-208** | Um único arquivo lento não pode deslocar a estimativa; uma mudança real e sustentada de ritmo, sim. | Implementado |
 
+### Favoritos como origem de coleção
+
+Favoritar era um beco sem saída: a estrela marcava o arquivo e parava por aí.
+Quem passou meses favoritando as fotos boas não tinha como transformar isso numa
+coleção sem reabrir cada uma.
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-250** | Cada favorito deve ter caixa de seleção, alimentando a mesma seleção do resto do app. | Implementado |
+| **RF-251** | Deve haver "selecionar tudo" na aba de favoritos. | Implementado |
+| **RF-252** | Os selecionados podem ir para uma coleção **existente**. | Implementado |
+| **RF-253** | Os selecionados podem virar uma coleção **nova**, criada na hora. | Implementado |
+| **RF-254** | Depois de enviar, o usuário é levado até a coleção. Ver o resultado é a confirmação de que deu certo. | Implementado |
+| **RF-255** | Com nenhum favorito selecionado, "enviar" fica desligado — diz isso antes do clique, em vez de um aviso depois. | Implementado |
+| **RF-256** | Sem favorito nenhum, a barra de ações não aparece. | Implementado |
+| **RF-257** | A resposta deve distinguir o que **entrou** do que **já estava** na coleção. | Implementado |
+| **RF-258** | Fechar o seletor de coleção (X, fundo) **cancela** o envio e devolve o botão "criar nova" ao comportamento normal. | Implementado |
+
 ### Selecionar na home, sem passar pela busca
 
 O motor separa as imagens em categorias, e há quem prefira navegar por aí a

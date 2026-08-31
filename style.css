@@ -507,6 +507,8 @@ body {
 .btn-renomear,
 .btn-verificar-pasta,
 .btn-sel-categoria,
+.btn-sel-fav,
+.favoritos-resumo,
 .seletor-pastas-botao,
 .pasta-opcao,
 .faixa-preparando,
@@ -1599,3 +1601,30 @@ body {
     border-color: var(--accent-primary); color: var(--accent-primary);
     background: rgba(168, 85, 247, 0.12);
 }
+
+
+/* Favoritos como origem de colecao */
+.favoritos-acoes {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin-bottom: 16px; padding-bottom: 14px;
+    border-bottom: 1px solid var(--border-light);
+}
+.favoritos-resumo { flex: 1; min-width: 90px; color: var(--text-secondary); font-size: 0.8rem; }
+.favoritos-acoes .action-btn { font-size: 0.78rem; padding: 7px 14px; }
+.favoritos-acoes .action-btn:disabled { opacity: 0.45; cursor: default; }
+
+/* Caixa de selecao do card de favorito. Fica no fluxo (nao absoluta como a
+   dos cards de imagem) porque o card do favorito e uma linha horizontal. */
+.fav-card { position: relative; }
+.btn-sel-fav {
+    flex: 0 0 auto; width: 22px; height: 22px; margin-right: 4px;
+    border-radius: 6px; cursor: pointer; transition: 0.2s;
+    background: rgba(255,255,255,0.06); border: 1px solid var(--border-light);
+    color: #fff; font-size: 0.8rem; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+}
+.btn-sel-fav:hover { border-color: var(--accent-primary); }
+.btn-sel-fav.is-sel {
+    background: var(--accent-primary); border-color: var(--accent-primary);
+}
+.fav-card.card-selecionado { border-color: var(--accent-primary); }

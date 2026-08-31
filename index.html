@@ -235,6 +235,18 @@
                 <h3 class="gradient-text" style="margin: 0; font-size: 1.8rem; font-family: 'Inter', sans-serif;">Meus Favoritos</h3>
                 <span class="close-btn" onclick="fecharFavoritos()" style="position: static;">&times;</span>
             </div>
+            <!-- Favoritar era um beco sem saída: a estrela marcava o arquivo e
+                 parava por aí. Daqui as imagens viram coleção. -->
+            <div id="favoritosAcoes" class="favoritos-acoes" style="display: none;">
+                <span id="favResumo" class="favoritos-resumo"></span>
+                <button type="button" id="favSelecionarTodos" class="action-btn"
+                        onclick="alternarSelecionarTodosFavoritos()" aria-pressed="false"
+                        style="margin:0;">☑ Selecionar tudo</button>
+                <button type="button" id="favEnviar" class="action-btn gradient-btn"
+                        onclick="enviarFavoritosParaColecao()" disabled
+                        style="margin:0;">＋ Enviar para coleção</button>
+            </div>
+
             <div id="favoritosList" style="display: flex; flex-direction: column; gap: 15px; max-height: 60vh; overflow-y: auto; padding-right: 5px;">
                 <!-- Preenchido via JS -->
             </div>
@@ -998,7 +1010,7 @@
                 <span class="close-btn" onclick="fecharEscolherColecao()" style="position:static; cursor:pointer;">&times;</span>
             </div>
             <div id="escolherColecaoLista" style="display:flex; flex-direction:column; gap:8px; max-height:50vh; overflow-y:auto;"></div>
-            <button class="action-btn gradient-btn" onclick="criarColecaoEAdicionar()" style="width:100%; margin-top:14px; padding:12px;">+ Criar nova coleção</button>
+            <button id="escolherColecaoNova" class="action-btn gradient-btn" onclick="criarColecaoEAdicionar()" style="width:100%; margin-top:14px; padding:12px;">+ Criar nova coleção</button>
         </div>
     </div>
 

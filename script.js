@@ -2195,6 +2195,178 @@ function resultadosVisiveis() {
 }
 
 // ==========================================
+// FAVORITOS COMO ORIGEM DE COLEÇÃO
+// ==========================================
+// Favoritar era um beco sem saída: a estrela marcava o arquivo e parava por
+// aí. Quem passou meses favoritando as fotos boas não tinha como transformar
+// isso numa coleção sem reabrir cada uma.
+function favoritosSelecionados() {
+    return (window._favoritosCarregados || []).filter(r => _selecionados.has(r.id));
+}
+
+function atualizarAcoesFavoritos() {
+    const barra = document.getElementById('favoritosAcoes');
+    if (!barra) return;
+
+    const todos = window._favoritosCarregados || [];
+    const marcados = favoritosSelecionados().length;
+
+    // Sem favorito não há o que selecionar, e a barra vira ruído.
+    barra.style.display = todos.length ? 'flex' : 'none';
+
+    const btnTodos = document.getElementById('favSelecionarTodos');
+    const tudoMarcado = todos.length > 0 && marcados === todos.length;
+    btnTodos.textContent = tudoMarcado ? '☒ Desmarcar tudo' : '☑ Selecionar tudo';
+    btnTodos.setAttribute('aria-pressed', tudoMarcado ? 'true' : 'false');
+
+    const resumo = document.getElementById('favResumo');
+    resumo.textContent = marcados
+        ? `${marcados} ${marcados === 1 ? 'selecionado' : 'selecionados'}`
+        : `${todos.length} ${todos.length === 1 ? 'favorito' : 'favoritos'}`;
+
+    // Enviar zero imagens para uma coleção não faz nada; o botão desligado
+    // diz isso antes do clique, em vez de um aviso depois.
+    document.getElementById('favEnviar').disabled = marcados === 0;
+}
+
+function alternarSelecionarTodosFavoritos() {
+    const todos = window._favoritosCarregados || [];
+    if (!todos.length) return;
+
+    const tudoMarcado = todos.every(r => _selecionados.has(r.id));
+    todos.forEach(r => {
+        if (tudoMarcado) _selecionados.delete(r.id);
+        else _selecionados.add(r.id);
+    });
+
+    sincronizarCardsDeFavoritos();
+    atualizarAcoesFavoritos();
+    atualizarBarraSelecao();
+}
+
+function sincronizarCardsDeFavoritos() {
+    document.querySelectorAll('.fav-card[data-file-id]').forEach(card => {
+        const marcado = _selecionados.has(Number(card.dataset.fileId));
+        card.classList.toggle('card-selecionado', marcado);
+        const btn = card.querySelector('.btn-sel-fav');
+        if (btn) {
+            btn.classList.toggle('is-sel', marcado);
+            btn.textContent = marcado ? '✓' : '';
+            btn.setAttribute('aria-checked', marcado ? 'true' : 'false');
+        }
+    });
+}
+
+// Enviar os favoritos marcados para uma coleção — existente ou nova.
+async function enviarFavoritosParaColecao() {
+    const marcados = favoritosSelecionados();
+    if (!marcados.length) return;
+
+    const escolha = await escolherColecaoParaFavoritos(marcados.length);
+    if (!escolha) return;
+
+    const r = await fetch(`${API_BASE_URL}/api/collections/${escolha.id}/files`, {
+        method: 'POST', headers: fetchOptions.headers,
+        body: JSON.stringify({ file_ids: marcados.map(x => x.id) }),
+    });
+    if (!r.ok) {
+        toastErro(await _erroDaResposta(r, 'Não foi possível adicionar à coleção'));
+        return;
+    }
+    const d = await r.json();
+
+    const n = d.adicionados || 0;
+    const jaEstavam = d.ja_existiam || 0;
+    let msg = n
+        ? `${n} ${n === 1 ? 'imagem foi' : 'imagens foram'} para “${escolha.nome}”.`
+        : 'Essas imagens já estavam na coleção.';
+    if (n && jaEstavam) msg += ` ${jaEstavam} já ${jaEstavam === 1 ? 'estava' : 'estavam'} lá.`;
+    toastOk(msg);
+
+    limparSelecao();
+    fecharFavoritos();
+
+    // Levar a pessoa até a coleção fecha o ciclo: ela pediu para mandar as
+    // fotos para lá, e ver o resultado é a confirmação de que deu certo.
+    verColecao(escolha.id, escolha.nome);
+}
+
+// Modal de escolha reaproveitado, mas devolvendo a coleção em vez de agir
+// sozinho — aqui quem adiciona é o chamador, que precisa saber para onde
+// redirecionar depois.
+//
+// Enquanto uma escolha está pendente, este resolvedor fica guardado aqui. É o
+// que permite ao X, ao clique no fundo e ao Esc cancelarem o envio: sem ele, a
+// promessa ficaria pendurada e o botão "criar nova coleção" continuaria
+// sequestrado para o fluxo dos favoritos.
+let _resolverEscolhaColecao = null;
+
+function _encerrarEscolhaColecao(valor) {
+    document.getElementById('escolherColecaoModal').style.display = 'none';
+
+    // Devolve o botão ao comportamento normal, usado pelo painel lateral.
+    const btnNova = document.getElementById('escolherColecaoNova');
+    if (btnNova) btnNova.onclick = () => criarColecaoEAdicionar();
+
+    const resolver = _resolverEscolhaColecao;
+    _resolverEscolhaColecao = null;
+    if (resolver) resolver(valor);
+}
+
+function escolherColecaoParaFavoritos(quantas) {
+    return new Promise(async (resolve) => {
+        _resolverEscolhaColecao = resolve;
+
+        const lista = document.getElementById('escolherColecaoLista');
+        const modal = document.getElementById('escolherColecaoModal');
+        lista.innerHTML = '<p style="color:var(--text-secondary);">Carregando...</p>';
+        modal.style.display = 'flex';
+
+        // "Criar nova coleção" a partir dos favoritos: o caso de quem
+        // favoritou durante meses e agora quer juntar tudo num lugar novo.
+        document.getElementById('escolherColecaoNova').onclick = async () => {
+            const nome = await pedirTexto('Nova coleção',
+                `Nome da coleção para ${quantas} ${quantas === 1 ? 'imagem' : 'imagens'}:`);
+            if (!nome) return;
+            const r = await fetch(`${API_BASE_URL}/api/collections`, {
+                method: 'POST', headers: fetchOptions.headers,
+                body: JSON.stringify({ nome }),
+            });
+            if (!r.ok) {
+                toastErro(await _erroDaResposta(r, 'Não foi possível criar a coleção'));
+                return;
+            }
+            const nova = await r.json();
+            _encerrarEscolhaColecao({ id: nova.id, nome: nova.nome });
+        };
+
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/collections`);
+            const cols = (await res.json()).colecoes || [];
+            lista.innerHTML = '';
+            if (!cols.length) {
+                lista.innerHTML = '<p style="color:var(--text-secondary);">' +
+                    'Você ainda não tem coleções. Crie uma abaixo.</p>';
+            }
+            cols.forEach(c => {
+                const btn = document.createElement('button');
+                btn.className = 'escolher-colecao-item';
+                const nm = document.createElement('span');
+                nm.textContent = c.nome;
+                const cnt = document.createElement('span');
+                cnt.className = 'escolher-colecao-count';
+                cnt.textContent = `${c.total} ${c.total === 1 ? 'item' : 'itens'}`;
+                btn.append(nm, cnt);
+                btn.onclick = () => _encerrarEscolhaColecao({ id: c.id, nome: c.nome });
+                lista.appendChild(btn);
+            });
+        } catch (e) {
+            lista.innerHTML = '<p style="color:#f87171;">Erro ao carregar coleções.</p>';
+        }
+    });
+}
+
+// ==========================================
 // REFINAR SEM RECOMEÇAR
 // ==========================================
 // Antes, cada tentativa jogava fora o que a busca anterior já tinha acertado:
@@ -2629,6 +2801,10 @@ async function carregarFavoritos() {
         const res = await fetch(`${API_BASE_URL}/api/favorites`, { headers: fetchOptions.headers });
         const dados = await res.json();
 
+        // Guardados para o "selecionar todos" saber sobre o que age.
+        window._favoritosCarregados = dados.resultados || [];
+        atualizarAcoesFavoritos();
+
         if (dados.resultados && dados.resultados.length > 0) {
             list.innerHTML = '';
             dados.resultados.forEach(r => {
@@ -2645,8 +2821,13 @@ async function carregarFavoritos() {
 
                 const dataAdd = r.data ? new Date(r.data).toLocaleDateString('pt-BR') : "Desconhecido";
 
+                const marcado = _selecionados.has(r.id);
                 const card = `
-                <div class="fav-card" id="favCard_${r.id}">
+                <div class="fav-card${marcado ? ' card-selecionado' : ''}" id="favCard_${r.id}" data-file-id="${r.id}">
+                    <button type="button" class="btn-sel-fav${marcado ? ' is-sel' : ''}"
+                            role="checkbox" aria-checked="${marcado}"
+                            aria-label="Selecionar para coleção" title="Selecionar para coleção"
+                            onclick="alternarSelecao(event, ${r.id}, this)">${marcado ? '✓' : ''}</button>
                     ${thumbHtml}
                     <div class="fav-info">
                         <strong>${r.nome}</strong>
@@ -3500,6 +3681,7 @@ function alternarSelecao(event, fileId, btn) {
     // A mesma imagem pode estar em duas categorias da home ao mesmo tempo.
     if (typeof sincronizarCardsDaGaleria === 'function') sincronizarCardsDaGaleria();
     if (typeof atualizarBotoesDeCategoria === 'function') atualizarBotoesDeCategoria();
+    if (typeof atualizarAcoesFavoritos === 'function') atualizarAcoesFavoritos();
     atualizarBarraSelecao();
 }
 
@@ -3528,6 +3710,7 @@ function limparSelecao() {
     });
     document.querySelectorAll('.card-selecionado').forEach(c => c.classList.remove('card-selecionado'));
     if (typeof atualizarBotoesDeCategoria === 'function') atualizarBotoesDeCategoria();
+    if (typeof atualizarAcoesFavoritos === 'function') atualizarAcoesFavoritos();
     atualizarBarraSelecao();
 }
 
@@ -4653,6 +4836,13 @@ async function abrirSeletorColecao() {
 }
 
 function fecharEscolherColecao() {
+    // Se havia um envio de favoritos esperando esta escolha, fechar cancela —
+    // sem isto a promessa ficaria pendurada e o botão de criar coleção
+    // continuaria preso ao fluxo dos favoritos.
+    if (_resolverEscolhaColecao) {
+        _encerrarEscolhaColecao(null);
+        return;
+    }
     document.getElementById('escolherColecaoModal').style.display = 'none';
 }
 
