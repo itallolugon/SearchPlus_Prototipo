@@ -31,12 +31,30 @@ Documentos fora do escopo da N2, produzidos ao longo do desenvolvimento.
 |---|---|
 | [`07-git-fluxo.md`](07-git-fluxo.md) | Convenção de branches (`main` / `develop` / `feature/*`) |
 | [`08-correcoes-conexao-e-busca.md`](08-correcoes-conexao-e-busca.md) | Correções: pooler do Supabase e busca visual (CLIP) |
-| [`09-requisitos-funcionais.md`](09-requisitos-funcionais.md) | RF-001 … RF-150 e critérios de aceite CA-001 … CA-056 |
+| [`09-requisitos-funcionais.md`](09-requisitos-funcionais.md) | RF-001 … RF-335 e os critérios de aceite |
 | [`10-requisitos-nao-funcionais.md`](10-requisitos-nao-funcionais.md) | RNF-001 … RNF-090 + resultado da carga + débitos preexistentes |
 | [`features/11-limpar-busca.md`](features/11-limpar-busca.md) | Botão `×` para limpar o campo de busca |
 | [`features/12-colecoes-exportacao.md`](features/12-colecoes-exportacao.md) | Seleção, coleções e exportação para pasta local |
 | [`features/13-selecao-em-massa.md`](features/13-selecao-em-massa.md) | Selecionar tudo e exportação imediata da coleção |
 | [`features/14-pasta-vinculada.md`](features/14-pasta-vinculada.md) | Coleção espelhada numa pasta do computador |
+
+## Relatórios de entrega
+
+Relatório em Word, com capa, escrito em linguagem simples: o que foi feito e
+o que mudou para quem usa o app. Cada rodada gera um arquivo novo, com data no
+nome, para ficar o histórico do que já tinha sido entregue em cada momento.
+
+```bash
+py tools/gerar_relatorio.py
+```
+
+| Arquivo | Data |
+|---|---|
+| [`SearchPlus_Implementacoes_2026-08-31.docx`](SearchPlus_Implementacoes_2026-08-31.docx) | 31/08/2026 |
+
+O conteúdo do relatório vive em `tools/gerar_relatorio.py`, e não num .docx
+editado à mão: assim o texto entra em revisão de código como o resto, e a
+versão seguinte parte da anterior em vez de recomeçar.
 
 ## Como visualizar os diagramas (.puml)
 

@@ -729,6 +729,27 @@ resto da interface sai de inacessível para utilizável em 2 segundos.
 
 ---
 
+### Ícones da interface
+
+Emoji como ícone traz três problemas que não aparecem na máquina de quem
+escreve: a cor vem da fonte do sistema, então ignora o tema e a cor de destaque
+escolhida pelo usuário e não dá para corrigir o contraste como corrigimos o do
+texto (RF-320..RF-327); o desenho muda entre Windows, Android e cada navegador;
+e em fonte antiga alguns nem existem, virando um retângulo vazio.
+
+| ID | Requisito | Status |
+|---|---|---|
+| **RF-328** | Nenhum ícone da interface é emoji. Todos são símbolos SVG definidos uma vez no documento e referenciados por id. | Implementado |
+| **RF-329** | O traço segue a cor do texto ao lado. É o que faz o ícone acompanhar o tema e a cor de destaque escolhida pelo usuário. | Implementado |
+| **RF-330** | Todos os símbolos usam o mesmo grid e o mesmo peso de traço. É o que faz um conjunto parecer um conjunto, e não figurinhas de origens diferentes. | Implementado |
+| **RF-331** | Ícone ao lado de rótulo vindo de dado do usuário (nome de pasta, de coleção) é montado pelo DOM, com o texto entrando como texto. Montar com `innerHTML` abriria injeção através de um nome de pasta. | Implementado |
+| **RF-332** | Botão que só tem ícone precisa de rótulo acessível. O SVG é `aria-hidden`; enquanto era emoji, o caractere servia de nome — mal, mas servia. | Implementado |
+| **RF-333** | Botão sem cor explícita herda o preto do navegador. O emoji escondia isso porque trazia a própria cor; com o traço seguindo o texto, dois botões ficaram em 1:1 de contraste — invisíveis. | Corrigido |
+| **RF-334** | Referência a ícone inexistente é reprovada por teste. `<use>` para um id que não existe não é erro: não quebra, não vai ao console, o botão só aparece vazio. | Implementado |
+| **RF-335** | O favorito mantém a distinção por forma, e não só por cor: o coração passa de vazado a preenchido. | Implementado |
+
+---
+
 ## 5. Critérios de aceite
 
 Formato Dado/Quando/Então. Todos verificáveis manualmente com o app rodando.

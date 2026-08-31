@@ -1,0 +1,1796 @@
+[
+ {
+  "secao": "1. Busca — limpar o campo",
+  "id": "RF-001",
+  "texto": "O campo de busca deve exibir um botão de limpar (`×`) sempre que contiver ao menos um caractere.",
+  "status": "Novo"
+ },
+ {
+  "secao": "1. Busca — limpar o campo",
+  "id": "RF-002",
+  "texto": "Com o campo vazio, o botão deve ficar **oculto** (`display:none`), não apenas desabilitado. Decisão registrada em [`features/11-limpar-busca.md` §5](features/11-limpar-busca.md).",
+  "status": "Novo"
+ },
+ {
+  "secao": "1. Busca — limpar o campo",
+  "id": "RF-003",
+  "texto": "Ao acionar o botão, o conteúdo do campo deve ser apagado integralmente e de forma síncrona, sem chamada de rede.",
+  "status": "Novo"
+ },
+ {
+  "secao": "1. Busca — limpar o campo",
+  "id": "RF-004",
+  "texto": "Após limpar, o foco deve permanecer (ou retornar) ao campo de busca, com o cursor pronto para digitar.",
+  "status": "Novo"
+ },
+ {
+  "secao": "1. Busca — limpar o campo",
+  "id": "RF-005",
+  "texto": "Acionar o botão **não** deve recarregar a página, navegar, nem disparar `realizarBusca()`.",
+  "status": "Novo"
+ },
+ {
+  "secao": "1. Busca — limpar o campo",
+  "id": "RF-006",
+  "texto": "Limpar o campo **não** deve apagar os resultados já exibidos nem retornar à home. Limpar o texto e sair da tela de resultados são ações distintas — a segunda já existe no clique sobre o logo (`voltarParaHomeSmooth()`, `script.js:1403`).",
+  "status": "Novo"
+ },
+ {
+  "secao": "1. Busca — limpar o campo",
+  "id": "RF-007",
+  "texto": "O botão deve ser alcançável e acionável por teclado (`Tab` → `Enter`/`Espaço`), sendo um `<button type=\"button\">` real.",
+  "status": "Novo"
+ },
+ {
+  "secao": "1. Busca — limpar o campo",
+  "id": "RF-008",
+  "texto": "O botão não pode sobrepor, deslocar ou capturar cliques dos controles existentes `📷 Buscar por imagem` (`index.html:287`) e `Buscar` (`index.html:288`).",
+  "status": "Novo"
+ },
+ {
+  "secao": "1. Busca — limpar o campo",
+  "id": "RF-009",
+  "texto": "O comportamento deve ser idêntico em desktop e nos dois *breakpoints* já definidos no projeto (`style.css:1042` e `style.css:1077`), inclusive quando a `.search-box` passa a `flex-direction: column`.",
+  "status": "Novo"
+ },
+ {
+  "secao": "1. Busca — limpar o campo",
+  "id": "RF-010",
+  "texto": "A visibilidade do botão deve refletir o valor real do campo em **todos** os pontos que o alteram por código: `usarHistorico()` (`script.js:1334`), `voltarParaHomeSmooth()` (`script.js:1403`) e `limparBusca()` (`script.js:2050`).",
+  "status": "Alterar"
+ },
+ {
+  "secao": "1. Busca — limpar o campo",
+  "id": "RF-011",
+  "texto": "Clicar no botão não pode fechar o dropdown de histórico antes que o clique seja processado. O `onblur` do input agenda `esconderHistorico()` (`index.html:286`); o botão deve neutralizar essa corrida.",
+  "status": "Novo"
+ },
+ {
+  "secao": "1. Busca — limpar o campo",
+  "id": "RF-012",
+  "texto": "O botão deve possuir `aria-label` e `title`, seguindo o padrão já usado em `#btnMenu` (`index.html:247`), único elemento do projeto com `aria-label` hoje.",
+  "status": "Novo"
+ },
+ {
+  "secao": "2. Seleção de imagens",
+  "id": "RF-013",
+  "texto": "Cada card de resultado deve oferecer um controle de **seleção** (caixa `☑`) independente do controle de **favorito** (`♥`).",
+  "status": "Novo"
+ },
+ {
+  "secao": "2. Seleção de imagens",
+  "id": "RF-014",
+  "texto": "Selecionar e favoritar são ações semanticamente distintas e **não** podem se afetar: selecionar não favorita, desfavoritar não remove da seleção.",
+  "status": "Novo"
+ },
+ {
+  "secao": "2. Seleção de imagens",
+  "id": "RF-015",
+  "texto": "O controle de favorito existente (`.btn-fav-abs`, `script.js:1701`) deve permanecer com aparência, posição e comportamento inalterados.",
+  "status": "Existente"
+ },
+ {
+  "secao": "2. Seleção de imagens",
+  "id": "RF-016",
+  "texto": "Um card selecionado deve ter estado visual persistente (não só no *hover*), distinguível do card favoritado.",
+  "status": "Novo"
+ },
+ {
+  "secao": "2. Seleção de imagens",
+  "id": "RF-017",
+  "texto": "Enquanto houver ao menos um item selecionado, uma barra de ações deve exibir a contagem e oferecer, no mínimo: *Adicionar à coleção* e *Limpar seleção*.",
+  "status": "Novo"
+ },
+ {
+  "secao": "2. Seleção de imagens",
+  "id": "RF-018",
+  "texto": "A seleção é **efêmera e de sessão de navegação**: vive em memória no frontend, não é persistida no banco, e é descartada ao recarregar a página ou fazer logout.",
+  "status": "Novo"
+ },
+ {
+  "secao": "2. Seleção de imagens",
+  "id": "RF-019",
+  "texto": "A seleção deve sobreviver à troca de filtro (`filtroAtual`) e à re-renderização de `renderizarResultados()` (`script.js:1666`), que hoje reconstrói o grid inteiro via `innerHTML`.",
+  "status": "Novo"
+ },
+ {
+  "secao": "2. Seleção de imagens",
+  "id": "RF-020",
+  "texto": "Uma nova busca deve limpar a seleção, para não misturar itens de contextos diferentes sem que o usuário perceba.",
+  "status": "Novo"
+ },
+ {
+  "secao": "2. Seleção de imagens",
+  "id": "RF-021",
+  "texto": "A identidade de uma imagem, para qualquer fim (seleção, coleção, exportação), é a chave primária `files.id`. Nome de arquivo e caminho **não** são identificadores.",
+  "status": "Existente"
+ },
+ {
+  "secao": "3. Coleções",
+  "id": "RF-022",
+  "texto": "O usuário deve poder criar uma coleção informando um nome.",
+  "status": "Existente — `POST /api/collections` (`backend/app.py:2497`), `criarColecao()` (`script.js:2471`)"
+ },
+ {
+  "secao": "3. Coleções",
+  "id": "RF-023",
+  "texto": "O nome da coleção deve ser único por usuário; a tentativa de repetir deve retornar erro compreensível, não erro técnico.",
+  "status": "Existente — `UNIQUE (user_id, nome)` + tratamento de `UniqueViolation` → HTTP 409"
+ },
+ {
+  "secao": "3. Coleções",
+  "id": "RF-024",
+  "texto": "O nome da coleção deve ser rejeitado se vazio ou apenas espaços.",
+  "status": "Existente"
+ },
+ {
+  "secao": "3. Coleções",
+  "id": "RF-025",
+  "texto": "O usuário deve poder adicionar **uma** imagem aberta a uma coleção.",
+  "status": "Existente — `abrirSeletorColecao()` / `adicionarAColecao()` (`script.js:2573-2636`)"
+ },
+ {
+  "secao": "3. Coleções",
+  "id": "RF-026",
+  "texto": "O usuário deve poder adicionar **todas as imagens selecionadas** (RF-013) a uma coleção numa única ação.",
+  "status": "Novo"
+ },
+ {
+  "secao": "3. Coleções",
+  "id": "RF-027",
+  "texto": "A mesma imagem não pode constar duas vezes na mesma coleção. Re-adicionar é **idempotente**: não gera erro, não duplica.",
+  "status": "Existente — PK composta `(collection_id, file_id)` + `ON CONFLICT DO NOTHING` (`backend/app.py:2645`)"
+ },
+ {
+  "secao": "3. Coleções",
+  "id": "RF-028",
+  "texto": "Ao adicionar em lote, o sistema deve informar quantos itens foram efetivamente adicionados e quantos já estavam na coleção.",
+  "status": "Novo — o endpoint atual não distingue inserido de ignorado"
+ },
+ {
+  "secao": "3. Coleções",
+  "id": "RF-029",
+  "texto": "O usuário deve poder remover uma imagem da coleção. Remover da coleção **não** apaga o arquivo do disco nem o desfavorita.",
+  "status": "Existente — `DELETE /api/collections/<id>/files` (`backend/app.py:2609`), `removerDaColecao()` (`script.js:2555`)"
+ },
+ {
+  "secao": "3. Coleções",
+  "id": "RF-030",
+  "texto": "O usuário deve poder visualizar o conteúdo de uma coleção e a contagem de itens.",
+  "status": "Existente — `verColecao()` (`script.js:2502`)"
+ },
+ {
+  "secao": "3. Coleções",
+  "id": "RF-031",
+  "texto": "O usuário deve poder excluir uma coleção. Os arquivos não são apagados — só o agrupamento.",
+  "status": "Existente — `excluirColecao()` (`script.js:2491`); o `ON DELETE CASCADE` atinge apenas `collection_files`"
+ },
+ {
+  "secao": "3. Coleções",
+  "id": "RF-032",
+  "texto": "Toda operação de coleção deve validar que a coleção **e** o arquivo pertencem ao usuário autenticado.",
+  "status": "Existente — verificação dupla de posse em `backend/app.py:2621-2630`"
+ },
+ {
+  "secao": "4.2 Nomes",
+  "id": "RF-038",
+  "texto": "O nome da subpasta deve ser derivado do nome da coleção após **sanitização**: remoção dos caracteres proibidos pelo Windows (`< > : \" / \\ \\",
+  "status": "? *` e controles `0x00–0x1F`), corte de pontos e espaços finais, e substituição de nomes reservados (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`, `LPT1`–`LPT9`)."
+ },
+ {
+  "secao": "Selecionar tudo",
+  "id": "RF-065",
+  "texto": "A tela de resultados deve oferecer uma ação para selecionar de uma vez **todas as imagens elegíveis atualmente exibidas**.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Selecionar tudo",
+  "id": "RF-066",
+  "texto": "\"Tudo\" é o conjunto dos resultados da busca atual que passam pelo filtro ativo — **não** o acervo inteiro. O `/api/search` devolve a lista completa numa resposta só (sem paginação, sem *scroll* infinito, sem virtualização), então \"carregado\" e \"exibido\" coincidem.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Selecionar tudo",
+  "id": "RF-067",
+  "texto": "O mesmo controle deve desfazer a seleção em massa quando tudo já estiver selecionado, alternando o rótulo entre *Selecionar tudo* e *Desmarcar tudo*.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Selecionar tudo",
+  "id": "RF-068",
+  "texto": "Com seleção parcial, o controle deve exibir *Selecionar tudo* e, ao ser acionado, **completar** a seleção em vez de invertê-la.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Selecionar tudo",
+  "id": "RF-069",
+  "texto": "A interface deve exibir a contagem de resultados e, havendo seleção, quantos estão marcados.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Selecionar tudo",
+  "id": "RF-070",
+  "texto": "A seleção em massa e a individual compartilham o mesmo estado: desmarcar um card depois de \"selecionar tudo\" deve refletir no contador e no rótulo do botão, e remarcá-lo deve devolver o estado anterior.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Selecionar tudo",
+  "id": "RF-071",
+  "texto": "Sem resultados, a barra de ações deve ficar oculta — não há o que selecionar.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Selecionar tudo",
+  "id": "RF-072",
+  "texto": "A elegibilidade de cada item segue a regra de seleção já existente (RF-013). A seleção em massa **não** cria nem relaxa critério próprio.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Exportação imediata",
+  "id": "RF-073",
+  "texto": "Concluída a adição de imagens a uma coleção, a interface deve oferecer a exportação daquela coleção.",
+  "status": "~~Implementado~~ → substituído por RF-084"
+ },
+ {
+  "secao": "Exportação imediata",
+  "id": "RF-074",
+  "texto": "A oferta é **opcional**: recusar mantém o usuário onde estava.",
+  "status": "Preservado em RF-086"
+ },
+ {
+  "secao": "Exportação imediata",
+  "id": "RF-075",
+  "texto": "A exportação imediata deve reutilizar `exportarColecao()`. É proibido um segundo mecanismo de exportação.",
+  "status": "Vigente — vale para toda a feature"
+ },
+ {
+  "secao": "Exportação imediata",
+  "id": "RF-076",
+  "texto": "A exportação deve usar o estado **atual** da coleção.",
+  "status": "Vigente"
+ },
+ {
+  "secao": "Exportação imediata",
+  "id": "RF-077",
+  "texto": "A confirmação deve informar o total de itens. Falha ao obter o total não bloqueia a oferta.",
+  "status": "~~Implementado~~ → substituído"
+ },
+ {
+  "secao": "Exportação imediata",
+  "id": "RF-078",
+  "texto": "Recusar, cancelar ou falhar **não** pode desfazer a adição.",
+  "status": "Vigente — RF-092"
+ },
+ {
+  "secao": "Exportação imediata",
+  "id": "RF-079",
+  "texto": "Coleção vazia não recebe oferta de exportação.",
+  "status": "Vigente"
+ },
+ {
+  "secao": "Vínculo",
+  "id": "RF-080",
+  "texto": "Uma coleção pode ter, opcionalmente, uma pasta vinculada no computador do usuário, persistida em `collections.pasta_vinculada`.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Vínculo",
+  "id": "RF-081",
+  "texto": "O vínculo deve ser oferecido **uma única vez**, no momento da criação da coleção. O app não pode voltar a perguntar espontaneamente.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Vínculo",
+  "id": "RF-082",
+  "texto": "A oferta deve apresentar três escolhas: enviar sempre sem perguntar (`auto`), perguntar antes de cada envio (`perguntar`), ou não vincular (`manual`).",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Vínculo",
+  "id": "RF-083",
+  "texto": "A oferta deve incluir uma ilustração animada do fluxo coleção → pasta, para tornar o conceito compreensível sem leitura.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Vínculo",
+  "id": "RF-084",
+  "texto": "Recusar o vínculo, cancelar o seletor de pastas ou fechar o modal deixa a coleção em `manual` — o comportamento anterior à feature.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Vínculo",
+  "id": "RF-085",
+  "texto": "A pasta vinculada deve ser criada dentro da pasta-mãe escolhida, com o nome sanitizado da coleção, reutilizando a mesma lógica da exportação.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Vínculo",
+  "id": "RF-086",
+  "texto": "O usuário deve poder alterar o modo e a pasta depois, e desvincular. Desvincular devolve a coleção a `manual`.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Vínculo",
+  "id": "RF-087",
+  "texto": "A interface deve mostrar, no card da coleção, que ela tem pasta vinculada e em que modo.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Sincronia",
+  "id": "RF-088",
+  "texto": "Em `auto`, imagens adicionadas à coleção são copiadas para a pasta vinculada imediatamente, sem confirmação.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Sincronia",
+  "id": "RF-089",
+  "texto": "Em `perguntar`, cada adição pede confirmação antes de copiar. Recusar não desfaz a adição à coleção.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Sincronia",
+  "id": "RF-090",
+  "texto": "Em `manual`, nada é copiado automaticamente; a exportação continua disponível pelo botão.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Sincronia",
+  "id": "RF-091",
+  "texto": "A sincronia deve copiar **apenas os itens recém-adicionados**, não a coleção inteira. Adicionar 1 imagem a uma coleção de 300 copia 1 arquivo.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Sincronia",
+  "id": "RF-092",
+  "texto": "A sincronia escreve **dentro** da pasta vinculada. Arquivo já presente no destino é contado como existente e **pulado** — não duplicado com sufixo. A pasta é um espelho, não um acumulador de versões.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Sincronia",
+  "id": "RF-093",
+  "texto": "Falha na sincronia não pode desfazer a adição à coleção. As duas operações são independentes.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Sincronia",
+  "id": "RF-094",
+  "texto": "Se a pasta vinculada não existir mais, a sincronia deve falhar com mensagem que oriente a revincular — e **não** desvincular sozinha.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Sincronia",
+  "id": "RF-095",
+  "texto": "A sincronia deve validar a origem com a mesma regra anti-*path traversal* da exportação (RF-045).",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Pastas geradas",
+  "id": "RF-096",
+  "texto": "Toda pasta criada pelo app para uma coleção deve ser registrada em `collection_folders`, com o caminho absoluto.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Pastas geradas",
+  "id": "RF-097",
+  "texto": "Exportar uma coleção deve **vincular** a pasta criada, para que imagens adicionadas depois tenham destino. Uma coleção sem vínculo prévio assume `modo_sync: 'perguntar'`; uma já configurada mantém o modo escolhido.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Pastas geradas",
+  "id": "RF-098",
+  "texto": "A tela da coleção deve oferecer **\"Abrir pasta exportada\"**, que abre a pasta no Explorer. Havendo mais de uma, abre a que recebe novas imagens.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Pastas geradas",
+  "id": "RF-099",
+  "texto": "O botão de abrir só aparece quando existe pasta de fato no disco. Um botão que falha ao ser clicado é pior que nenhum botão.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Pastas geradas",
+  "id": "RF-100",
+  "texto": "`GET /api/open_folder` deve autorizar apenas caminhos registrados para o usuário — nunca um caminho arbitrário.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Excluir coleção e pastas",
+  "id": "RF-101",
+  "texto": "Ao excluir uma coleção que gerou pastas, o sistema deve perguntar o que fazer com elas **antes** de excluir.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Excluir coleção e pastas",
+  "id": "RF-102",
+  "texto": "O diálogo deve listar **todas** as pastas existentes, com nome, caminho completo e quantidade de arquivos, e marcar qual recebe novas imagens.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Excluir coleção e pastas",
+  "id": "RF-103",
+  "texto": "A escolha é **por pasta**: o usuário marca o que apagar. Apagar uma e manter outra deve ser possível.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Excluir coleção e pastas",
+  "id": "RF-104",
+  "texto": "Manter as pastas deve ser uma opção de primeira classe — excluir a coleção e preservar os arquivos no disco é uso legítimo.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Excluir coleção e pastas",
+  "id": "RF-105",
+  "texto": "A exclusão de pastas exige **duas etapas**: o primeiro acionamento apresenta o que será apagado; só o segundo executa.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Excluir coleção e pastas",
+  "id": "RF-106",
+  "texto": "O aviso da segunda etapa deve informar quantas pastas e quantos arquivos serão apagados, e que **não vão para a Lixeira**.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Excluir coleção e pastas",
+  "id": "RF-107",
+  "texto": "O backend deve recusar apagar caminho não registrado para aquela coleção e usuário, mesmo que exista no disco.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Excluir coleção e pastas",
+  "id": "RF-108",
+  "texto": "O backend deve exigir `confirmar: true` e uma lista explícita de caminhos. Não existe \"apagar todas\" implícito.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Excluir coleção e pastas",
+  "id": "RF-109",
+  "texto": "Apagar a pasta vinculada deve desvincular a coleção e devolvê-la a `manual`, para a próxima adição não tentar copiar para um caminho morto.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Excluir coleção e pastas",
+  "id": "RF-110",
+  "texto": "Cancelar o diálogo cancela também a exclusão da coleção.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Excluir coleção e pastas",
+  "id": "RF-111",
+  "texto": "Excluir pastas e excluir a coleção são operações independentes: uma pode acontecer sem a outra.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Múltiplas pastas por coleção",
+  "id": "RF-112",
+  "texto": "O nome da coleção deve ser **sempre** o prefixo da pasta gerada. É o que permite reconhecer a origem no Explorer e relacionar pasta e coleção.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Múltiplas pastas por coleção",
+  "id": "RF-113",
+  "texto": "Exportações seguintes devem numerar a partir de 2 preservando o prefixo — `Natureza`, `Natureza_2`, `Natureza_3`.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Múltiplas pastas por coleção",
+  "id": "RF-114",
+  "texto": "O usuário deve poder escolher o complemento do nome em vez da numeração: `Natureza_backup`, `Natureza_praia`. O prefixo permanece fixo e não é editável.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Múltiplas pastas por coleção",
+  "id": "RF-115",
+  "texto": "O complemento escolhido deve ser sanitizado pelas mesmas regras do nome da pasta, e numerado se já estiver em uso (`Natureza_backup_2`).",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Múltiplas pastas por coleção",
+  "id": "RF-116",
+  "texto": "Ao acionar \"Exportar\" numa coleção já exportada, o sistema deve **avisar** que ela já tem pasta e quantas, antes de criar outra.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Múltiplas pastas por coleção",
+  "id": "RF-117",
+  "texto": "Uma re-exportação **não** pode mudar sozinha qual pasta recebe as novas fotos. A troca é decisão explícita do usuário.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Múltiplas pastas por coleção",
+  "id": "RF-118",
+  "texto": "Após criar a nova pasta, o sistema deve perguntar para qual das pastas vão as próximas fotos, listando todas como opção.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Múltiplas pastas por coleção",
+  "id": "RF-119",
+  "texto": "\"Abrir pasta exportada\" deve listar **todas** as pastas e deixar o usuário escolher qual abrir. Com uma só, abre direto.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Múltiplas pastas por coleção",
+  "id": "RF-120",
+  "texto": "A lista deve indicar visualmente qual pasta está recebendo as fotos, e permitir trocar ali mesmo.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Múltiplas pastas por coleção",
+  "id": "RF-121",
+  "texto": "O usuário deve conseguir saber, a qualquer momento, para qual pasta as fotos da coleção estão indo.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Conjunto de pastas de destino",
+  "id": "RF-122",
+  "texto": "O destino das novas imagens é um **conjunto** de pastas, não um valor único. Persistido em `collection_folders.recebe`.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Conjunto de pastas de destino",
+  "id": "RF-123",
+  "texto": "O usuário deve poder marcar **várias** pastas para receber ao mesmo tempo, espelhando a coleção em mais de um lugar.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Conjunto de pastas de destino",
+  "id": "RF-124",
+  "texto": "O usuário deve poder deixar **nenhuma** pasta marcada. As pastas já criadas permanecem registradas e abríveis; apenas o envio automático para.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Conjunto de pastas de destino",
+  "id": "RF-125",
+  "texto": "A sincronia deve copiar cada arquivo uma vez **por pasta** do conjunto. Dois arquivos em duas pastas resultam em quatro cópias.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Conjunto de pastas de destino",
+  "id": "RF-126",
+  "texto": "Falha do arquivo (ausente, fora das pastas monitoradas) deve ser contada **uma vez**, não uma por destino — senão o resumo multiplicaria a mesma falha.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Conjunto de pastas de destino",
+  "id": "RF-127",
+  "texto": "Se uma pasta do conjunto sumir do disco, a cópia deve prosseguir nas restantes. Só falha quando **nenhuma** resta.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Conjunto de pastas de destino",
+  "id": "RF-128",
+  "texto": "A interface deve usar caixas de marcação, e informar quantas e quais pastas estão recebendo.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Conjunto de pastas de destino",
+  "id": "RF-129",
+  "texto": "Após uma re-exportação, o usuário deve poder escolher entre atalhos (só a nova, todas, nenhuma) ou marcar exatamente quais.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Conjunto de pastas de destino",
+  "id": "RF-130",
+  "texto": "Coleções que usavam destino único devem migrar sem intervenção: a pasta apontada por `pasta_vinculada` vira o primeiro elemento do conjunto.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Configurações da coleção",
+  "id": "RF-131",
+  "texto": "A tela da coleção deve oferecer **Configurações**, onde o modo de envio pode ser alterado a qualquer momento. Antes, ele só era escolhido na criação e ficava sem como mudar.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Configurações da coleção",
+  "id": "RF-132",
+  "texto": "A tela deve reapresentar a ilustração animada do fluxo coleção → pasta. Quem a abre meses depois precisa reentender o conceito, não só ver três opções soltas.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Configurações da coleção",
+  "id": "RF-133",
+  "texto": "O modo em vigor deve estar visualmente identificado entre as opções.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Configurações da coleção",
+  "id": "RF-134",
+  "texto": "A tela deve informar o destino atual e, quando não houver pasta ou nenhuma estiver marcada, dizer que o envio automático não tem para onde ir.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Configurações da coleção",
+  "id": "RF-135",
+  "texto": "A lista de pastas deve oferecer marcar/desmarcar **todas** de uma vez. Com uma pasta só, a ação não aparece — não significaria nada além do próprio item.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Espelho nos dois sentidos",
+  "id": "RF-136",
+  "texto": "Remover uma imagem da coleção deve remover a **cópia** das pastas que recebem, conforme o modo: `auto` apaga sem perguntar, `perguntar` confirma, `manual` não toca.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Espelho nos dois sentidos",
+  "id": "RF-137",
+  "texto": "A remoção só pode apagar a cópia. O arquivo **original** nas pastas monitoradas nunca é tocado.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Espelho nos dois sentidos",
+  "id": "RF-138",
+  "texto": "A remoção deve ser confinada às pastas registradas: o nome é reduzido a `basename` e sanitizado, de modo que `..\\..\u0007lgo` não escape.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Espelho nos dois sentidos",
+  "id": "RF-139",
+  "texto": "A remoção nunca pode apagar diretório. Nome que casar com subpasta é ignorado.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Espelho nos dois sentidos",
+  "id": "RF-140",
+  "texto": "Falha ao apagar da pasta **não** pode desfazer a remoção da coleção. As duas operações são independentes.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Espelho nos dois sentidos",
+  "id": "RF-141",
+  "texto": "As descrições dos modos devem explicar o comportamento nos **dois sentidos** — adição e remoção. Quem escolhe \"enviar sempre\" precisa saber que remover também apaga, antes de escolher.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Status da pasta",
+  "id": "RF-142",
+  "texto": "A tela da coleção deve oferecer **Status da pasta**, mostrando por pasta quais imagens já foram copiadas e quais faltam — em número e em nome.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Status da pasta",
+  "id": "RF-143",
+  "texto": "O status deve listar também os **extras**: arquivos na pasta que não estão mais na coleção. Revela cópia órfã.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Status da pasta",
+  "id": "RF-144",
+  "texto": "A comparação deve usar o nome **sanitizado**, o mesmo que a cópia recebe no destino. Comparar com o nome cru marcaria como faltando todo arquivo com caractere inválido.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Status da pasta",
+  "id": "RF-145",
+  "texto": "O status deve permitir copiar as faltantes direto dali — é o motivo de abrir a tela no modo manual.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Status da pasta",
+  "id": "RF-146",
+  "texto": "Cada pasta deve exibir barra de progresso acessível (`role=\"progressbar\"` com `aria-valuenow`/`min`/`max`).",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Estado do favorito",
+  "id": "RF-147",
+  "texto": "O botão de favorito deve indicar visualmente o estado **favoritado**. Antes ele renderizava conteúdo vazio: um círculo em branco, sem informação nenhuma.",
+  "status": "Corrigido"
+ },
+ {
+  "secao": "Estado do favorito",
+  "id": "RF-148",
+  "texto": "A distinção não pode ser só de cor: o glifo muda de `♡` (vazado) para `♥` (cheio).",
+  "status": "Corrigido"
+ },
+ {
+  "secao": "Estado do favorito",
+  "id": "RF-149",
+  "texto": "Os glifos devem ser caracteres de **texto**, não emoji. O emoji `🤍` traz cor própria e ignora `color`, o que impedia a regra `.is-fav` de pintá-lo.",
+  "status": "Corrigido"
+ },
+ {
+  "secao": "Estado do favorito",
+  "id": "RF-150",
+  "texto": "O botão deve ser `<button type=\"button\">` com `aria-pressed` e `aria-label` que acompanham o estado.",
+  "status": "Corrigido"
+ },
+ {
+  "secao": "Verificar alterações numa pasta",
+  "id": "RF-154",
+  "texto": "Cada pasta monitorada deve oferecer **Verificar**, que compara a pasta no disco com o que está indexado.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Verificar alterações numa pasta",
+  "id": "RF-155",
+  "texto": "A comparação deve usar **data de modificação e tamanho**. É o par mais barato que distingue arquivo editado de intocado sem precisar abrir o arquivo.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Verificar alterações numa pasta",
+  "id": "RF-156",
+  "texto": "Arquivo que está no disco e não no índice é **novo**: entra no índice e vai para a fila de análise.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Verificar alterações numa pasta",
+  "id": "RF-157",
+  "texto": "Arquivo cuja assinatura mudou é **alterado**: perde a descrição antiga e é reanalisado. A descrição anterior descrevia um conteúdo que não existe mais.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Verificar alterações numa pasta",
+  "id": "RF-158",
+  "texto": "Arquivo que sumiu do disco é **marcado**, nunca apagado. O motivo mais comum de um arquivo sumir é um disco externo desconectado; apagar o registro jogaria fora a descrição da IA, os embeddings e a participação do arquivo em coleções.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Verificar alterações numa pasta",
+  "id": "RF-159",
+  "texto": "Arquivo marcado como ausente que reaparece deve ser **desmarcado** sozinho na verificação seguinte.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Verificar alterações numa pasta",
+  "id": "RF-160",
+  "texto": "Arquivo já marcado como ausente não pode ser recontado a cada verificação — senão o número nunca zera.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Verificar alterações numa pasta",
+  "id": "RF-161",
+  "texto": "A comparação de caminhos deve ignorar caixa. No Windows `C:\\Fotos\\A.JPG` e `C:\\fotos\\a.jpg` são o mesmo arquivo; comparar cru o marcaria como ausente **e** novo ao mesmo tempo.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Verificar alterações numa pasta",
+  "id": "RF-162",
+  "texto": "Arquivo indexado antes das colunas de assinatura existirem tem assinatura nula. Nulo significa \"nunca soube como era\", não \"mudou\": ele ganha a assinatura em silêncio e **não** é reanalisado. Tratar como alteração mandaria a biblioteca inteira para a fila da IA na primeira verificação depois da atualização.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Verificar alterações numa pasta",
+  "id": "RF-163",
+  "texto": "A diferença de data deve tolerar **2 segundos**. FAT32 e pendrives guardam a hora com essa resolução, e copiar a mesma foto para lá e de volta desloca a data sem que um byte mude.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Verificar alterações numa pasta",
+  "id": "RF-164",
+  "texto": "Se a pasta inteira não puder ser aberta, a verificação deve **avisar e não marcar nada**. Marcar todos os arquivos tiraria a biblioteca inteira da busca por causa de um cabo solto.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Verificar alterações numa pasta",
+  "id": "RF-165",
+  "texto": "O resultado deve ser exibido em contagem e nomes: novos, alterados, ausentes e reaparecidos.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Verificar alterações numa pasta",
+  "id": "RF-166",
+  "texto": "A verificação deve responder de forma síncrona. Quem clicou está olhando para a tela esperando um número; só a análise de IA corre em segundo plano.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Verificar alterações numa pasta",
+  "id": "RF-167",
+  "texto": "A varredura da indexação e a da verificação devem enxergar **o mesmo conjunto de arquivos** (mesmas extensões, mesma lista de pastas ignoradas). Divergir faria a verificação acusar como novo algo que a indexação ignora de propósito, e o contador nunca zeraria.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Verificar alterações numa pasta",
+  "id": "RF-168",
+  "texto": "A verificação não pode acontecer por GET. Um link ou um prefetch do navegador dispararia reindexação sozinho.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Resumo da indexação",
+  "id": "RF-209",
+  "texto": "Ao concluir, deve haver um resumo **por pasta**: indexados, ignorados e com erro.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Resumo da indexação",
+  "id": "RF-210",
+  "texto": "Ignorado e erro são contados **separadamente**. Juntos viram \"800 problemas\" e mandam a pessoa procurar defeito onde não há: um `.zip` no meio das fotos não é falha do programa.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Resumo da indexação",
+  "id": "RF-211",
+  "texto": "Os erros são expansíveis, com **nome do arquivo e motivo**.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Resumo da indexação",
+  "id": "RF-212",
+  "texto": "A lista de nomes é limitada a 50 por pasta; a contagem continua exata. A lista existe para investigar, não para inventariar.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Resumo da indexação",
+  "id": "RF-213",
+  "texto": "O resumo é **persistido** e reabre pelas Configurações. Quem estava com a janela fechada quando a indexação acabou perdia a informação inteira — justamente quando ela faz mais falta.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Resumo da indexação",
+  "id": "RF-214",
+  "texto": "O aviso de conclusão leva ao resumo com um clique.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Resumo da indexação",
+  "id": "RF-215",
+  "texto": "Duas indexações seguidas não somam: começar uma nova zera o acumulado.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Resumo da indexação",
+  "id": "RF-216",
+  "texto": "Indexação que não olhou pasta nenhuma não gera resumo.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Resumo da indexação",
+  "id": "RF-217",
+  "texto": "Falha ao gravar o resumo não pode derrubar o processo de indexação.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Resumo da indexação",
+  "id": "RF-218",
+  "texto": "\"Nunca indexou\" e \"indexou e não achou nada\" são estados distintos na tela.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Quanto falta para a indexação terminar",
+  "id": "RF-200",
+  "texto": "A barra de indexação deve mostrar **tempo restante** ao lado da contagem.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Quanto falta para a indexação terminar",
+  "id": "RF-201",
+  "texto": "O tempo deve vir do ritmo **medido** durante a própria indexação, não de uma taxa fixa. Um SSD com JPEG e um HD externo com PDF de 300 páginas não têm o mesmo ritmo.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Quanto falta para a indexação terminar",
+  "id": "RF-202",
+  "texto": "A medição usa a **mediana** dos últimos 30 arquivos. Média faria um único arquivo enorme saltar a estimativa de \"2 min\" para \"40 min\".",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Quanto falta para a indexação terminar",
+  "id": "RF-203",
+  "texto": "Com menos de 5 medições vale o padrão, o mesmo usado antes de indexar — as duas telas não podem se contradizer.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Quanto falta para a indexação terminar",
+  "id": "RF-204",
+  "texto": "Só conta o arquivo **realmente processado**. O que voltou para a fila por estar fora da janela de horário entraria como \"arquivo instantâneo\" e prometeria um fim que não vem.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Quanto falta para a indexação terminar",
+  "id": "RF-205",
+  "texto": "Abaixo de 1 minuto, o texto é \"quase terminando\" — não um número.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Quanto falta para a indexação terminar",
+  "id": "RF-206",
+  "texto": "O número é arredondado de 5 em 5 acima de 10 minutos. Numa fila de 1800 arquivos o texto muda ~14 vezes, não 1800.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Quanto falta para a indexação terminar",
+  "id": "RF-207",
+  "texto": "Com a fila drenando e o ritmo constante, o texto **nunca volta atrás**. Estimativa que sobe sozinha destrói a confiança na barra.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Quanto falta para a indexação terminar",
+  "id": "RF-208",
+  "texto": "Um único arquivo lento não pode deslocar a estimativa; uma mudança real e sustentada de ritmo, sim.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Contraste das cores",
+  "id": "RF-320",
+  "texto": "O contraste é calculado **no momento da escolha**, contra o fundo em que a cor será lida de verdade.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Contraste das cores",
+  "id": "RF-321",
+  "texto": "Abaixo de 4,5:1 a interface avisa, com a razão medida.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Contraste das cores",
+  "id": "RF-322",
+  "texto": "O aviso oferece a cor **mais próxima** que passa — quem escolheu aquele tom queria aquele tom; só o brilho é ajustado.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Contraste das cores",
+  "id": "RF-323",
+  "texto": "A busca pela cor tenta clarear **e** escurecer, ficando com a menor mudança. Escolher o sentido só pela luminância do fundo falha quando a cor já está no extremo.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Contraste das cores",
+  "id": "RF-324",
+  "texto": "Quando nenhum tom da cor resolve, a interface diz que o problema é o fundo, em vez de sugerir algo que não serve.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Contraste das cores",
+  "id": "RF-325",
+  "texto": "O aviso é anunciado em `polite` — interromper a cada tom testado seria insuportável.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Contraste das cores",
+  "id": "RF-326",
+  "texto": "O tema padrão foi auditado e **corrigido**. Reprovavam: branco sobre o destaque (3,96:1), branco sobre o destaque 2 (2,46:1) e o destaque como texto sobre a superfície (4,38:1).",
+  "status": "Corrigido"
+ },
+ {
+  "secao": "Contraste das cores",
+  "id": "RF-327",
+  "texto": "O destaque tem dois papéis (texto e fundo de botão) que pedem contrastes opostos. Variantes \"-forte\" atendem as superfícies com texto branco; o tom original fica onde é lido como texto.",
+  "status": "Corrigido"
+ },
+ {
+  "secao": "O que muda sozinho na tela precisa ser anunciado",
+  "id": "RF-315",
+  "texto": "O progresso da indexação é anunciado em `polite`.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "O que muda sozinho na tela precisa ser anunciado",
+  "id": "RF-316",
+  "texto": "A contagem de resultados e a de seleção são anunciadas em `polite`.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "O que muda sozinho na tela precisa ser anunciado",
+  "id": "RF-317",
+  "texto": "Erros são anunciados em `assertive`; o resto em `polite`. Anunciar \"salvo com sucesso\" por cima do que a pessoa está lendo é tão ruim quanto deixar um erro passar em silêncio.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "O que muda sozinho na tela precisa ser anunciado",
+  "id": "RF-318",
+  "texto": "O aviso com **desfazer** é anunciado. Sem isso, quem não vê a tela descobre a ação depois que ela já sumiu.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "O que muda sozinho na tela precisa ser anunciado",
+  "id": "RF-319",
+  "texto": "Os ícones dos avisos ficam `aria-hidden` — ler \"✓\" antes da frase só atrapalha.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Acessibilidade dos modais",
+  "id": "RF-307",
+  "texto": "Todo modal tem `role=\"dialog\"`, `aria-modal=\"true\"` e `aria-labelledby` apontando para o próprio título.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Acessibilidade dos modais",
+  "id": "RF-308",
+  "texto": "O foco entra no modal ao abrir, no primeiro campo — **nunca no X**, que anunciaria a saída antes do conteúdo.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Acessibilidade dos modais",
+  "id": "RF-309",
+  "texto": "Quando o X é o único foco possível, o foco vai para o diálogo, que faz o leitor ler o título.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Acessibilidade dos modais",
+  "id": "RF-310",
+  "texto": "O Tab fica **preso** dentro do modal, nos dois sentidos.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Acessibilidade dos modais",
+  "id": "RF-311",
+  "texto": "`Esc` fecha o modal mais acima, usando a rotina de fechar dele — algumas cancelam promessas, e simplesmente esconder passaria por cima disso.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Acessibilidade dos modais",
+  "id": "RF-312",
+  "texto": "O foco **volta** ao elemento que abriu o modal.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Acessibilidade dos modais",
+  "id": "RF-313",
+  "texto": "O X, que é `<span>` em vários modais, responde a Enter e Espaço e tem `role=\"button\"`.",
+  "status": "Corrigido"
+ },
+ {
+  "secao": "Acessibilidade dos modais",
+  "id": "RF-314",
+  "texto": "A marcação é aplicada por observação do DOM, não modal a modal. A lista fixa anterior do `Esc` cobria 14 dos 23 — nove ficaram sem tecla de fechar sem ninguém perceber.",
+  "status": "Corrigido"
+ },
+ {
+  "secao": "Histórico das exportações e ação corretiva",
+  "id": "RF-297",
+  "texto": "Cada exportação é registrada: o que foi, quando, para onde e o que falhou.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Histórico das exportações e ação corretiva",
+  "id": "RF-298",
+  "texto": "O nome da coleção fica **gravado no registro**, não só o id: a coleção pode ser excluída depois e o histórico precisa continuar dizendo o que foi exportado.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Histórico das exportações e ação corretiva",
+  "id": "RF-299",
+  "texto": "O histórico informa se a pasta **ainda existe**. Um botão \"abrir pasta\" que não abre nada é pior que nenhum botão.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Histórico das exportações e ação corretiva",
+  "id": "RF-300",
+  "texto": "Abrir a pasta reusa a validação de caminho já existente.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Histórico das exportações e ação corretiva",
+  "id": "RF-301",
+  "texto": "Falha ao registrar não pode derrubar o worker — aconteceria **depois** de copiar tudo, com o trabalho feito e a barra parada para sempre.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Histórico das exportações e ação corretiva",
+  "id": "RF-302",
+  "texto": "\"Tentar de novo\" repete **só os que falharam**, na mesma pasta.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Histórico das exportações e ação corretiva",
+  "id": "RF-303",
+  "texto": "Arquivo que sumiu do disco fica **fora** da repetição: tentar de novo daria a mesma falha.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Histórico das exportações e ação corretiva",
+  "id": "RF-304",
+  "texto": "\"Tirar da coleção os que sumiram\" remove os arquivos que não estão mais no disco.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Histórico das exportações e ação corretiva",
+  "id": "RF-305",
+  "texto": "A existência é conferida **na hora**, e não pelo que a exportação registrou. O disco externo pode ter sido reconectado, e remover um arquivo que voltou seria destruir trabalho.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Histórico das exportações e ação corretiva",
+  "id": "RF-306",
+  "texto": "A remoção passa pela **lixeira**, como qualquer outra.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Exportação seletiva",
+  "id": "RF-284",
+  "texto": "A exportação pode levar **só imagens, só documentos ou tudo**.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Exportação seletiva",
+  "id": "RF-285",
+  "texto": "Os arquivos podem ser **renomeados em lote** com um padrão configurável.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Exportação seletiva",
+  "id": "RF-286",
+  "texto": "A numeração usa zeros à esquerda. Sem eles o Explorer ordena 1, 10, 11, 2 — e a numeração faz o contrário do que existia para fazer.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Exportação seletiva",
+  "id": "RF-287",
+  "texto": "A **extensão nunca vem do padrão**. Trocá-la não converte o arquivo, só faz o sistema abrir com o programa errado.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Exportação seletiva",
+  "id": "RF-288",
+  "texto": "Padrão que não sobrevive à sanitização cai no nome original, em vez de deixar o arquivo sem nome.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Exportação seletiva",
+  "id": "RF-289",
+  "texto": "As imagens podem ser **reduzidas** na saída, com a altura acompanhando.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Exportação seletiva",
+  "id": "RF-290",
+  "texto": "Imagem menor que o limite é copiada intacta — reprocessar recomprime e piora a qualidade sem economizar nada.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Exportação seletiva",
+  "id": "RF-291",
+  "texto": "Imagem que o leitor não abre é copiada como está. Sem esse recurso ela sairia da exportação em silêncio.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Exportação seletiva",
+  "id": "RF-292",
+  "texto": "A saída pode ser organizada em **subpastas por mês**. Por dia produziria centenas de pastas com uma foto dentro.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Exportação seletiva",
+  "id": "RF-293",
+  "texto": "Arquivo sem data conhecida vai para `sem-data`, não solto na raiz.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Exportação seletiva",
+  "id": "RF-294",
+  "texto": "Opção inválida é recusada **antes** de criar a pasta — senão cada tentativa errada deixaria uma pasta vazia no destino.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Exportação seletiva",
+  "id": "RF-295",
+  "texto": "Nenhum arquivo do tipo pedido produz mensagem própria, e não \"coleção vazia\".",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Exportação seletiva",
+  "id": "RF-296",
+  "texto": "Redimensionar sem leitor de imagem no computador avisa **antes**, em vez de exportar em tamanho original em silêncio.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "A seleção sobrevive ao recarregamento",
+  "id": "RF-278",
+  "texto": "A seleção é espelhada no armazenamento **da aba** e restaurada ao recarregar.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "A seleção sobrevive ao recarregamento",
+  "id": "RF-279",
+  "texto": "Fechar a aba **limpa** a seleção. Ela continua sendo passo de trabalho, não estado guardado — daí `sessionStorage` e não `localStorage`.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "A seleção sobrevive ao recarregamento",
+  "id": "RF-280",
+  "texto": "Ao restaurar, ids que não existem mais são descartados. Sem isso a barra diria \"12 selecionadas\" e a coleção receberia 9.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "A seleção sobrevive ao recarregamento",
+  "id": "RF-281",
+  "texto": "O usuário é avisado de quantas saíram, para não estranhar o número menor.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "A seleção sobrevive ao recarregamento",
+  "id": "RF-282",
+  "texto": "A checagem de existência só devolve arquivos do próprio dono — senão viraria um jeito de descobrir ids da conta alheia.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "A seleção sobrevive ao recarregamento",
+  "id": "RF-283",
+  "texto": "Falha ao gravar (aba anônima, armazenamento cheio) não pode quebrar a seleção; ela só deixa de persistir.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Ordem e capa das coleções",
+  "id": "RF-268",
+  "texto": "As coleções podem ser ordenadas por recentes, antigas, nome e quantidade de itens.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Ordem e capa das coleções",
+  "id": "RF-269",
+  "texto": "Só nomes de uma **lista fechada** viram SQL. `ORDER BY` não aceita parâmetro, então o valor vira texto na consulta — concatenar o que o cliente mandou seria injeção pela porta da frente.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Ordem e capa das coleções",
+  "id": "RF-270",
+  "texto": "Ordem desconhecida cai no padrão, sem erro.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Ordem e capa das coleções",
+  "id": "RF-271",
+  "texto": "Ordenar por quantidade desempata pelo nome. Sem desempate, coleções do mesmo tamanho trocam de lugar entre recarregamentos e a lista parece instável.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Ordem e capa das coleções",
+  "id": "RF-272",
+  "texto": "A ordem escolhida sobrevive ao recarregamento.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Ordem e capa das coleções",
+  "id": "RF-273",
+  "texto": "A capa pode ser **escolhida a dedo**; o mosaico continua sendo o padrão.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Ordem e capa das coleções",
+  "id": "RF-274",
+  "texto": "A imagem escolhida precisa estar **na coleção**. Sem isso, a capa deixaria de representá-la.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Ordem e capa das coleções",
+  "id": "RF-275",
+  "texto": "Se a imagem escolhida sair da biblioteca, a coleção volta ao mosaico sozinha — a coluna não tem chave estrangeira justamente para a exclusão não falhar nem a capa virar referência quebrada.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Ordem e capa das coleções",
+  "id": "RF-276",
+  "texto": "Alterar outro campo da coleção não apaga a capa escolhida.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Ordem e capa das coleções",
+  "id": "RF-277",
+  "texto": "Hierarquia de coleções (pastas aninhadas) segue **fora de escopo**, como o backlog define.",
+  "status": "Não feito"
+ },
+ {
+  "secao": "Buscar entre os favoritos",
+  "id": "RF-265",
+  "texto": "A barra de filtros deve ter \"Favoritos\", que restringe a busca ao que está favoritado.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Buscar entre os favoritos",
+  "id": "RF-266",
+  "texto": "O filtro compõe com os demais e com o escopo — não substitui nenhum.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Buscar entre os favoritos",
+  "id": "RF-267",
+  "texto": "Botões que não são de tipo (\"Filtros\", \"Favoritos\") não podem zerar o filtro de tipo. Sem essa distinção, abrir os filtros avançados escondia todas as imagens do resultado, em silêncio.",
+  "status": "Corrigido"
+ },
+ {
+  "secao": "Favoritos como origem de coleção",
+  "id": "RF-250",
+  "texto": "Cada favorito deve ter caixa de seleção, alimentando a mesma seleção do resto do app.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Favoritos como origem de coleção",
+  "id": "RF-251",
+  "texto": "Deve haver \"selecionar tudo\" na aba de favoritos.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Favoritos como origem de coleção",
+  "id": "RF-252",
+  "texto": "Os selecionados podem ir para uma coleção **existente**.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Favoritos como origem de coleção",
+  "id": "RF-253",
+  "texto": "Os selecionados podem virar uma coleção **nova**, criada na hora.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Favoritos como origem de coleção",
+  "id": "RF-254",
+  "texto": "Depois de enviar, o usuário é levado até a coleção. Ver o resultado é a confirmação de que deu certo.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Favoritos como origem de coleção",
+  "id": "RF-255",
+  "texto": "Com nenhum favorito selecionado, \"enviar\" fica desligado — diz isso antes do clique, em vez de um aviso depois.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Favoritos como origem de coleção",
+  "id": "RF-256",
+  "texto": "Sem favorito nenhum, a barra de ações não aparece.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Favoritos como origem de coleção",
+  "id": "RF-257",
+  "texto": "A resposta deve distinguir o que **entrou** do que **já estava** na coleção.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Favoritos como origem de coleção",
+  "id": "RF-258",
+  "texto": "Fechar o seletor de coleção (X, fundo) **cancela** o envio e devolve o botão \"criar nova\" ao comportamento normal.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Selecionar na home, sem passar pela busca",
+  "id": "RF-244",
+  "texto": "Os cards da home devem ter a **mesma caixa de seleção** dos resultados de busca, alimentando a mesma seleção.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Selecionar na home, sem passar pela busca",
+  "id": "RF-245",
+  "texto": "Cada categoria deve ter \"selecionar tudo\", que marca as imagens daquele grupo de uma vez.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Selecionar na home, sem passar pela busca",
+  "id": "RF-246",
+  "texto": "O rótulo do botão diz o que o clique **faz** (\"Selecionar tudo\" / \"Desmarcar\"), não o estado atual.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Selecionar na home, sem passar pela busca",
+  "id": "RF-247",
+  "texto": "A mesma imagem pode estar em duas categorias (um desenho de cachorro entra em Animais e Desenhos). Marcar num lugar marca no outro — senão a mesma foto apareceria marcada e desmarcada ao mesmo tempo.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Selecionar na home, sem passar pela busca",
+  "id": "RF-248",
+  "texto": "A barra de seleção e o \"adicionar à coleção\" existentes atendem a home sem duplicação.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Selecionar na home, sem passar pela busca",
+  "id": "RF-249",
+  "texto": "Trocar o filtro de pastas preserva a seleção do que continua na tela.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Selecionar na home, sem passar pela busca",
+  "id": "RF-259",
+  "texto": "Os controles sobre o card da home são menores que os do card de busca — o card da home é bem menor, e o mesmo tamanho cobre um pedaço grande da miniatura.",
+  "status": "Corrigido"
+ },
+ {
+  "secao": "Selecionar na home, sem passar pela busca",
+  "id": "RF-260",
+  "texto": "O card da home deve ter **botão de favoritar**. Quem navega por categoria está olhando muita coisa de uma vez; abrir cada imagem para marcar a estrela desfaz a vantagem de estar ali.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Selecionar na home, sem passar pela busca",
+  "id": "RF-261",
+  "texto": "Favoritar na home atualiza **todos** os cards daquela imagem: a mesma foto pode estar em duas categorias, e cada uma desenha o seu botão.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Selecionar na home, sem passar pela busca",
+  "id": "RF-262",
+  "texto": "O estado do favorito é gravado nos itens da galeria, senão a estrela volta ao estado antigo quando a galeria é redesenhada.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Selecionar na home, sem passar pela busca",
+  "id": "RF-263",
+  "texto": "O seletor de pastas **fecha ao escolher**. Um menu aberto por cima do resultado esconde justamente a mudança que a pessoa pediu para ver.",
+  "status": "Corrigido"
+ },
+ {
+  "secao": "Selecionar na home, sem passar pela busca",
+  "id": "RF-264",
+  "texto": "Clicar fora do seletor também fecha — senão o único jeito de sair sem escolher seria clicar no botão, que fica atrás do menu.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Quais pastas a home mostra",
+  "id": "RF-234",
+  "texto": "A home deve ter, no canto, um seletor de **quais pastas** aparecem nas categorias.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Quais pastas a home mostra",
+  "id": "RF-235",
+  "texto": "São **três** estados: nunca escolheu (todas), escolheu zero (nenhuma) e escolheu algumas. Quem nunca escolheu vê tudo — o filtro é opcional por definição.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Quais pastas a home mostra",
+  "id": "RF-236",
+  "texto": "Desmarcar **todas** as pastas mostra **nenhuma**, e a home fica limpa. A primeira versão voltava para \"todas\" aqui, achando que esconder a home seria pior — mas quem desmarca tudo quer justamente isso, para usar só a busca.",
+  "status": "Corrigido"
+ },
+ {
+  "secao": "Quais pastas a home mostra",
+  "id": "RF-236a",
+  "texto": "O menu oferece \"Não mostrar nenhuma\" como atalho: desmarcar quatro pastas uma a uma para limpar a home é trabalho que o botão poupa.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Quais pastas a home mostra",
+  "id": "RF-236b",
+  "texto": "Com nenhuma pasta escolhida, o servidor não consulta arquivo nenhum.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Quais pastas a home mostra",
+  "id": "RF-236c",
+  "texto": "A resposta diz qual dos três estados está valendo. A lista de pastas ativas vem vazia em dois deles, e o front precisa distingui-los.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Quais pastas a home mostra",
+  "id": "RF-237",
+  "texto": "Com uma pasta só, o seletor não aparece — viraria decoração.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Quais pastas a home mostra",
+  "id": "RF-238",
+  "texto": "O seletor mostra o **nome e a contagem de imagens** de cada pasta, e o caminho completo ao passar o mouse.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Quais pastas a home mostra",
+  "id": "RF-239",
+  "texto": "Pasta sem imagem continua na lista. Sumindo, quem importou e ainda não analisou acharia que o app perdeu a pasta.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Quais pastas a home mostra",
+  "id": "RF-240",
+  "texto": "Se o filtro não deixar nada, a tela **diz isso** em vez de ficar vazia parecendo que a indexação sumiu. As duas razões para estar vazia têm textos diferentes: numa delas a pessoa escolheu isso, na outra não.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Quais pastas a home mostra",
+  "id": "RF-241",
+  "texto": "A escolha é guardada na **conta**, não no navegador. Quem separou trabalho de pessoal espera reencontrar amanhã.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Quais pastas a home mostra",
+  "id": "RF-242",
+  "texto": "Id inválido na URL é descartado em silêncio — não pode virar erro na primeira tela que o usuário vê.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Quais pastas a home mostra",
+  "id": "RF-243",
+  "texto": "Pedir a pasta de outra pessoa devolve vazio: o filtro é um `AND` sobre consulta que já exige o dono.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Refinar a busca sem recomeçar",
+  "id": "RF-219",
+  "texto": "A consulta aceita `-termo` para **excluir**.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Refinar a busca sem recomeçar",
+  "id": "RF-220",
+  "texto": "A exclusão vale para o texto (descrição **e** nome do arquivo) e para a imagem. A maioria das fotos com gente não diz \"pessoas\" em lugar nenhum — filtrar só por texto deixaria passar justamente as que motivaram o pedido.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Refinar a busca sem recomeçar",
+  "id": "RF-221",
+  "texto": "O limiar da exclusão visual é mais exigente que o da busca. Descartar por engano é pior que deixar passar: o que sumiu sem motivo, a pessoa nunca fica sabendo que existia.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Refinar a busca sem recomeçar",
+  "id": "RF-222",
+  "texto": "O hífen só conta colado a uma palavra e precedido de espaço. `bem-te-vi` e `2024-2025` continuam texto comum.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Refinar a busca sem recomeçar",
+  "id": "RF-223",
+  "texto": "Um traço solto é descartado — é digitação, não intenção.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Refinar a busca sem recomeçar",
+  "id": "RF-224",
+  "texto": "Só exclusão, sem assunto, **explica a sintaxe** em vez de devolver vazio.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Refinar a busca sem recomeçar",
+  "id": "RF-225",
+  "texto": "\"Buscar dentro destes resultados\" limita a próxima busca ao conjunto atual.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Refinar a busca sem recomeçar",
+  "id": "RF-226",
+  "texto": "O escopo entra como filtro **do banco**, não como corte no fim. Cortar depois faria os candidatos serem escolhidos entre a biblioteca inteira e só então reduzidos — o refino traria menos do que existe dentro dele.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Refinar a busca sem recomeçar",
+  "id": "RF-227",
+  "texto": "A tela mostra uma **trilha** dos refinamentos, cada um removível sozinho.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Refinar a busca sem recomeçar",
+  "id": "RF-228",
+  "texto": "A trilha é desenhada a partir do que o **servidor entendeu**, não do que foi digitado. Divergindo, remover um chip não mudaria a busca.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Refinar a busca sem recomeçar",
+  "id": "RF-229",
+  "texto": "A trilha aparece também quando a busca não acha nada — é exatamente quando o caminho de volta é remover um filtro.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Refinar a busca sem recomeçar",
+  "id": "RF-230",
+  "texto": "Remover a exclusão tira o `-termo` da caixa de busca também, senão a próxima busca o traz de volta.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Refinar a busca sem recomeçar",
+  "id": "RF-231",
+  "texto": "Limpar a busca zera o refino. Sem isso o escopo sobreviveria e a busca seguinte viria misteriosamente reduzida.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Refinar a busca sem recomeçar",
+  "id": "RF-232",
+  "texto": "A consulta não tem X: sem ela não sobra busca. Quem quer trocá-la usa a caixa.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Refinar a busca sem recomeçar",
+  "id": "RF-233",
+  "texto": "Os filtros avançados **compõem** com a consulta (`AND` no mesmo `SELECT`), não a substituem. Já era assim; há teste garantindo que continue.",
+  "status": "Verificado"
+ },
+ {
+  "secao": "Por que o resultado apareceu",
+  "id": "RF-193",
+  "texto": "Cada resultado deve dizer **por que apareceu**, em linguagem direta, sem citar modelo nem mostrar número.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Por que o resultado apareceu",
+  "id": "RF-194",
+  "texto": "A origem é derivada do sinal que **mais contribuiu** para a posição do resultado, comparando contribuições já multiplicadas pelos pesos — não os sinais crus.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Por que o resultado apareceu",
+  "id": "RF-195",
+  "texto": "São quatro origens: aparência, o que a imagem mostra, texto do documento e nome do arquivo. Numa imagem o texto disponível é a descrição gerada, não conteúdo do arquivo — chamá-la de \"texto do documento\" seria mentira sobre a origem do dado.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Por que o resultado apareceu",
+  "id": "RF-196",
+  "texto": "Documento nunca pode receber a origem \"aparência\": não há sinal visual nele.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Por que o resultado apareceu",
+  "id": "RF-197",
+  "texto": "O nome do arquivo não pode vencer um sinal forte. Anunciá-lo como razão quando a imagem foi de fato reconhecida pela aparência ensinaria o usuário a caçar nome de arquivo em vez de descrever.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Por que o resultado apareceu",
+  "id": "RF-198",
+  "texto": "O peso do nome deve ser o **mesmo valor** no cálculo do score e na escolha da origem. Separá-los faria a interface explicar uma coisa e o resultado ser ordenado por outra.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Por que o resultado apareceu",
+  "id": "RF-199",
+  "texto": "Buscar um termo visual e um termo que só existe no corpo de um documento deve produzir badges **diferentes**.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Desfazer exclusões",
+  "id": "RF-180",
+  "texto": "Excluir uma coleção deve guardar um **retrato** do que foi apagado, e oferecer desfazer.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Desfazer exclusões",
+  "id": "RF-181",
+  "texto": "Remover imagens de uma coleção deve oferecer o mesmo desfazer.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Desfazer exclusões",
+  "id": "RF-182",
+  "texto": "O botão \"desfazer\" fica **8 segundos** na tela: tempo de ler, entender e alcançar o botão, sem atravancar.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Desfazer exclusões",
+  "id": "RF-183",
+  "texto": "Quem perder os 8 segundos deve encontrar o item na **lixeira**, dentro das Configurações.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Desfazer exclusões",
+  "id": "RF-184",
+  "texto": "O que está na lixeira é descartado após **30 dias**. O expurgo roda a cada uso da lixeira.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Desfazer exclusões",
+  "id": "RF-185",
+  "texto": "A coleção restaurada deve voltar com o **mesmo identificador**. Voltar com outro faria dela uma coleção diferente, e o que apontasse para a antiga passaria a apontar para o nada.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Desfazer exclusões",
+  "id": "RF-186",
+  "texto": "A restauração deve devolver também as **pastas geradas** e o modo de envio.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Desfazer exclusões",
+  "id": "RF-187",
+  "texto": "Arquivo que o usuário apagou da biblioteca nesse meio-tempo é **pulado**. Falhar a restauração inteira por causa de uma foto seria pior que devolver a coleção sem ela.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Desfazer exclusões",
+  "id": "RF-188",
+  "texto": "Se o nome foi reaproveitado por outra coleção, a restauração deve **recusar com explicação** — não com erro de banco.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Desfazer exclusões",
+  "id": "RF-189",
+  "texto": "O item só sai da lixeira **depois** que a restauração deu certo. Sair antes deixaria o usuário sem a coleção e sem o que a traria de volta.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Desfazer exclusões",
+  "id": "RF-190",
+  "texto": "Descartar da lixeira é definitivo e deve pedir confirmação. É a única exclusão sem desfazer do app, e é assim de propósito: a lixeira **é** o desfazer.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Desfazer exclusões",
+  "id": "RF-191",
+  "texto": "O botão \"desfazer\" se desabilita ao ser clicado. Dois cliques mandariam dois pedidos, e o segundo acharia o item já restaurado e devolveria erro — um erro na tela por ter clicado com vontade.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Desfazer exclusões",
+  "id": "RF-192",
+  "texto": "As pastas apagadas do disco **não** voltam com o desfazer. Quem escolheu apagá-las já confirmou em duas etapas, e ressuscitar arquivo apagado não é algo que o app possa prometer.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Inicialização do servidor",
+  "id": "RF-169",
+  "texto": "O servidor deve atender em **menos de 2 segundos**, antes de os modelos estarem carregados. Medido: 29,70s → ~2,2s.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Inicialização do servidor",
+  "id": "RF-170",
+  "texto": "Os modelos devem carregar em segundo plano, sem bloquear o atendimento.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Inicialização do servidor",
+  "id": "RF-171",
+  "texto": "O modelo de **texto** deve carregar antes do resto. É ele que destrava a busca escrita, que é o que o usuário faz assim que abre o programa.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Inicialização do servidor",
+  "id": "RF-172",
+  "texto": "Nada pesado pode voltar para o nível do módulo. Medidos individualmente: modelos ~12s, scikit-learn ~4,8s, SDK do Claude ~3s. Há teste que falha se algum voltar.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Inicialização do servidor",
+  "id": "RF-173",
+  "texto": "`GET /api/health` deve informar o estado de cada modelo (`carregando`, `pronto`, `indisponivel`) **sem exigir sessão** — a espera acontece na tela de login, antes de qualquer sessão existir.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Inicialização do servidor",
+  "id": "RF-174",
+  "texto": "Buscar antes da carga terminar deve responder **503** com mensagem pedindo para tentar de novo em instantes — nunca lista vazia com 200, que o usuário lê como \"minhas fotos não estão indexadas\".",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Inicialização do servidor",
+  "id": "RF-175",
+  "texto": "Depois que a carga termina sem sucesso, a mensagem deve **parar de mandar esperar** e dizer o que fazer. Esperar não resolve mais.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Inicialização do servidor",
+  "id": "RF-176",
+  "texto": "Nenhuma mensagem ao usuário pode citar nome de modelo. A mensagem anterior dizia \"SBERT indisponível\".",
+  "status": "Corrigido"
+ },
+ {
+  "secao": "Inicialização do servidor",
+  "id": "RF-177",
+  "texto": "A interface deve exibir aviso enquanto a busca se prepara, e removê-lo sozinha ao terminar. O aviso não pode bloquear clique.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Inicialização do servidor",
+  "id": "RF-178",
+  "texto": "Se os modelos já estiverem carregados, nenhum aviso deve aparecer — o caso comum é abrir o programa com o servidor já rodando.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Inicialização do servidor",
+  "id": "RF-179",
+  "texto": "A fila de indexação deve esperar os modelos. Sem isso os primeiros arquivos entrariam sem representação e ficariam invisíveis para a busca, sem sinal nenhum de erro.",
+  "status": "Implementado"
+ },
+ {
+  "secao": "Capa das coleções",
+  "id": "RF-151",
+  "texto": "A listagem de coleções deve disparar um número de consultas **constante**, independente de quantas coleções o usuário tenha. Antes era uma consulta por coleção para montar o mosaico da capa: 51 idas ao banco remoto para 50 coleções.",
+  "status": "Corrigido"
+ },
+ {
+  "secao": "Capa das coleções",
+  "id": "RF-152",
+  "texto": "A ordem das capas dentro de uma coleção deve ser estável entre recarregamentos. Sem ordenação explícita o mosaico mudava de arranjo sem nada ter mudado.",
+  "status": "Corrigido"
+ },
+ {
+  "secao": "Capa das coleções",
+  "id": "RF-153",
+  "texto": "A consulta das capas parte de uma tabela sem dono e precisa filtrar pelo usuário. Sem isso a capa de uma coleção alheia entraria no mosaico, expondo caminho de arquivo de outra pessoa.",
+  "status": "Corrigido"
+ }
+]
