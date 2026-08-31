@@ -485,6 +485,27 @@ def estimate_time():
 # Busca
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _separar_exclusoes(query):
+    """
+    Separa "praia -pessoas" em ("praia", ["pessoas"]).
+
+    Mesma regra do backend real: o hifen so conta colado a uma palavra e
+    precedido de espaco. Se divergir, o front acerta contra um servidor e erra
+    contra o outro -- e a trilha de refino mostra uma coisa que nao aconteceu.
+    """
+    if not query:
+        return "", []
+    excluidos, restantes = [], []
+    for pedaco in query.split():
+        if pedaco.startswith("-"):
+            termo = pedaco[1:].strip()
+            if termo:
+                excluidos.append(termo)
+        else:
+            restantes.append(pedaco)
+    return " ".join(restantes), excluidos
+
+
 @app.route("/api/search", methods=["GET", "POST"])
 def search():
     if not _logado():
@@ -494,17 +515,39 @@ def search():
         data = request.get_json(force=True, silent=True) or {}
         query = (data.get("query") or "").strip()
         filtro = data.get("filtro", "all")
+        escopo = data.get("escopo") or []
     else:
         query = (request.args.get("q") or "").strip()
         filtro = request.args.get("filtro", "all")
+        escopo = []
+
+    # "praia -pessoas": mesma separacao do backend real.
+    query, excluidos = _separar_exclusoes(query)
+
+    escopo_ids = set()
+    for i in escopo[:5000]:
+        try:
+            escopo_ids.add(int(i))
+        except (TypeError, ValueError):
+            continue
 
     if not query:
+        if excluidos:
+            return jsonify({
+                "resultados": [], "tempo": 0, "consulta": "",
+                "excluidos": excluidos, "escopo": len(escopo_ids),
+                "erro": "Diga também o que você procura. Sozinho, o traço só "
+                        "serve para tirar algo de uma busca — por exemplo, "
+                        "“praia -pessoas”.",
+            })
         return jsonify({"resultados": [], "tempo": 0})
 
     t0 = time.time()
     termos = [t for t in query.lower().split() if len(t) >= 3]
 
     candidatos = _ARQUIVOS
+    if escopo_ids:
+        candidatos = [a for a in candidatos if a["id"] in escopo_ids]
     if filtro == "imagem":
         candidatos = [a for a in candidatos if a["tipo"] in _EXT_IMG]
     elif filtro == "midia":
@@ -514,9 +557,14 @@ def search():
                       if a["tipo"] not in _EXT_IMG | _EXT_VID | _EXT_AUD]
 
     # Score por quantidade de termos encontrados na descrição/nome.
+    excluidos_lower = [e.lower() for e in excluidos if e]
+
     achados = []
     for a in candidatos:
         alvo = (a["descricao_ia"] + " " + a["nome"]).lower()
+        # O que o usuario mandou tirar sai antes de disputar posicao.
+        if any(e in alvo for e in excluidos_lower):
+            continue
         acertos = sum(1 for t in termos if t in alvo)
         if acertos:
             achados.append((a, 0.55 + 0.4 * (acertos / max(1, len(termos)))))
@@ -526,7 +574,10 @@ def search():
 
     # Simula a latência de uma busca real (SBERT + CLIP + re-rank do Claude).
     time.sleep(0.25)
-    return jsonify({"resultados": resultados, "tempo": round(time.time() - t0, 3)})
+    return jsonify({
+        "resultados": resultados, "tempo": round(time.time() - t0, 3),
+        "consulta": query, "excluidos": excluidos, "escopo": len(escopo_ids),
+    })
 
 
 @app.route("/api/search_by_image", methods=["POST"])

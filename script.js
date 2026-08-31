@@ -1947,6 +1947,9 @@ async function realizarBusca() {
 
     try {
         const corpo = { query: query, filtro: filtroAtual, avancado: coletarFiltrosAvancados() };
+        if (_refino.escopo && _refino.escopo.ids.length) {
+            corpo.escopo = _refino.escopo.ids;
+        }
         const res = await fetch(`${API_BASE_URL}/api/search`, { method: 'POST', headers: fetchOptions.headers, body: JSON.stringify(corpo) });
         const dados = await res.json();
 
@@ -1962,6 +1965,12 @@ async function realizarBusca() {
 
         window.resultadosAtuais = Array.isArray(dados) ? dados : (dados.resultados || []);
         salvarBuscaNoHistorico(query.trim());
+
+        // A trilha reflete o que o servidor entendeu do pedido.
+        _refino.consulta = dados.consulta || query.trim();
+        _refino.excluidos = dados.excluidos || [];
+        if (!dados.escopo) _refino.escopo = null;
+        desenharTrilhaDeRefino();
 
     } catch (e) { console.error(e); toastErro("Erro ao buscar. Verifique a conexão."); } finally {
         const tempoRestante = Math.max(0, 2000 - (Date.now() - startTime));
@@ -2178,6 +2187,112 @@ function resultadosVisiveis() {
         if (filtroAtual === 'midia') return extensoesAudio.includes(ext) || extensoesVideo.includes(ext);
         return !extensoesImagem.includes(ext) && !extensoesAudio.includes(ext) && !extensoesVideo.includes(ext);
     });
+}
+
+// ==========================================
+// REFINAR SEM RECOMEÇAR
+// ==========================================
+// Antes, cada tentativa jogava fora o que a busca anterior já tinha acertado:
+// quem procurou "praia" e recebeu trinta fotos com gente no meio só podia
+// reescrever a frase e torcer. Agora o refino se acumula, e cada pedaço dele
+// aparece na tela e pode ser removido sozinho.
+//
+// A trilha é desenhada a partir do que o SERVIDOR entendeu, não do que foi
+// digitado. Se o parser separasse "-pessoas" de um jeito e a tela mostrasse
+// de outro, remover um chip não mudaria a busca e ninguém entenderia por quê.
+let _refino = { consulta: '', excluidos: [], escopo: null };
+
+function _limparRefino() {
+    _refino = { consulta: '', excluidos: [], escopo: null };
+    desenharTrilhaDeRefino();
+}
+
+function desenharTrilhaDeRefino() {
+    const faixa = document.getElementById('trilhaRefino');
+    if (!faixa) return;
+
+    faixa.innerHTML = '';
+    const chips = [];
+
+    if (_refino.consulta) {
+        chips.push({ rotulo: _refino.consulta, tipo: 'consulta',
+                     ajuda: 'O que você procurou.' });
+    }
+    (_refino.excluidos || []).forEach(termo => {
+        chips.push({ rotulo: `sem ${termo}`, tipo: 'excluido', valor: termo,
+                     ajuda: `Resultados com "${termo}" foram deixados de fora.` });
+    });
+    if (_refino.escopo) {
+        const n = _refino.escopo.ids.length;
+        chips.push({ rotulo: n === 1 ? 'dentro de 1 resultado'
+                                     : `dentro de ${n} resultados`,
+                     tipo: 'escopo',
+                     ajuda: 'A busca está limitada ao resultado anterior.' });
+    }
+
+    // Um chip só (a própria consulta) não é uma trilha — é a caixa de busca
+    // repetida logo abaixo dela.
+    if (chips.length < 2) {
+        faixa.style.display = 'none';
+        return;
+    }
+    faixa.style.display = 'flex';
+
+    chips.forEach(c => {
+        const chip = document.createElement('span');
+        chip.className = `chip-refino chip-refino-${c.tipo}`;
+        chip.title = c.ajuda;
+
+        const txt = document.createElement('span');
+        txt.textContent = c.rotulo;
+        chip.appendChild(txt);
+
+        // A consulta em si não some por um X: sem ela não sobra busca. Quem
+        // quer trocá-la usa a caixa, que está logo acima.
+        if (c.tipo !== 'consulta') {
+            const x = document.createElement('button');
+            x.type = 'button';
+            x.className = 'chip-refino-x';
+            x.setAttribute('aria-label', `Remover: ${c.rotulo}`);
+            x.textContent = '×';
+            x.onclick = () => removerRefino(c.tipo, c.valor);
+            chip.appendChild(x);
+        }
+        faixa.appendChild(chip);
+    });
+}
+
+async function removerRefino(tipo, valor) {
+    if (tipo === 'escopo') {
+        _refino.escopo = null;
+    } else if (tipo === 'excluido') {
+        _refino.excluidos = (_refino.excluidos || []).filter(t => t !== valor);
+        // A caixa de busca precisa acompanhar: o "-termo" que saiu da trilha
+        // não pode continuar escrito lá, ou a próxima busca o traz de volta.
+        const campo = document.getElementById('searchInput');
+        campo.value = campo.value
+            .split(/\s+/)
+            .filter(p => p.toLowerCase() !== `-${valor}`.toLowerCase())
+            .join(' ')
+            .trim();
+    }
+    desenharTrilhaDeRefino();
+    await realizarBusca();
+}
+
+// "Buscar dentro destes resultados": o próximo pedido fica limitado ao que
+// está na tela agora.
+function buscarDentroDosResultados() {
+    const ids = resultadosVisiveis().map(r => r.id);
+    if (!ids.length) return;
+
+    _refino.escopo = { ids };
+    desenharTrilhaDeRefino();
+
+    const campo = document.getElementById('searchInput');
+    campo.focus();
+    campo.select();
+    toastInfo(`A próxima busca vai olhar só estes ${ids.length} resultados.`);
 }
 
 // Por que este resultado apareceu.
@@ -2771,6 +2886,9 @@ function limparCampoBusca() {
 // Função placeholder para limpar busca (usada no logout)
 function limparBusca() {
     definirTextoBusca('');
+    // Sem isto, o escopo de uma busca anterior sobreviveria à limpeza e a
+    // busca seguinte viria misteriosamente reduzida.
+    _limparRefino();
     if (typeof limparSelecao === 'function') limparSelecao();
     document.getElementById('searchResultsView').style.display = 'none';
     document.getElementById('filterBarContainer').style.display = 'none';

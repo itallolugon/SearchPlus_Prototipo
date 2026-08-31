@@ -149,6 +149,65 @@ Formato usado em busca, favoritos, coleções e galeria — sempre o mesmo:
 | `score` | `0.0`–`1.0`. O front atual separa "Melhores" (≥ 0.60) de "Semânticos" |
 | `origem` | Por que o resultado apareceu — veja abaixo |
 
+#### Refinar sem recomeçar
+
+Antes, cada tentativa jogava fora o que a anterior já tinha acertado: quem
+procurou "praia" e recebeu trinta fotos com gente no meio só podia reescrever
+a frase e torcer.
+
+**Excluir termos.** A consulta aceita `-termo`:
+
+```
+praia -pessoas
+```
+
+O que vem depois do hífen sai da consulta e vira filtro de exclusão, aplicado
+ao componente **textual** (descrição e nome do arquivo) e ao **visual**. O
+visual importa: a maioria das fotos com gente não diz "pessoas" em lugar
+nenhum — a descrição fala de "família na areia" e o nome é `IMG_2481.jpg`.
+Filtrar só por texto deixaria passar justamente as que motivaram o pedido.
+
+O limiar da exclusão visual é mais exigente que o da busca normal (0,25 contra
+0,15), de propósito: descartar por engano é pior que deixar passar. Quem pediu
+para excluir ainda vê o resultado e pode refinar de novo; o que sumiu sem
+motivo, a pessoa nunca fica sabendo que existia.
+
+O hífen só conta colado a uma palavra e precedido de espaço — `bem-te-vi` e
+`2024-2025` continuam sendo texto comum.
+
+**Buscar dentro dos resultados.** `POST /api/search` aceita `escopo`, uma
+lista de ids:
+
+```json
+{ "query": "sol", "escopo": [12, 45, 78] }
+```
+
+O escopo entra como filtro **do banco**, não como corte no fim: cortar depois
+faria os 100 candidatos serem escolhidos entre a biblioteca inteira e só então
+reduzidos ao escopo — a maioria descartada, e o refino trazendo menos do que
+existia dentro dele. Limite de 5.000 ids.
+
+**O que o servidor entendeu** volta em toda resposta de busca, inclusive nas
+vazias:
+
+```json
+{ "consulta": "praia", "excluidos": ["pessoas"], "escopo": 30 }
+```
+
+O front desenha a trilha de refinamentos a partir daí, e não do que foi
+digitado: se o parser separasse de um jeito e a tela mostrasse de outro,
+remover um chip não mudaria a busca e o usuário ficaria sem entender por quê.
+Nas respostas vazias esses campos são especialmente necessários — o refino
+apertou demais, não veio nada, e o caminho de volta é remover um dos filtros
+que sumiriam da vista junto com os resultados.
+
+Só exclusão, sem assunto (`-pessoas` sozinho), responde `200` com `erro`
+explicando a sintaxe: não dá para pedir "tudo menos pessoas".
+
+**Filtros avançados** (`avancado`) sempre compuseram com a consulta — entram
+como `AND` no mesmo `SELECT`, não a substituem. Há teste garantindo que
+continue assim.
+
 #### `origem` — por que o resultado apareceu
 
 O número que ordena a busca é exposto na API mas **fica escondido na

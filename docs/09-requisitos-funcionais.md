@@ -431,6 +431,30 @@ cabeça: dá tempo de almoçar?
 | **RF-207** | Com a fila drenando e o ritmo constante, o texto **nunca volta atrás**. Estimativa que sobe sozinha destrói a confiança na barra. | Implementado |
 | **RF-208** | Um único arquivo lento não pode deslocar a estimativa; uma mudança real e sustentada de ritmo, sim. | Implementado |
 
+### Refinar a busca sem recomeçar
+
+Cada tentativa jogava fora o que a anterior já tinha acertado: quem procurou
+"praia" e recebeu trinta fotos com gente no meio só podia reescrever a frase e
+torcer.
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-219** | A consulta aceita `-termo` para **excluir**. | Implementado |
+| **RF-220** | A exclusão vale para o texto (descrição **e** nome do arquivo) e para a imagem. A maioria das fotos com gente não diz "pessoas" em lugar nenhum — filtrar só por texto deixaria passar justamente as que motivaram o pedido. | Implementado |
+| **RF-221** | O limiar da exclusão visual é mais exigente que o da busca. Descartar por engano é pior que deixar passar: o que sumiu sem motivo, a pessoa nunca fica sabendo que existia. | Implementado |
+| **RF-222** | O hífen só conta colado a uma palavra e precedido de espaço. `bem-te-vi` e `2024-2025` continuam texto comum. | Implementado |
+| **RF-223** | Um traço solto é descartado — é digitação, não intenção. | Implementado |
+| **RF-224** | Só exclusão, sem assunto, **explica a sintaxe** em vez de devolver vazio. | Implementado |
+| **RF-225** | "Buscar dentro destes resultados" limita a próxima busca ao conjunto atual. | Implementado |
+| **RF-226** | O escopo entra como filtro **do banco**, não como corte no fim. Cortar depois faria os candidatos serem escolhidos entre a biblioteca inteira e só então reduzidos — o refino traria menos do que existe dentro dele. | Implementado |
+| **RF-227** | A tela mostra uma **trilha** dos refinamentos, cada um removível sozinho. | Implementado |
+| **RF-228** | A trilha é desenhada a partir do que o **servidor entendeu**, não do que foi digitado. Divergindo, remover um chip não mudaria a busca. | Implementado |
+| **RF-229** | A trilha aparece também quando a busca não acha nada — é exatamente quando o caminho de volta é remover um filtro. | Implementado |
+| **RF-230** | Remover a exclusão tira o `-termo` da caixa de busca também, senão a próxima busca o traz de volta. | Implementado |
+| **RF-231** | Limpar a busca zera o refino. Sem isso o escopo sobreviveria e a busca seguinte viria misteriosamente reduzida. | Implementado |
+| **RF-232** | A consulta não tem X: sem ela não sobra busca. Quem quer trocá-la usa a caixa. | Implementado |
+| **RF-233** | Os filtros avançados **compõem** com a consulta (`AND` no mesmo `SELECT`), não a substituem. Já era assim; há teste garantindo que continue. | Verificado |
+
 ### Por que o resultado apareceu
 
 O número que ordena a busca existe e continua escondido de propósito: "0,72"

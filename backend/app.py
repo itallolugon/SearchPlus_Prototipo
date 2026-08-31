@@ -1870,6 +1870,54 @@ def _expandir_sinonimos(palavras: list[str]) -> str:
     return " ".join(expandido)
 
 
+def _separar_exclusoes(query: str) -> tuple[str, list[str]]:
+    """
+    Separa "praia -pessoas" em ("praia", ["pessoas"]).
+
+    Existe porque refinar era recomeçar: quem procurou "praia" e recebeu trinta
+    fotos com gente no meio não tinha como dizer "essas não" — só reescrever a
+    frase e torcer.
+
+    O hífen só conta colado a uma palavra e precedido de espaço (ou no começo).
+    Sem isso, "bem-te-vi" viraria "bem" excluindo "te" e "vi", e "2024-2025"
+    excluiria "2025" — nomes de arquivo e datas são cheios de hífen.
+    """
+    if not query:
+        return "", []
+
+    excluidos = []
+    restantes = []
+
+    for pedaco in query.split():
+        if pedaco.startswith("-"):
+            # Um traço solto é digitação, não intenção — e deixá-lo na consulta
+            # faria a busca procurar por um hífen.
+            termo = pedaco[1:].strip()
+            if termo:
+                excluidos.append(termo)
+        else:
+            restantes.append(pedaco)
+
+    return " ".join(restantes), excluidos
+
+
+def _cai_na_exclusao(termos_excluidos_norm: list[str], desc_norm: str,
+                     nome_norm: str) -> bool:
+    """
+    O resultado bate com algo que o usuário pediu para tirar.
+
+    Compara contra a descrição E o nome do arquivo. Quem exclui "pessoas"
+    espera que "reuniao-com-pessoas.jpg" saia também, mesmo que a descrição
+    não mencione ninguém.
+    """
+    for termo in termos_excluidos_norm:
+        if not termo:
+            continue
+        if termo in desc_norm or termo in nome_norm:
+            return True
+    return False
+
+
 def _analisar_query(query: str) -> dict:
     """
     Analisa a query do usuário e extrai metadados úteis para a busca:
@@ -2089,12 +2137,39 @@ def api_search():
         query  = (data.get("query") or "").strip()
         filtro = data.get("filtro", "all")
         avancado = data.get("avancado") or {}
+        # Ids do resultado anterior, quando a pessoa pediu para buscar DENTRO
+        # dele. Refinar era recomeçar: cada tentativa jogava fora o que a
+        # busca anterior já tinha acertado.
+        escopo = data.get("escopo") or []
     else:
         query  = (request.args.get("q") or "").strip()
         filtro = request.args.get("filtro", "all")
         avancado = {}
+        escopo = []
+
+    # "praia -pessoas": o que vem depois do hífen sai da consulta e vira
+    # filtro de exclusão. Precisa sair ANTES de qualquer análise — deixar
+    # "-pessoas" na frase faria o motor procurar por pessoas, que é o oposto
+    # do pedido.
+    query, termos_excluidos = _separar_exclusoes(query)
+
+    escopo_ids = []
+    for i in escopo[:5000]:
+        try:
+            escopo_ids.append(int(i))
+        except (TypeError, ValueError):
+            continue
 
     if not query:
+        # Só exclusões, sem nada a procurar ("-pessoas" sozinho): não dá para
+        # buscar "tudo menos pessoas" — a busca precisa de um assunto.
+        if termos_excluidos:
+            return jsonify({
+                "resultados": [], "tempo": 0,
+                "erro": "Diga também o que você procura. Sozinho, o traço só "
+                        "serve para tirar algo de uma busca — por exemplo, "
+                        "\u201cpraia -pessoas\u201d.",
+            })
         return jsonify({"resultados": [], "tempo": 0})
 
     t0 = time.time()
@@ -2153,6 +2228,14 @@ def api_search():
         params_filtro.append(len(prefixo_pasta))
         params_filtro.append(prefixo_pasta)
 
+    # Buscar dentro dos resultados anteriores. Entra como filtro do banco e não
+    # como corte no fim: cortar depois faria os 100 candidatos serem escolhidos
+    # entre a biblioteca inteira e só então reduzidos ao escopo — a maioria
+    # descartada, e o refino trazendo menos do que existia.
+    if escopo_ids:
+        sql_filtros.append("id = ANY(%s)")
+        params_filtro.append(escopo_ids)
+
     sql_where_extra = (" AND " + " AND ".join(sql_filtros)) if sql_filtros else ""
 
     # Vetor CLIP da frase buscada — usado na query complementar de imagens lazy
@@ -2208,7 +2291,15 @@ def api_search():
     conn.close()
 
     if not rows:
-        return jsonify({"resultados": [], "tempo": round(time.time() - t0, 3)})
+        # Os campos do refino vão junto mesmo sem resultado. Sem eles, a trilha
+        # sumiria da tela justamente quando a pessoa mais precisa dela: o
+        # refino apertou demais, não veio nada, e o caminho de volta é remover
+        # um dos filtros que acabaram de desaparecer da vista.
+        return jsonify({
+            "resultados": [], "tempo": round(time.time() - t0, 3),
+            "consulta": q["original"], "excluidos": termos_excluidos,
+            "escopo": len(escopo_ids),
+        })
 
     sbert_sims = [max(0.0, float(r["sbert_score"])) if r["sbert_score"] is not None else 0.0 for r in rows]
 
@@ -2242,6 +2333,38 @@ def api_search():
     # útil do CLIP é esticada para [0, 1] antes de entrar no blend. Os limiares
     # continuam usando o valor cru (clip_sims), que é onde foram calibrados.
     clip_norm = [max(0.0, min(1.0, (s - 0.15) / 0.15)) for s in clip_sims]
+
+    # ── EXCLUSÃO NO SINAL VISUAL ────────────────────────────────────────────
+    # Quem escreve "praia -pessoas" quer tirar as fotos COM gente, e a maioria
+    # delas não diz "pessoas" em lugar nenhum: a descrição fala de "família na
+    # areia" e o nome do arquivo é IMG_2481.jpg. Filtrar só por texto deixaria
+    # passar justamente as que motivaram o pedido.
+    #
+    # Aqui o termo excluído vira um vetor visual e a imagem é comparada com
+    # ele. O limiar é mais alto que o da busca normal (0,25 contra 0,15) de
+    # propósito: descartar por engano é pior que deixar passar. Quem pediu
+    # para excluir ainda vê o resultado e pode refinar de novo; o que sumiu
+    # sem motivo, a pessoa nunca fica sabendo que existia.
+    LIMIAR_EXCLUSAO_VISUAL = 0.25
+    excluidos_visualmente = set()
+    if termos_excluidos and CLIP_OK and SKLEARN_OK:
+        import numpy as np
+        for termo in termos_excluidos:
+            vec_termo = _gerar_embedding_clip_texto(termo)
+            if not vec_termo:
+                continue
+            termo_np = np.array([vec_termo])
+            for i, f in enumerate(rows):
+                if i in excluidos_visualmente:
+                    continue
+                if f["tipo"] not in _EXT_IMG or f["embedding_clip"] is None:
+                    continue
+                try:
+                    img_vec = np.array([_vec_to_list(f["embedding_clip"])], dtype=float)
+                    if float(cosine_similarity(termo_np, img_vec)[0][0]) >= LIMIAR_EXCLUSAO_VISUAL:
+                        excluidos_visualmente.add(i)
+                except Exception as e:
+                    print(f"[CLIP] falha ao excluir '{f['nome']}': {type(e).__name__}: {e}")
 
     # ── DESCRIÇÃO SOB DEMANDA (lazy) ────────────────────────────────────────
     # As imagens são indexadas só com embedding CLIP (sem descrição). Aqui,
@@ -2285,12 +2408,23 @@ def api_search():
         if len(w) >= 3:
             palavras_literais.update(_variantes_morfologicas(w))
 
+    excluidos_norm = [_normalizar(t) for t in termos_excluidos]
+
     def _filtrar_e_pontuar(threshold_sbert: float) -> list:
         out = []
-        for f, s_sbert, s_bm25, s_clip, s_visual in zip(
-                rows, sbert_sims, bm25_sims, clip_sims, clip_norm):
+        for i, (f, s_sbert, s_bm25, s_clip, s_visual) in enumerate(zip(
+                rows, sbert_sims, bm25_sims, clip_sims, clip_norm)):
             desc_local      = (f["descricao_ia"] or "").strip()
             desc_norm_local = _normalizar(desc_local)
+
+            # A exclusão vem antes de qualquer pontuação: o que o usuário
+            # mandou tirar não disputa posição, sai. Por texto ou por imagem —
+            # a foto da família na areia não diz "pessoas" em lugar nenhum.
+            if i in excluidos_visualmente:
+                continue
+            if excluidos_norm and _cai_na_exclusao(
+                    excluidos_norm, desc_norm_local, _normalizar(f["nome"])):
+                continue
             tem_texto     = s_sbert >= threshold_sbert
             tem_visual    = (f["tipo"] in _EXT_IMG and CLIP_OK and s_clip >= 0.25)
             tem_keyword   = s_bm25 >= 0.5 and bool(q["palavras_set"])
@@ -2380,7 +2514,17 @@ def api_search():
         results = [r for r in results if _dentro_do_tamanho(r)]
 
     tempo = round(time.time() - t0, 3)
-    return jsonify({"resultados": results[:60], "tempo": tempo})
+    return jsonify({
+        "resultados": results[:60],
+        "tempo": tempo,
+        # O front redesenha a trilha de refinamentos a partir do que o servidor
+        # entendeu, e nao do que foi digitado. Se o parser separar "-pessoas"
+        # de um jeito e a tela mostrar de outro, o usuario remove um chip e a
+        # busca nao muda -- e ele fica sem entender por que.
+        "consulta": q["original"],
+        "excluidos": termos_excluidos,
+        "escopo": len(escopo_ids),
+    })
 
 
 # ──────────────────────────────────────────────────────────────────────────────

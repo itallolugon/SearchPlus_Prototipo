@@ -507,6 +507,7 @@ body {
 .btn-renomear,
 .btn-verificar-pasta,
 .faixa-preparando,
+.chip-refino,
 .resumo-numero,
 .resumo-erros summary,
 .lixeira-item-nome,
@@ -1517,3 +1518,31 @@ body {
     color: var(--text-secondary); font-size: 0.78rem; line-height: 1.6;
 }
 .resumo-nota { color: var(--text-secondary); font-size: 0.74rem; margin-top: 6px; }
+
+
+/* Trilha do refino: o que está filtrando a busca agora. */
+.trilha-refino {
+    display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+    margin: 0 auto 16px; padding: 0 20px; max-width: 900px;
+}
+.chip-refino {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 6px 5px 12px; border-radius: 20px;
+    font-size: 0.78rem; border: 1px solid var(--border-light);
+    background: rgba(255, 255, 255, 0.04); color: var(--text-secondary);
+}
+/* A consulta é o assunto da busca, não um filtro — e não tem X para remover.
+   Sem padding à direita porque não há botão ocupando esse espaço. */
+.chip-refino-consulta {
+    padding-right: 12px; color: var(--text-primary); font-weight: 600;
+    border-color: rgba(168, 85, 247, 0.35);
+    background: rgba(168, 85, 247, 0.10);
+}
+.chip-refino-excluido { border-color: rgba(239, 68, 68, 0.3); }
+.chip-refino-escopo   { border-color: rgba(79, 209, 197, 0.3); }
+.chip-refino-x {
+    border: none; background: transparent; cursor: pointer;
+    color: var(--text-secondary); font-size: 1rem; line-height: 1;
+    padding: 0 6px; border-radius: 50%;
+}
+.chip-refino-x:hover { color: var(--text-primary); background: rgba(255,255,255,0.08); }
