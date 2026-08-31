@@ -140,6 +140,49 @@ O protótipo atual já resolve estes fluxos. Use-o rodando como especificação 
 
 ---
 
+## Ícones
+
+Não use emoji. O front usava, e trocamos por SVG — o motivo não é estético:
+
+- a cor de um emoji vem da fonte do sistema, então ele ignorava o tema e a cor
+  de destaque escolhida pelo usuário, e não havia como corrigir o contraste
+  dele como corrigimos o do texto;
+- o desenho muda de máquina para máquina: Windows, Android e cada navegador
+  desenham o mesmo código de um jeito;
+- em fonte antiga, alguns nem existem e viram um retângulo vazio.
+
+Os símbolos ficam num sprite inline no `index.html` (`<svg class="sprite-icones">`),
+todos no grid de 24×24 e no mesmo peso de traço. O traço é `currentColor`, então
+o ícone é sempre da cor do texto ao lado dele.
+
+```js
+iconeHTML('pasta')                       // string, para templates de innerHTML
+icone('pasta')                           // elemento, para montar via DOM
+rotularCom(botao, 'pasta', nomeDaPasta)  // ícone + texto, pelo DOM
+```
+
+**Qual usar não é questão de gosto.** Se o rótulo ao lado vier de dado do
+usuário — nome de pasta, de coleção, de arquivo — use `icone()` ou
+`rotularCom()`, que inserem o texto como texto. Montar isso com template string
+e `innerHTML` abriria injeção de HTML através de um nome de pasta.
+`iconeHTML()` só recebe nomes escritos no próprio código, então não há o que
+injetar.
+
+**Um botão que só tem ícone precisa de `aria-label`.** O SVG é `aria-hidden`;
+sem o rótulo, o botão fica sem nome para o leitor de tela. Enquanto era emoji,
+o caractere servia de nome — mal, mas servia.
+
+**Botão sem `color` explícito fica preto.** É o padrão do navegador, e o emoji
+escondia isso porque trazia a própria cor. Há um `button { color: inherit }` no
+`style.css` cobrindo o caso geral; um botão sobre imagem (e não sobre o fundo do
+tema) precisa da cor definida na mão.
+
+`tests/unit/test_icones_do_front.py` reprova emoji novo e referência a ícone
+inexistente — esta última é silenciosa: `<use>` para um id que não existe não é
+erro, o botão só aparece vazio.
+
+---
+
 ## Detalhes que causam bug se ignorados
 
 **Descrição vazia é normal, não é erro.** Imagens são indexadas só com o vetor visual; a descrição em texto é gerada depois, sob demanda, quando alguma busca alcança aquela imagem. Uma imagem recém-indexada aparece com `descricao_ia: ""` e ganha texto mais tarde. Nunca exiba "falha ao processar" nesse caso.
@@ -155,7 +198,7 @@ const src = `${API_BASE_URL}/api/file/${encodeURIComponent(arquivo.caminho)}`;
 
 **Dois endpoints abrem janelas nativas no servidor.** `/api/choose_folder` e `/api/choose_image` abrem um seletor do Windows **na máquina onde o backend roda**, e a requisição fica pendurada até alguém responder. Sempre ofereça alternativa na interface: um `<input type="file">` para imagens e um campo de texto para o caminho da pasta.
 
-**Categorias podem crescer.** As sete atuais são fixas hoje, mas trate chave desconhecida com um rótulo e ícone genéricos, em vez de quebrar a tela.
+**Categorias podem crescer.** As sete atuais são fixas hoje, mas trate chave desconhecida com um rótulo e ícone genéricos, em vez de quebrar a tela. O campo `icone` do mapa de categorias guarda o **id de um símbolo do sprite**, não um caractere.
 
 **Erros não têm formato único.** Alguns endpoints devolvem `{"error": "..."}`, outros `{"mensagem": "..."}`. Trate as duas chaves.
 
@@ -169,6 +212,8 @@ const src = `${API_BASE_URL}/api/file/${encodeURIComponent(arquivo.caminho)}`;
 - [ ] Estado de carregamento na busca, dimensionado para 8 segundos
 - [ ] Imagem sem descrição não é exibida como erro
 - [ ] Alternativa aos seletores nativos do Windows
+- [ ] Nenhum emoji na interface — ícones vêm do sprite
+- [ ] Botão só de ícone tem `aria-label`
 - [ ] Layout responsivo
 - [ ] Nada em `backend/` foi alterado
 - [ ] Nenhuma credencial no código ou no repositório

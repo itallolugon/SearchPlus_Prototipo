@@ -472,7 +472,8 @@ body {
 .btn-fav-abs:hover { background: var(--surface); border-color: var(--accent-secondary); transform: scale(1.1); }
 .btn-fav-abs:focus-visible { outline: 2px solid var(--accent-secondary); outline-offset: 2px; }
 /* Favoritado: coração cheio, cor de destaque e fundo tingido. A diferença não
-   pode ser só de cor — o glifo muda de ♡ para ♥ para quem não distingue cores. */
+   pode ser só de cor — o coração passa de vazado a preenchido (ver iconeFav()
+   no script.js), e a forma muda junto para quem não distingue as cores. */
 .btn-fav-abs.is-fav {
     color: var(--accent-secondary);
     border-color: var(--accent-secondary);
@@ -1106,6 +1107,11 @@ body {
     border: 1px solid var(--border-light);
     border-radius: 12px;
     font-size: 1.2rem;
+    /* O icone e desenhado em `currentColor`. Sem esta linha o botao
+       herdava o preto padrao e o desenho sumia no fundo escuro -- o
+       emoji que havia aqui antes trazia a propria cor e escondia a
+       falta. */
+    color: var(--text-secondary);
     cursor: pointer;
     padding: 0 14px;
     transition: background 0.15s, border-color 0.15s;
@@ -1113,6 +1119,7 @@ body {
 .search-btn-img:hover {
     background: rgba(168,85,247,0.12);
     border-color: var(--accent-primary);
+    color: var(--text-primary);
 }
 .drop-zone {
     border: 2px dashed var(--border-light);
@@ -1324,6 +1331,10 @@ body {
     border: none; border-radius: 50%;
     cursor: pointer; font-size: 0.95rem;
     opacity: 0; transition: opacity 0.2s, background 0.2s;
+    /* Fica por cima da capa da colecao, que e uma imagem qualquer --
+       a cor nao pode vir do tema. O circulo escuro atras garante o
+       contraste do branco. */
+    color: #fff;
 }
 .colecao-card:hover .colecao-del-flutuante { opacity: 1; }
 .colecao-del-flutuante:hover { background: rgba(239,68,68,0.8); }
@@ -1780,3 +1791,76 @@ body {
     text-align: center; color: var(--text-secondary);
     font-size: 0.88rem; padding: 24px 20px; margin: 0;
 }
+
+/* ==========================================================================
+   ICONES
+   ==========================================================================
+   Substituem os emoji que havia antes. O ganho nao e so de aparencia:
+
+   - emoji sao coloridos pela fonte do sistema, entao ignoravam o tema e a cor
+     de destaque escolhida pelo usuario, e nao havia como corrigir o contraste
+     deles como corrigimos o do texto;
+   - o desenho mudava de maquina para maquina (Windows, Android e navegador
+     desenham o mesmo codigo de formas diferentes), e alguns simplesmente nao
+     existiam em fontes mais antigas, virando um retangulo vazio.
+
+   Aqui o traco e `currentColor`: o icone e da cor do texto ao lado dele,
+   sempre, em qualquer tema. */
+
+.sprite-icones {
+    /* Guarda as definicoes fora de vista. `display:none` tambem esconderia,
+       mas alguns navegadores deixam de resolver o `<use>` nesse caso. */
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+}
+
+.ic {
+    width: 1.05em;
+    height: 1.05em;
+    flex: none;                 /* nunca encolhe dentro de um flex */
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    vertical-align: -0.15em;    /* alinha com a linha de base do texto */
+}
+
+/* Um icone antes de um rotulo precisa de respiro. Como `gap` so funciona em
+   flex, e boa parte dos botoes daqui nao e flex, a margem cobre os dois. */
+.ic + span,
+.ic + text { margin-left: .1em; }
+.tem-icone { display: inline-flex; align-items: center; gap: .42em; }
+
+/* Estado "ligado": favorito marcado, capa da colecao. O contorno vira solido
+   para que a diferenca nao seja so de cor -- quem nao distingue as duas cores
+   ainda ve a mudanca de forma. */
+.ic--cheio {
+    fill: currentColor;
+    stroke-width: 1.2;
+}
+
+.ic--g  { width: 1.35em; height: 1.35em; }
+.ic--gg { width: 2.6em;  height: 2.6em; stroke-width: 1.3; }
+
+/* Girando: usado no lugar da ampulheta enquanto algo processa. */
+.ic--girando { animation: ic-girar 1.4s linear infinite; transform-origin: 50% 50%; }
+@keyframes ic-girar { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+    .ic--girando { animation: none; }
+}
+
+/* Botao herda a cor do contexto, em vez do preto padrao do navegador.
+   ---------------------------------------------------------------------------
+   Enquanto os icones eram emoji isso nao aparecia: o emoji trazia a propria
+   cor e o `color` do botao nao importava. Um icone desenhado em
+   `currentColor` num botao sem `color` fica preto sobre fundo escuro, com
+   1:1 de contraste -- some por completo. Aconteceu em dois botoes antes desta
+   regra existir (a camera da busca por imagem e a lixeira da colecao).
+
+   `button` e seletor de tipo, entao qualquer regra de classe que ja defina
+   `color` continua ganhando, esteja onde estiver no arquivo. */
+button { color: inherit; }

@@ -6,6 +6,74 @@ const API_BASE_URL =
     window.location.protocol.startsWith("http")
         ? window.location.origin
         : "http://127.0.0.1:5000";
+// ---------------------------------------------------------------------------
+// ICONES
+// ---------------------------------------------------------------------------
+// Os simbolos ficam definidos uma vez no index.html; aqui so referenciamos.
+//
+// Duas formas, e a escolha entre elas nao e de gosto:
+//
+//   icone()      devolve um ELEMENTO. Use quando o rotulo ao lado vier de
+//                dado do usuario -- nome de pasta, de colecao, de arquivo.
+//                Montar isso com template string e innerHTML abriria injecao
+//                de HTML atraves de um nome de pasta.
+//   iconeHTML()  devolve texto, para os templates que ja usam innerHTML. So
+//                recebe nomes de icone escritos aqui no codigo, nunca dado de
+//                fora, entao nao ha o que injetar.
+//
+// `aria-hidden` em todos: o icone e decoracao ao lado de um rotulo que o
+// leitor de tela ja anuncia. Quando o botao e SO o icone, quem chama poe um
+// `aria-label` no botao -- e ha um teste de acessibilidade cobrindo isso.
+
+const _SVG_NS = 'http://www.w3.org/2000/svg';
+
+function icone(nome, classe) {
+    const svg = document.createElementNS(_SVG_NS, 'svg');
+    svg.setAttribute('class', 'ic' + (classe ? ' ' + classe : ''));
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    const uso = document.createElementNS(_SVG_NS, 'use');
+    uso.setAttribute('href', '#ic-' + nome);
+    svg.appendChild(uso);
+    return svg;
+}
+
+function iconeHTML(nome, classe) {
+    return '<svg class="ic' + (classe ? ' ' + classe : '') + '" aria-hidden="true" ' +
+           'focusable="false"><use href="#ic-' + nome + '"></use></svg>';
+}
+
+// Troca o conteudo de um elemento por "icone + texto". Substitui os
+// `el.textContent = '\ud83d\udcc1 ' + nome` que existiam antes: o texto continua
+// entrando como texto, e nao como HTML.
+function rotularCom(el, nome, texto, classe) {
+    if (!el) return;
+    el.replaceChildren(icone(nome, classe), document.createTextNode(' ' + texto));
+}
+
+// Marca ou desmarca uma caixa de selecao. Existia como
+// `btn.textContent = marcado ? '\u2713' : ''` em cinco lugares; virou funcao para
+// que os cinco concordem sobre o que "marcado" desenha.
+function marcarBotaoSelecao(btn, marcado) {
+    if (!btn) return;
+    btn.replaceChildren();
+    if (marcado) btn.appendChild(icone('check'));
+}
+
+// Favorito: o MESMO coracao, vazado ou preenchido.
+//
+// Antes eram dois glifos de texto diferentes (vazado e cheio). A propriedade
+// que importa se manteve: a diferenca entre favoritado e nao favoritado nao e
+// so de cor -- a forma muda tambem, entao quem nao distingue as duas cores
+// continua enxergando o estado. Ver o comentario correspondente no style.css.
+function iconeFav(favoritado) {
+    return icone('coracao', favoritado ? 'ic--cheio' : '');
+}
+
+function iconeFavHTML(favoritado) {
+    return iconeHTML('coracao', favoritado ? 'ic--cheio' : '');
+}
+
 let currentConfig = {};
 let tempConfig = {};
 
@@ -45,7 +113,7 @@ const placeholderPreto = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB
 document.addEventListener('DOMContentLoaded', () => {
     carregarFavoritosDash();
     // Só os botões de TIPO trocam o filtro. Os outros que moram nesta barra
-    // ("⚙ Filtros", "♡ Favoritos") não têm data-filter, e sem esta checagem
+    // ("Filtros", "Favoritos") não têm data-filter, e sem esta checagem
     // clicar neles zerava `filtroAtual`. Com ele nulo, resultadosVisiveis()
     // caía no último ramo e devolvia só documentos — abrir os filtros
     // avançados escondia todas as imagens do resultado, em silêncio.
@@ -72,7 +140,7 @@ function mostrarToast(mensagem, tipo = 'info', duracaoMs = 4500) {
     const container = document.getElementById('toastContainer');
     if (!container) { console.log(`[${tipo}] ${mensagem}`); return; }
 
-    const icones = { sucesso: '✓', erro: '✕', info: 'ℹ', aviso: '⚠' };
+    const icones = { sucesso: 'check-circulo', erro: 'x', info: 'info', aviso: 'alerta' };
     const toast = document.createElement('div');
     toast.className = `toast toast-${tipo}`;
 
@@ -84,7 +152,7 @@ function mostrarToast(mensagem, tipo = 'info', duracaoMs = 4500) {
     toast.setAttribute('aria-live', grave ? 'assertive' : 'polite');
 
     toast.innerHTML = `
-        <span class="toast-icone" aria-hidden="true">${icones[tipo] || 'ℹ'}</span>
+        <span class="toast-icone" aria-hidden="true">${iconeHTML(icones[tipo] || 'info')}</span>
         <span class="toast-msg"></span>
         <button class="toast-fechar" aria-label="Fechar">&times;</button>
     `;
@@ -1702,14 +1770,15 @@ async function abrirViewPerfil() {
     await carregarEstatisticas();
 }
 
-// Rótulos e ícones amigáveis por categoria
+// Rótulos e ícones por categoria. `icone` guarda o id de um símbolo do
+// sprite definido no index.html, não um caractere.
 const _CATEGORIA_LABEL = {
-    pessoas:  { icone: '👥', nome: 'Pessoas' },
-    animais:  { icone: '🐾', nome: 'Animais' },
-    comida:   { icone: '🍽️', nome: 'Comida' },
-    natureza: { icone: '🌳', nome: 'Natureza' },
-    urbano:   { icone: '🏙️', nome: 'Urbano' },
-    desenhos: { icone: '🎨', nome: 'Desenhos e Arte' },
+    pessoas:  { icone: 'pessoas',  nome: 'Pessoas' },
+    animais:  { icone: 'animais',  nome: 'Animais' },
+    comida:   { icone: 'comida',   nome: 'Comida' },
+    natureza: { icone: 'natureza', nome: 'Natureza' },
+    urbano:   { icone: 'urbano',   nome: 'Urbano' },
+    desenhos: { icone: 'paleta',   nome: 'Desenhos e Arte' },
 };
 
 async function carregarEstatisticas() {
@@ -1733,14 +1802,14 @@ async function carregarEstatisticas() {
         const maxVal = Math.max(...cats.map(c => c.total));
         lista.innerHTML = '';
         cats.forEach(c => {
-            const meta = _CATEGORIA_LABEL[c.categoria] || { icone: '📦', nome: c.categoria };
+            const meta = _CATEGORIA_LABEL[c.categoria] || { icone: 'caixa', nome: c.categoria };
             const pct = maxVal > 0 ? Math.round((c.total / maxVal) * 100) : 0;
             const row = document.createElement('div');
             row.style.cssText = 'display:flex; align-items:center; gap:10px; font-size:0.85rem;';
             // Estrutura: ícone+nome | barra | contagem (tudo via DOM, sem innerHTML de dado externo)
             const label = document.createElement('span');
             label.style.cssText = 'width:90px; color:var(--text-primary);';
-            label.textContent = `${meta.icone} ${meta.nome}`;
+            rotularCom(label, meta.icone, meta.nome);
             const barWrap = document.createElement('div');
             barWrap.style.cssText = 'flex:1; height:8px; background:rgba(255,255,255,0.08); border-radius:4px; overflow:hidden;';
             const bar = document.createElement('div');
@@ -1948,7 +2017,7 @@ function mostrarHistorico() {
 
         const lupa = document.createElement('span');
         lupa.className = 'history-item-icon';
-        lupa.textContent = '🔍';
+        lupa.replaceChildren(icone('lupa'));
 
         const remover = document.createElement('span');
         remover.className = 'history-item-remove';
@@ -2007,7 +2076,7 @@ async function reAnalizarArquivos() {
     // O botão só existe na tela de pastas; quando chamado pelo menu lateral,
     // usamos toast pra dar feedback.
     const btn = document.getElementById('btnReanalizar');
-    if (btn) { btn.innerText = '⏳ Enfileirando...'; btn.disabled = true; }
+    if (btn) { rotularCom(btn, 'ampulheta', 'Enfileirando...'); btn.disabled = true; }
     else { toastInfo('Reanalisando arquivos com descrição ruim...'); }
     try {
         const res = await fetch(`${API_BASE_URL}/api/reanalyze`, { method: 'POST' });
@@ -2017,7 +2086,7 @@ async function reAnalizarArquivos() {
         const limpas = data.descricoes_limpas || 0;
         const extra = limpas ? ` + ${limpas} imagem(ns) marcada(s) pra redescrever` : '';
         if (btn) {
-            btn.innerText = `✅ ${data.reenfileirados} arquivo(s) na fila!`;
+            rotularCom(btn, 'check-circulo', `${data.reenfileirados} arquivo(s) na fila!`);
             setTimeout(() => { btn.innerText = 'Re-analisar Arquivos com Descrição Ruim'; btn.disabled = false; }, 3000);
             if (limpas) toastOk(`${limpas} imagem(ns) serão redescritas na próxima busca.`);
         } else {
@@ -2118,8 +2187,7 @@ function alternarBuscaSoFavoritos() {
     const btn = document.getElementById('btnFiltroFavoritos');
     btn.classList.toggle('active', _soFavoritos);
     btn.setAttribute('aria-pressed', _soFavoritos ? 'true' : 'false');
-    btn.textContent = _soFavoritos ? `${ICONE_FAV.sim} Favoritos`
-                                   : `${ICONE_FAV.nao} Favoritos`;
+    btn.replaceChildren(iconeFav(_soFavoritos), document.createTextNode(' Favoritos'));
 
     if (document.getElementById('searchInput').value.trim()) realizarBusca();
 }
@@ -2365,10 +2433,10 @@ function mostrarResultadoDaVerificacao(resumo, detalhe) {
 }
 
 async function adicionarPasta() {
-    const btn = document.getElementById('btnAdicionarPasta'); btn.innerText = "⏳ Abrindo Windows...";
+    const btn = document.getElementById('btnAdicionarPasta'); rotularCom(btn, 'ampulheta', 'Abrindo Windows...');
     const res = await fetch(`${API_BASE_URL}/api/choose_folder`); const data = await res.json();
     if (data.status === "sucesso") {
-        btn.innerText = "⏳ Salvando...";
+        rotularCom(btn, 'ampulheta', 'Salvando...');
         const updateRes = await fetch(`${API_BASE_URL}/api/folders`, {
             method: 'POST', headers: fetchOptions.headers,
             body: JSON.stringify({ pasta: data.pasta, prioridades: ['tudo'], perfil_analise: 'fast', janela_processamento: 'always' })
@@ -2390,15 +2458,15 @@ async function removerPasta(p) {
 async function forcarAnalise() {
     const btn = document.getElementById('btnAnalisarPastas');
     const textoOriginal = btn.innerHTML;
-    btn.innerHTML = "⏳ Atualizando embeddings...";
+    rotularCom(btn, 'ampulheta', 'Atualizando embeddings...');
     btn.disabled = true;
     try {
         // 1. Re-gera embeddings dos arquivos já processados (rápido, sem LLaVA)
         await fetch(`${API_BASE_URL}/api/reembed`, { method: 'POST', headers: fetchOptions.headers });
-        btn.innerHTML = "⏳ Sincronizando com a IA...";
+        rotularCom(btn, 'ampulheta', 'Sincronizando com a IA...');
         // 2. Escaneia pastas em busca de arquivos novos
         await fetch(`${API_BASE_URL}/api/analyze_folders`, { method: 'POST', headers: fetchOptions.headers });
-        btn.innerHTML = "✅ Análise Iniciada!";
+        rotularCom(btn, 'check-circulo', 'Análise Iniciada!');
         setTimeout(() => {
             btn.innerHTML = textoOriginal;
             btn.disabled = false;
@@ -2447,7 +2515,8 @@ function atualizarAcoesFavoritos() {
 
     const btnTodos = document.getElementById('favSelecionarTodos');
     const tudoMarcado = todos.length > 0 && marcados === todos.length;
-    btnTodos.textContent = tudoMarcado ? '☒ Desmarcar tudo' : '☑ Selecionar tudo';
+    rotularCom(btnTodos, tudoMarcado ? 'desmarcar-tudo' : 'marcar-tudo',
+               tudoMarcado ? 'Desmarcar tudo' : 'Selecionar tudo');
     btnTodos.setAttribute('aria-pressed', tudoMarcado ? 'true' : 'false');
 
     const resumo = document.getElementById('favResumo');
@@ -2483,7 +2552,7 @@ function sincronizarCardsDeFavoritos() {
         const btn = card.querySelector('.btn-sel-fav');
         if (btn) {
             btn.classList.toggle('is-sel', marcado);
-            btn.textContent = marcado ? '✓' : '';
+            marcarBotaoSelecao(btn, marcado);
             btn.setAttribute('aria-checked', marcado ? 'true' : 'false');
         }
     });
@@ -2764,13 +2833,13 @@ function renderizarResultados() {
         const favBtn = `<button type="button" class="btn-fav-abs ${favClass}" ` +
             `aria-pressed="${!!r.favorito}" aria-label="${r.favorito ? 'Remover dos favoritos' : 'Favoritar'}" ` +
             `title="${r.favorito ? 'Remover dos favoritos' : 'Favoritar'}" ` +
-            `onclick="toggleFavorito(event, ${r.id}, this)">${r.favorito ? ICONE_FAV.sim : ICONE_FAV.nao}</button>`;
+            `onclick="toggleFavorito(event, ${r.id}, this)">${iconeFavHTML(r.favorito)}</button>`;
 
         // Seleção ≠ favorito: caixa quadrada à esquerda, coração à direita.
         // O estado vem do Set em memória, não do DOM — o grid é reconstruído
         // inteiro a cada troca de filtro e levaria a marcação junto.
         const sel = _selecionados.has(r.id);
-        const selBtn = `<button type="button" class="btn-sel-abs${sel ? ' is-sel' : ''}" role="checkbox" aria-checked="${sel}" aria-label="Selecionar para coleção" title="Selecionar para coleção" onclick="alternarSelecao(event, ${r.id}, this)">${sel ? '✓' : ''}</button>`;
+        const selBtn = `<button type="button" class="btn-sel-abs${sel ? ' is-sel' : ''}" role="checkbox" aria-checked="${sel}" aria-label="Selecionar para coleção" title="Selecionar para coleção" onclick="alternarSelecao(event, ${r.id}, this)">${sel ? iconeHTML('check') : ''}</button>`;
 
         return `<div class="card${sel ? ' card-selecionado' : ''}" data-file-id="${r.id}" data-idx="${idx}" onclick="abrirPainelLateral(${idx})" onmouseenter="mostrarHoverPreview(event, ${idx})" onmousemove="moverHoverPreview(event)" onmouseleave="esconderHoverPreview()">${selBtn}${favBtn}<div class="media-container">${midia}</div><div class="card-content"><h3>${r.nome}</h3><div class="tags"><span class="badge type">${ext.toUpperCase()}</span>${badgeDeOrigem(r.origem)}</div>${trecho}</div></div>`;
     };
@@ -2858,8 +2927,8 @@ async function montarEstadoVazio(grid) {
         box.appendChild(_secaoSugestoes(
             'Talvez você queira dizer:',
             categorias.slice(0, 6).map(c => {
-                const meta = _CAT_GALERIA[c.categoria] || { icone: '📁', nome: c.categoria };
-                return { rotulo: `${meta.icone} ${meta.nome}`, badge: c.total, termo: meta.nome };
+                const meta = _CAT_GALERIA[c.categoria] || { icone: 'pasta', nome: c.categoria };
+                return { icone: meta.icone, rotulo: meta.nome, badge: c.total, termo: meta.nome };
             })));
     }
 
@@ -2883,7 +2952,12 @@ function _secaoSugestoes(titulo, itens) {
         const chip = document.createElement('button');
         chip.type = 'button';
         chip.className = 'vazio-chip';
-        chip.textContent = it.rotulo;
+        if (it.icone) {
+            chip.classList.add('tem-icone');
+            chip.append(icone(it.icone), document.createTextNode(it.rotulo));
+        } else {
+            chip.textContent = it.rotulo;
+        }
         if (it.badge != null) {
             const b = document.createElement('span');
             b.className = 'vazio-chip-badge';
@@ -3042,8 +3116,8 @@ async function carregarFavoritos() {
             dados.resultados.forEach(r => {
                 const ext = r.tipo.toLowerCase();
                 let iconText = "";
-                if (extensoesVideo.includes(ext)) iconText = "🎥";
-                else if (extensoesAudio.includes(ext)) iconText = "🎵";
+                if (extensoesVideo.includes(ext)) iconText = iconeHTML('video', 'ic--g');
+                else if (extensoesAudio.includes(ext)) iconText = iconeHTML('musica', 'ic--g');
                 else if (extensoesImagem.includes(ext)) iconText = "";
 
                 let thumbHtml = `<div class="fav-thumb" style="display:flex; align-items:center; justify-content:center; font-size:1.5rem;">${iconText}</div>`;
@@ -3059,7 +3133,7 @@ async function carregarFavoritos() {
                     <button type="button" class="btn-sel-fav${marcado ? ' is-sel' : ''}"
                             role="checkbox" aria-checked="${marcado}"
                             aria-label="Selecionar para coleção" title="Selecionar para coleção"
-                            onclick="alternarSelecao(event, ${r.id}, this)">${marcado ? '✓' : ''}</button>
+                            onclick="alternarSelecao(event, ${r.id}, this)">${marcado ? iconeHTML('check') : ''}</button>
                     ${thumbHtml}
                     <div class="fav-info">
                         <strong>${r.nome}</strong>
@@ -3067,7 +3141,7 @@ async function carregarFavoritos() {
                         <span>Adicionado: ${dataAdd}</span>
                     </div>
                     <div class="fav-actions">
-                        <button type="button" class="btn-fav-icon" aria-label="Remover dos favoritos" title="Remover dos favoritos" onclick="toggleFavorito(event, ${r.id}, null, true)">${ICONE_FAV.sim}</button>
+                        <button type="button" class="btn-fav-icon" aria-label="Remover dos favoritos" title="Remover dos favoritos" onclick="toggleFavorito(event, ${r.id}, null, true)">${iconeFavHTML(true)}</button>
                     </div>
                 </div>`;
                 list.innerHTML += card;
@@ -3080,16 +3154,16 @@ async function carregarFavoritos() {
     }
 }
 
-// Coração vazado x preenchido. São glifos de TEXTO, não emoji: o emoji 🤍 vem
+// Coração vazado x preenchido -- ver iconeFav() no topo do arquivo.
 // com cor própria e ignora `color`, então a regra `.is-fav` não conseguia
 // pintá-lo. O favoritado chegava a renderizar string vazia — um círculo em
 // branco, sem indicação nenhuma de que estava favoritado.
-const ICONE_FAV = { sim: '♥', nao: '♡' };
+const ICONE_FAV = { sim: true, nao: false };   // mantido só por compatibilidade
 
 function aplicarEstadoFavorito(btn, isFav) {
     if (!btn) return;
     btn.classList.toggle('is-fav', !!isFav);
-    btn.textContent = isFav ? ICONE_FAV.sim : ICONE_FAV.nao;
+    btn.replaceChildren(iconeFav(isFav));
     btn.setAttribute('aria-pressed', isFav ? 'true' : 'false');
     const rotulo = isFav ? 'Remover dos favoritos' : 'Favoritar';
     btn.setAttribute('aria-label', rotulo);
@@ -3171,8 +3245,8 @@ async function carregarFavoritosDash() {
             topFavs.forEach(r => {
                 const ext = r.tipo.toLowerCase();
                 let iconText = "";
-                if (extensoesVideo.includes(ext)) iconText = "🎥";
-                else if (extensoesAudio.includes(ext)) iconText = "🎵";
+                if (extensoesVideo.includes(ext)) iconText = iconeHTML('video', 'ic--gg');
+                else if (extensoesAudio.includes(ext)) iconText = iconeHTML('musica', 'ic--gg');
                 else if (extensoesImagem.includes(ext)) iconText = "";
 
                 let midia = `<div class="recent-img" style="font-size:3rem; background:transparent;">${iconText}</div>`;
@@ -3185,7 +3259,7 @@ async function carregarFavoritosDash() {
                         ${midia}
                     </div>
                     <p style="pointer-events: auto;">${r.nome}</p>
-                    <button type="button" class="btn-fav-abs is-fav" aria-pressed="true" aria-label="Remover dos favoritos" title="Remover dos favoritos" onclick="event.stopPropagation(); toggleFavorito(event, ${r.id}, this, true)" style="top:5px; right:5px; width:30px; height:30px; pointer-events: auto;">${ICONE_FAV.sim}</button>
+                    <button type="button" class="btn-fav-abs is-fav" aria-pressed="true" aria-label="Remover dos favoritos" title="Remover dos favoritos" onclick="event.stopPropagation(); toggleFavorito(event, ${r.id}, this, true)" style="top:5px; right:5px; width:30px; height:30px; pointer-events: auto;">${iconeFavHTML(true)}</button>
                 </div>`;
 
                 grid.innerHTML += cardBox;
@@ -3200,13 +3274,13 @@ async function carregarFavoritosDash() {
 // GALERIA AGRUPADA POR CATEGORIA (home)
 // ==========================================
 const _CAT_GALERIA = {
-    pessoas:  { icone: '👥', nome: 'Pessoas' },
-    animais:  { icone: '🐾', nome: 'Animais' },
-    comida:   { icone: '🍽️', nome: 'Comida' },
-    natureza: { icone: '🌳', nome: 'Natureza' },
-    urbano:   { icone: '🏙️', nome: 'Urbano' },
-    desenhos: { icone: '🎨', nome: 'Desenhos e Arte' },
-    outras:   { icone: '📦', nome: 'Outras' },
+    pessoas:  { icone: 'pessoas',  nome: 'Pessoas' },
+    animais:  { icone: 'animais',  nome: 'Animais' },
+    comida:   { icone: 'comida',   nome: 'Comida' },
+    natureza: { icone: 'natureza', nome: 'Natureza' },
+    urbano:   { icone: 'urbano',   nome: 'Urbano' },
+    desenhos: { icone: 'paleta',   nome: 'Desenhos e Arte' },
+    outras:   { icone: 'caixa',    nome: 'Outras' },
 };
 
 // ==========================================
@@ -3226,13 +3300,13 @@ function desenharSeletorDePastas(pastas) {
 
     const btn = document.getElementById('seletorPastasBotao');
     if (!Array.isArray(_pastasVisiveis)) {
-        btn.textContent = `📁 Todas as pastas (${pastas.length})`;
+        rotularCom(btn, 'pasta', `Todas as pastas (${pastas.length})`);
     } else if (_pastasVisiveis.length === 0) {
-        btn.textContent = '📁 Nenhuma pasta';
+        rotularCom(btn, 'pasta', 'Nenhuma pasta');
     } else if (_pastasVisiveis.length === pastas.length) {
-        btn.textContent = `📁 Todas as pastas (${pastas.length})`;
+        rotularCom(btn, 'pasta', `Todas as pastas (${pastas.length})`);
     } else {
-        btn.textContent = `📁 ${_pastasVisiveis.length} de ${pastas.length} pastas`;
+        rotularCom(btn, 'pasta', `${_pastasVisiveis.length} de ${pastas.length} pastas`);
     }
     btn.setAttribute('aria-expanded', 'false');
 }
@@ -3412,14 +3486,14 @@ async function carregarGaleria() {
         }
 
         grupos.forEach(g => {
-            const meta = _CAT_GALERIA[g.categoria] || { icone: '📁', nome: g.categoria };
+            const meta = _CAT_GALERIA[g.categoria] || { icone: 'pasta', nome: g.categoria };
 
             const secao = document.createElement('div');
             secao.style.cssText = 'margin-bottom: 32px;';
 
             const titulo = document.createElement('h3');
             titulo.style.cssText = 'color: var(--text-primary); margin: 0 0 14px 0; display:flex; align-items:center; gap:8px; justify-content:center;';
-            titulo.textContent = `${meta.icone} ${meta.nome}`;
+            rotularCom(titulo, meta.icone, meta.nome);
             const cont = document.createElement('span');
             cont.style.cssText = 'font-size:0.8rem; color:var(--text-secondary); font-weight:normal;';
             cont.textContent = `(${g.total})`;
@@ -3459,7 +3533,7 @@ async function carregarGaleria() {
                 sel.setAttribute('aria-checked', _selecionados.has(r.id) ? 'true' : 'false');
                 sel.setAttribute('aria-label', 'Selecionar para coleção');
                 sel.title = 'Selecionar para coleção';
-                sel.textContent = _selecionados.has(r.id) ? '✓' : '';
+                marcarBotaoSelecao(sel, _selecionados.has(r.id));
                 sel.onclick = (ev) => alternarSelecao(ev, r.id, sel);
                 card.appendChild(sel);
 
@@ -3474,7 +3548,7 @@ async function carregarGaleria() {
                 fav.setAttribute('aria-label',
                     r.favorito ? 'Remover dos favoritos' : 'Favoritar');
                 fav.title = fav.getAttribute('aria-label');
-                fav.textContent = r.favorito ? ICONE_FAV.sim : ICONE_FAV.nao;
+                fav.replaceChildren(iconeFav(r.favorito));
                 fav.onclick = (ev) => toggleFavorito(ev, r.id, fav);
                 card.appendChild(fav);
 
@@ -3532,7 +3606,8 @@ function atualizarBotoesDeCategoria() {
     document.querySelectorAll('.btn-sel-categoria').forEach(btn => {
         const itens = (window._galeriaGrupos || {})[btn.dataset.categoria] || [];
         const todos = itens.length > 0 && itens.every(r => _selecionados.has(r.id));
-        btn.textContent = todos ? '☒ Desmarcar' : '☑ Selecionar tudo';
+        rotularCom(btn, todos ? 'desmarcar-tudo' : 'marcar-tudo',
+               todos ? 'Desmarcar' : 'Selecionar tudo');
         btn.setAttribute('aria-pressed', todos ? 'true' : 'false');
         btn.setAttribute('aria-label', todos
             ? 'Desmarcar todas as imagens desta categoria'
@@ -3552,7 +3627,7 @@ function sincronizarCardsDaGaleria() {
         const btn = card.querySelector('.btn-sel-abs');
         if (btn) {
             btn.classList.toggle('is-sel', marcado);
-            btn.textContent = marcado ? '✓' : '';
+            marcarBotaoSelecao(btn, marcado);
             btn.setAttribute('aria-checked', marcado ? 'true' : 'false');
         }
     });
@@ -3845,17 +3920,21 @@ async function buscarStatus() {
 
         // Monta o texto do status
         let texto;
+        let simbolo = '';       // id do icone que acompanha o texto
         if (pend > 0) {
             // "N na fila" não responde à pergunta que a pessoa tem: dá tempo
             // de almoçar? O tempo restante vem calibrado pelo ritmo que a
             // indexação está de fato conseguindo nesta máquina, e só aparece
             // quando o servidor tem medição suficiente para arriscar um número.
             const resta = s.restante_texto ? ` · ${s.restante_texto}` : '';
-            texto = `🔍 Indexando arquivos — ${pend} na fila${resta}`;
+            simbolo = 'lupa';
+            texto = `Indexando arquivos — ${pend} na fila${resta}`;
         } else if (s.status && s.status.startsWith('Aguardando janela')) {
-            texto = `🕐 ${s.status}`;
+            simbolo = 'relogio';
+            texto = s.status;
         } else if (s.status && s.status.startsWith('Escaneando')) {
-            texto = `📂 ${s.status}`;
+            simbolo = 'pasta-aberta';
+            texto = s.status;
         } else {
             texto = "Motor pronto";
         }
@@ -3863,19 +3942,22 @@ async function buscarStatus() {
         // Reconstrói a barra: texto (textContent, anti-XSS) + botão cancelar
         b.innerHTML = '';
         const span = document.createElement('span');
-        span.textContent = texto;
+        if (simbolo) rotularCom(span, simbolo, texto, '');
+        else span.textContent = texto;
+        span.classList.toggle('tem-icone', !!simbolo);
         b.appendChild(span);
 
         if (pend > 0) {
             const btn = document.createElement('button');
-            btn.textContent = '✕ Cancelar análise';
+            rotularCom(btn, 'x', 'Cancelar análise');
             btn.className = 'status-cancelar';
             btn.onclick = cancelarAnalise;
             b.appendChild(btn);
         }
         b.style.color = "var(--telemetry)";
     } catch (e) {
-        b.textContent = "⚠ Servidor desconectado — verifique se o backend está rodando.";
+        rotularCom(b, 'alerta',
+                   'Servidor desconectado — verifique se o backend está rodando.');
         b.style.color = "#ef4444";
     }
 }
@@ -4357,13 +4439,13 @@ function alternarSelecao(event, fileId, btn) {
     if (_selecionados.has(fileId)) {
         _selecionados.delete(fileId);
         btn.classList.remove('is-sel');
-        btn.textContent = '';
+        marcarBotaoSelecao(btn, false);
         btn.setAttribute('aria-checked', 'false');
         if (card) card.classList.remove('card-selecionado');
     } else {
         _selecionados.add(fileId);
         btn.classList.add('is-sel');
-        btn.textContent = '✓';
+        marcarBotaoSelecao(btn, true);
         btn.setAttribute('aria-checked', 'true');
         if (card) card.classList.add('card-selecionado');
     }
@@ -4442,7 +4524,7 @@ function sincronizarCardsComSelecao() {
         card.classList.toggle('card-selecionado', sel);
         if (!btn) return;
         btn.classList.toggle('is-sel', sel);
-        btn.textContent = sel ? '✓' : '';
+        marcarBotaoSelecao(btn, sel);
         btn.setAttribute('aria-checked', sel ? 'true' : 'false');
     });
 }
@@ -4463,7 +4545,8 @@ function atualizarAcoesResultados() {
         : `${vis.length} ${vis.length === 1 ? 'resultado' : 'resultados'}`;
 
     const todos = marcados === vis.length;
-    btn.textContent = todos ? '☒ Desmarcar tudo' : '☑ Selecionar tudo';
+    rotularCom(btn, todos ? 'desmarcar-tudo' : 'marcar-tudo',
+               todos ? 'Desmarcar tudo' : 'Selecionar tudo');
     btn.setAttribute('aria-pressed', todos ? 'true' : 'false');
     const rotulo = todos ? 'Desmarcar todas as imagens dos resultados'
                          : 'Selecionar todas as imagens dos resultados';
@@ -4540,7 +4623,7 @@ async function carregarColecoes() {
                 capa.appendChild(img);
             } else if (caps.length === 0) {
                 capa.classList.add('colecao-capa-vazia');
-                capa.textContent = '📁';
+                capa.replaceChildren(icone('pasta', 'ic--gg'));
             } else {
                 capa.classList.add(`mosaico-${Math.min(caps.length, 4)}`);
                 caps.slice(0, 4).forEach(caminho => {
@@ -4568,7 +4651,7 @@ async function carregarColecoes() {
             // Botão excluir flutuante no canto
             const delBtn = document.createElement('button');
             delBtn.className = 'colecao-del-flutuante';
-            delBtn.textContent = '🗑';
+            delBtn.replaceChildren(icone('lixeira'));
             delBtn.title = 'Excluir coleção';
             delBtn.onclick = (e) => { e.stopPropagation(); excluirColecao(c.id, c.nome); };
 
@@ -4580,8 +4663,8 @@ async function carregarColecoes() {
                 const auto = c.modo_sync === 'auto';
                 const selo = document.createElement('div');
                 selo.className = 'colecao-vinculo' + (auto ? ' colecao-vinculo-auto' : '');
-                selo.textContent = auto ? `↳ envia para ${_nomeDaPasta(c.pasta_vinculada)}`
-                                        : `↳ pasta: ${_nomeDaPasta(c.pasta_vinculada)}`;
+                rotularCom(selo, 'seta-canto',
+                           (auto ? 'envia para ' : 'pasta: ') + _nomeDaPasta(c.pasta_vinculada));
                 selo.title = c.pasta_vinculada;
                 info.appendChild(selo);
             }
@@ -4799,9 +4882,9 @@ async function atualizarBotaoAbrirPasta(colId) {
         btn.style.display = 'inline-block';
         const st = document.getElementById('btnStatusPasta');
         if (st) st.style.display = 'inline-block';
-        btn.textContent = pastas.length > 1
-            ? `📂 Abrir pasta exportada (${pastas.length})`
-            : '📂 Abrir pasta exportada';
+        rotularCom(btn, 'pasta-aberta', pastas.length > 1
+            ? `Abrir pasta exportada (${pastas.length})`
+            : 'Abrir pasta exportada');
         btn.title = `Abrir no Explorer: ${alvo.caminho}`;
     } catch (e) { console.error(e); }
 }
@@ -4880,7 +4963,7 @@ function renderizarPastasExportadas(pastas) {
         renomear.type = 'button';
         renomear.className = 'action-btn';
         renomear.style.background = 'transparent';
-        renomear.textContent = '✎';
+        renomear.replaceChildren(icone('lapis'));
         renomear.setAttribute('aria-label', `Mudar o complemento do nome de ${p.nome}`);
         renomear.title = 'Mudar o complemento do nome desta pasta';
         renomear.onclick = () => renomearSufixoDaPasta(p);
@@ -5303,9 +5386,10 @@ function atualizarBotaoMarcarTodas() {
     const caixas = [...document.querySelectorAll('#pastasExpLista input[type="checkbox"]')];
     // Com uma pasta só, "marcar todas" não significa nada além do próprio item.
     acoes.style.display = caixas.length > 1 ? 'flex' : 'none';
-    btn.textContent = caixas.some(cb => !cb.checked)
-        ? '☑ Enviar para todas as pastas'
-        : '☐ Não enviar para nenhuma';
+    const vaiMarcarTodas = caixas.some(cb => !cb.checked);
+    rotularCom(btn, vaiMarcarTodas ? 'marcar-tudo' : 'caixa-vazia',
+               vaiMarcarTodas ? 'Enviar para todas as pastas'
+                              : 'Não enviar para nenhuma');
 }
 
 // Envia o conjunto inteiro a cada mudança: o backend recebe a lista completa,
@@ -5457,7 +5541,7 @@ async function verColecao(id, nome) {
                 const eCapa = _colecaoAtual && _colecaoAtual.capa_file_id === r.id;
                 const capaBtn = document.createElement('button');
                 capaBtn.className = 'colecao-item-capa' + (eCapa ? ' e-capa' : '');
-                capaBtn.textContent = eCapa ? '★' : '☆';
+                capaBtn.replaceChildren(icone('estrela', eCapa ? 'ic--cheio' : ''));
                 capaBtn.title = eCapa
                     ? 'Esta é a capa. Clique para voltar ao mosaico automático.'
                     : 'Usar como capa da coleção';
@@ -6126,7 +6210,7 @@ function mostrarResultadoExportacao(d) {
         titulo.textContent = 'Coleção exportada — parcialmente';
         h.textContent = `${d.copiados} de ${d.total} imagens salvas em ${d.pasta}`;
     } else {
-        titulo.textContent = '✓ Coleção exportada';
+        rotularCom(titulo, 'check-circulo', 'Coleção exportada');
         h.textContent = `${d.copiados} ${d.copiados === 1 ? 'imagem salva' : 'imagens salvas'} em ${d.pasta}`;
     }
     box.appendChild(h);

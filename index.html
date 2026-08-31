@@ -9,6 +9,56 @@
     <link rel="stylesheet" href="style.css?v=2026_claude_ui">
 </head>
 <body>
+<!-- Conjunto de icones.
+
+     Todos desenhados no mesmo grid de 24x24 e no mesmo peso de traco: e o
+     que faz um conjunto parecer um conjunto, em vez de figurinhas avulsas
+     de origens diferentes.
+
+     O traco e `currentColor`, entao cada icone acompanha o tema e a cor de
+     destaque que o usuario escolheu, inclusive os ajustes de contraste.
+     Emoji nao faz isso: a cor vem da fonte do sistema e nao se mexe.
+
+     Fica inline, e nao num .svg externo, porque `<use href="#id">` no mesmo
+     documento dispensa requisicao -- e o app roda offline. -->
+<svg class="sprite-icones" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+  <symbol id="ic-lupa" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m20 20-3.7-3.7"/></symbol>
+  <symbol id="ic-lupa-dentro" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m20 20-3.7-3.7"/><path d="M8.6 11h4.8M11 8.6v4.8"/></symbol>
+  <symbol id="ic-camera" viewBox="0 0 24 24"><path d="M4 8.6h2.7l1.5-2.3h7.6l1.5 2.3H20a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-8a1 1 0 0 1 1-1Z"/><circle cx="12" cy="13.4" r="3.2"/></symbol>
+  <symbol id="ic-relogio" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.2"/><path d="M12 7.4V12l3.1 1.9"/></symbol>
+  <symbol id="ic-ampulheta" viewBox="0 0 24 24"><path d="M7 4h10M7 20h10"/><path d="M8.2 4v3c0 1.3 3.8 3.6 3.8 5s-3.8 3.7-3.8 5v3"/><path d="M15.8 4v3c0 1.3-3.8 3.6-3.8 5s3.8 3.7 3.8 5v3"/></symbol>
+  <symbol id="ic-funil" viewBox="0 0 24 24"><path d="M4 5.6h16l-6.3 7.4v5.4l-3.4 1.9v-7.3z"/></symbol>
+  <symbol id="ic-engrenagem" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 3v2.3M12 18.7V21M21 12h-2.3M5.3 12H3M18.4 5.6l-1.6 1.6M7.2 16.8l-1.6 1.6M18.4 18.4l-1.6-1.6M7.2 7.2 5.6 5.6"/></symbol>
+  <symbol id="ic-pasta" viewBox="0 0 24 24"><path d="M3.2 17.4V6.6A1.6 1.6 0 0 1 4.8 5h3.9l2.1 2.6h6.4A1.6 1.6 0 0 1 18.8 9.2v8.2A1.6 1.6 0 0 1 17.2 19H4.8a1.6 1.6 0 0 1-1.6-1.6Z"/></symbol>
+  <symbol id="ic-pasta-aberta" viewBox="0 0 24 24"><path d="M4 18.4V6.6A1.6 1.6 0 0 1 5.6 5h3.6l2.1 2.6h6.1A1.6 1.6 0 0 1 19 9.2v1.6"/><path d="M2.9 18.6 5.1 12.5a1.4 1.4 0 0 1 1.3-.9h14a1 1 0 0 1 .95 1.32L19.2 19H4.3a1.4 1.4 0 0 1-1.4-.4Z"/></symbol>
+  <symbol id="ic-imagem" viewBox="0 0 24 24"><rect x="3.4" y="5" width="17.2" height="14" rx="2.2"/><circle cx="8.7" cy="10" r="1.5"/><path d="m3.8 17.4 4.5-4.3a1.6 1.6 0 0 1 2.2 0l4 3.9"/><path d="m13.6 14.2 1.6-1.5a1.6 1.6 0 0 1 2.2 0l2.8 2.7"/></symbol>
+  <symbol id="ic-video" viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2.2"/><path d="m10.4 9.7 4.7 2.3-4.7 2.3z"/></symbol>
+  <symbol id="ic-musica" viewBox="0 0 24 24"><path d="M9.2 17.6V6.8l9-1.8v10.6"/><circle cx="7" cy="17.6" r="2.2"/><circle cx="16" cy="15.6" r="2.2"/></symbol>
+  <symbol id="ic-caixa" viewBox="0 0 24 24"><path d="M12 3.4 20.6 8v8L12 20.6 3.4 16V8z"/><path d="M3.4 8 12 12.6 20.6 8M12 12.6v8"/></symbol>
+  <symbol id="ic-check" viewBox="0 0 24 24"><path d="m5.2 12.6 4.5 4.4L18.8 7"/></symbol>
+  <symbol id="ic-check-circulo" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.2"/><path d="m8.2 12.2 2.6 2.5 5-5.3"/></symbol>
+  <symbol id="ic-x" viewBox="0 0 24 24"><path d="M6.6 6.6 17.4 17.4M17.4 6.6 6.6 17.4"/></symbol>
+  <symbol id="ic-marcar-tudo" viewBox="0 0 24 24"><rect x="3.8" y="3.8" width="16.4" height="16.4" rx="3.4"/><path d="m8.2 12.2 2.6 2.5 5-5.3"/></symbol>
+  <symbol id="ic-desmarcar-tudo" viewBox="0 0 24 24"><rect x="3.8" y="3.8" width="16.4" height="16.4" rx="3.4"/><path d="m9.2 9.2 5.6 5.6M14.8 9.2l-5.6 5.6"/></symbol>
+  <symbol id="ic-caixa-vazia" viewBox="0 0 24 24"><rect x="3.8" y="3.8" width="16.4" height="16.4" rx="3.4"/></symbol>
+  <symbol id="ic-lapis" viewBox="0 0 24 24"><path d="m5 19 .8-3.6L15.9 5.3a2 2 0 0 1 2.8 2.8L8.6 18.2z"/><path d="m14 7.2 2.8 2.8"/></symbol>
+  <symbol id="ic-lixeira" viewBox="0 0 24 24"><path d="M4.6 6.8h14.8"/><path d="M9.6 6.8V5.1A1.2 1.2 0 0 1 10.8 3.9h2.4a1.2 1.2 0 0 1 1.2 1.2v1.7"/><path d="M6.6 6.8 7.4 18.4A1.7 1.7 0 0 0 9.1 20h5.8a1.7 1.7 0 0 0 1.7-1.6l.8-11.6"/><path d="M10.4 10.4v5.6M13.6 10.4v5.6"/></symbol>
+  <symbol id="ic-baixar" viewBox="0 0 24 24"><path d="M12 4.4v10.8M7.6 11.2 12 15.6l4.4-4.4M4.8 19.4h14.4"/></symbol>
+  <symbol id="ic-subir" viewBox="0 0 24 24"><path d="M12 19.6V8.8M7.6 12.8 12 8.4l4.4 4.4M4.8 4.6h14.4"/></symbol>
+  <symbol id="ic-seta-canto" viewBox="0 0 24 24"><path d="M6.2 5.4v6.3a2 2 0 0 0 2 2h9.6"/><path d="m14.4 10.3 3.6 3.4-3.6 3.4"/></symbol>
+  <symbol id="ic-coracao" viewBox="0 0 24 24"><path d="M12 19.4c-1-.7-7.6-5.1-7.6-9.8A4 4 0 0 1 12 7.4a4 4 0 0 1 7.6 2.2c0 4.7-6.6 9.1-7.6 9.8Z"/></symbol>
+  <symbol id="ic-estrela" viewBox="0 0 24 24"><path d="m12 4.4 2.4 4.9 5.4.8-3.9 3.8.9 5.4-4.8-2.5-4.8 2.5.9-5.4-3.9-3.8 5.4-.8z"/></symbol>
+  <symbol id="ic-alerta" viewBox="0 0 24 24"><path d="M10.3 5.2 2.9 17.8A1.6 1.6 0 0 0 4.3 20h15.4a1.6 1.6 0 0 0 1.4-2.2L13.7 5.2a1.9 1.9 0 0 0-3.4 0Z"/><path d="M12 10v4.2M12 17.2h.01"/></symbol>
+  <symbol id="ic-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.2"/><path d="M12 11.2v5M12 8h.01"/></symbol>
+  <symbol id="ic-paleta" viewBox="0 0 24 24"><path d="M12 3.4a8.6 8.6 0 0 0 0 17.2c1 0 1.8-.8 1.8-1.8 0-.5-.2-.9-.5-1.2a1.7 1.7 0 0 1 1.3-2.9h2.1a4.7 4.7 0 0 0 4.7-4.7c0-3.8-4.2-6.6-9.4-6.6Z"/><circle cx="8" cy="11.4" r="1.1"/><circle cx="11.4" cy="7.8" r="1.1"/><circle cx="16" cy="9.4" r="1.1"/></symbol>
+  <symbol id="ic-teclado" viewBox="0 0 24 24"><rect x="2.6" y="6" width="18.8" height="12" rx="2.2"/><path d="M6 9.6h.01M9.4 9.6h.01M12.8 9.6h.01M16.2 9.6h.01M6 12.9h.01M9.4 12.9h.01M12.8 12.9h.01M16.2 12.9h.01M8.4 15.9h7.2"/></symbol>
+  <symbol id="ic-pessoas" viewBox="0 0 24 24"><circle cx="9.2" cy="8.6" r="3.2"/><path d="M3.6 19.4a5.6 5.6 0 0 1 11.2 0"/><path d="M16.2 5.7a3.2 3.2 0 0 1 0 5.8M17.4 13.8a5.6 5.6 0 0 1 3.2 5.2"/></symbol>
+  <symbol id="ic-animais" viewBox="0 0 24 24"><ellipse cx="7.3" cy="10.2" rx="1.9" ry="2.4"/><ellipse cx="12" cy="8.2" rx="1.9" ry="2.5"/><ellipse cx="16.7" cy="10.2" rx="1.9" ry="2.4"/><path d="M12 13.2c2.6 0 4.7 1.6 4.7 3.6S14.6 20.2 12 20.2s-4.7-1.4-4.7-3.4 2.1-3.6 4.7-3.6Z"/></symbol>
+  <symbol id="ic-comida" viewBox="0 0 24 24"><path d="M7 4v5.6a2.2 2.2 0 0 0 2.2 2.2h.2M9.4 4v5.4M11.8 4v5.6a2.2 2.2 0 0 1-2.2 2.2h-.2M9.4 11.8V20"/><path d="M16.8 20v-6.4m0 0c1.3 0 2.2-1 2.2-3.1 0-3.6-1-6.5-2.2-6.5s-2.2 2.9-2.2 6.5c0 2.1.9 3.1 2.2 3.1Z"/></symbol>
+  <symbol id="ic-natureza" viewBox="0 0 24 24"><path d="M12 20v-3.6"/><path d="M12 3.6 7.4 11h2.7l-3.5 5.4h10.8L13.9 11h2.7z"/></symbol>
+  <symbol id="ic-urbano" viewBox="0 0 24 24"><rect x="3.4" y="9.2" width="7" height="10.8" rx="1.2"/><rect x="13.6" y="4" width="7" height="16" rx="1.2"/><path d="M5.9 12.4h2M5.9 15.8h2M16.1 7.4h2M16.1 10.8h2M16.1 14.2h2"/></symbol>
+</svg>
+
     <div id="viewPerfilModal" class="modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(7, 10, 19, 0.95); backdrop-filter:blur(12px); align-items:center; justify-content:center;">
     <div class="pro-container" style="background:var(--surface); width:480px; border-radius:24px; border:1px solid var(--border-light); position:relative; overflow:hidden; box-shadow:0 25px 50px -12px rgba(0,0,0,0.5);">
         
@@ -241,7 +291,7 @@
                 <span id="favResumo" class="favoritos-resumo"></span>
                 <button type="button" id="favSelecionarTodos" class="action-btn"
                         onclick="alternarSelecionarTodosFavoritos()" aria-pressed="false"
-                        style="margin:0;">☑ Selecionar tudo</button>
+                        style="margin:0;"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-marcar-tudo"></use></svg> Selecionar tudo</button>
                 <button type="button" id="favEnviar" class="action-btn gradient-btn"
                         onclick="enviarFavoritosParaColecao()" disabled
                         style="margin:0;">＋ Enviar para coleção</button>
@@ -299,12 +349,12 @@
                             <input type="text" id="searchInput" placeholder="Pesquise o que você lembra..." oninput="atualizarBotaoLimpar()" onkeypress="verificarEnter(event)" onfocus="mostrarHistorico(); atualizarBotaoLimpar()" onblur="setTimeout(esconderHistorico,150)">
                             <button type="button" id="btnLimparBusca" class="btn-limpar-busca" onclick="limparCampoBusca()" onmousedown="event.preventDefault()" aria-label="Limpar busca" title="Limpar busca">&times;</button>
                         </div>
-                        <button class="search-btn-img" onclick="abrirBuscaImagem()" title="Buscar por imagem">📷</button>
+                        <button class="search-btn-img" onclick="abrirBuscaImagem()" title="Buscar por imagem" aria-label="Buscar por imagem"><svg class="ic ic--g" aria-hidden="true" focusable="false"><use href="#ic-camera"></use></svg></button>
                         <button class="gradient-btn search-btn" onclick="realizarBusca()">Buscar</button>
                     </div>
                     <div id="searchHistoryDropdown" class="history-dropdown">
                         <div class="history-header">
-                            <span>🕐 Buscas recentes</span>
+                            <span class="tem-icone"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-relogio"></use></svg> Buscas recentes</span>
                         </div>
                         <div id="searchHistoryList"></div>
                     </div>
@@ -317,8 +367,8 @@
                         <button class="filter-tag" data-filter="documento">Documentos</button>
                         <button class="filter-tag" data-filter="midia">Áudio / Vídeo</button>
                         <button class="filter-tag" id="btnFiltroFavoritos" onclick="alternarBuscaSoFavoritos()"
-                                aria-pressed="false" title="Buscar só entre os favoritos">♡ Favoritos</button>
-                        <button class="filter-tag filtros-toggle" id="btnFiltrosAvancados" onclick="toggleFiltrosAvancados()" title="Filtros avançados">⚙ Filtros</button>
+                                aria-pressed="false" title="Buscar só entre os favoritos"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-coracao"></use></svg> Favoritos</button>
+                        <button class="filter-tag filtros-toggle" id="btnFiltrosAvancados" onclick="toggleFiltrosAvancados()" title="Filtros avançados"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-funil"></use></svg> Filtros</button>
                     </div>
 
                     <!-- Painel de filtros avançados -->
@@ -362,7 +412,7 @@
                     <button type="button" id="seletorPastasBotao" class="seletor-pastas-botao"
                             onclick="alternarSeletorDePastas()"
                             aria-haspopup="true" aria-expanded="false"
-                            title="Escolher quais pastas aparecem aqui">📁 Todas as pastas</button>
+                            title="Escolher quais pastas aparecem aqui"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-pasta"></use></svg> Todas as pastas</button>
                     <div id="seletorPastasMenu" class="seletor-pastas-menu" style="display: none;"></div>
                 </div>
 
@@ -389,10 +439,10 @@
                     <button type="button" id="btnSelecionarTodos" class="action-btn btn-selecionar-todos"
                             onclick="alternarSelecionarTodos()" aria-pressed="false"
                             aria-label="Selecionar todas as imagens dos resultados"
-                            title="Selecionar todas as imagens dos resultados">☑ Selecionar tudo</button>
+                            title="Selecionar todas as imagens dos resultados"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-marcar-tudo"></use></svg> Selecionar tudo</button>
                     <button type="button" id="btnBuscarDentro" class="action-btn"
                             onclick="buscarDentroDosResultados()"
-                            title="A próxima busca vai olhar só os resultados que estão na tela">🔎 Buscar dentro destes</button>
+                            title="A próxima busca vai olhar só os resultados que estão na tela"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-lupa-dentro"></use></svg> Buscar dentro destes</button>
                 </div>
                 <div class="results-grid" id="melhoresGrid"></div>
 
@@ -419,7 +469,7 @@
                     <a id="sideDownloadBtn" href="#" target="_blank" class="action-btn gradient-btn" style="display: block; text-align: center; margin: 20px 0 0 0; padding: 15px; text-decoration: none;">Abrir Arquivo Original</a>
                     <button id="sideOpenLocationBtn" onclick="abrirLocalDoArquivo()" class="action-btn" style="width:100%; margin: 8px 0 0 0; padding: 13px; background: transparent;">Abrir Local no Explorer</button>
                     <button id="sideAddColecaoBtn" onclick="abrirSeletorColecao()" class="action-btn" style="width:100%; margin: 8px 0 0 0; padding: 13px; background: transparent;">＋ Adicionar à coleção</button>
-                    <button id="sideParecidasBtn" onclick="acharParecidas()" class="action-btn" style="width:100%; margin: 8px 0 0 0; padding: 13px; background: transparent;">🔍 Achar imagens parecidas</button>
+                    <button id="sideParecidasBtn" onclick="acharParecidas()" class="action-btn" style="width:100%; margin: 8px 0 0 0; padding: 13px; background: transparent;"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-lupa"></use></svg> Achar imagens parecidas</button>
                 </div>
             </div>
         </div>
@@ -724,13 +774,13 @@
 
             <!-- Presets de tema: exportar / importar -->
             <div class="preset-tema-box">
-                <h4 style="margin:0 0 4px 0; color:var(--text-primary);">🎨 Temas (presets)</h4>
+                <h4 style="margin:0 0 4px 0; color:var(--text-primary);" class="tem-icone"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-paleta"></use></svg> Temas (presets)</h4>
                 <p style="margin:0 0 12px 0; color:var(--text-secondary); font-size:0.8rem;">
                     Salve seu visual num arquivo e compartilhe, ou importe o tema de outra pessoa.
                 </p>
                 <div style="display:flex; gap:10px;">
-                    <button onclick="exportarTema()" class="action-btn" style="flex:1; margin:0; padding:11px; background:transparent;">⬇ Exportar tema</button>
-                    <button onclick="document.getElementById('importarTemaInput').click()" class="action-btn" style="flex:1; margin:0; padding:11px; background:transparent;">⬆ Importar tema</button>
+                    <button onclick="exportarTema()" class="action-btn" style="flex:1; margin:0; padding:11px; background:transparent;"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-baixar"></use></svg> Exportar tema</button>
+                    <button onclick="document.getElementById('importarTemaInput').click()" class="action-btn" style="flex:1; margin:0; padding:11px; background:transparent;"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-subir"></use></svg> Importar tema</button>
                 </div>
                 <input type="file" id="importarTemaInput" accept=".json,application/json" style="display:none;" onchange="importarTema(event)">
             </div>
@@ -867,7 +917,7 @@
 
             <p class="exp-novo-rotulo">Nome da coleção</p>
             <button type="button" id="configRenomear" class="vincular-opcao" style="margin-bottom:20px;">
-                <span class="vincular-opcao-titulo">✎ Renomear coleção</span>
+                <span class="vincular-opcao-titulo tem-icone"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-lapis"></use></svg> Renomear coleção</span>
                 <span class="vincular-opcao-desc">O nome aparece no app e é usado nas pastas exportadas.</span>
             </button>
 
@@ -1092,7 +1142,7 @@
                 <input type="file" id="dropZoneInput" accept="image/*" style="display:none;">
                 <img id="dropZonePreview" style="display:none; max-width:100%; max-height:240px; border-radius:8px;">
                 <div id="dropZonePlaceholder" class="drop-zone-placeholder">
-                    <div style="font-size:2.5rem;">🖼️</div>
+                    <div style="color:var(--text-secondary);"><svg class="ic ic--gg" aria-hidden="true" focusable="false"><use href="#ic-imagem"></use></svg></div>
                     <div>Arraste uma imagem aqui</div>
                     <div style="font-size:0.8rem; color:var(--text-secondary);">ou clique para escolher</div>
                 </div>
@@ -1118,7 +1168,7 @@
                 <div style="display:flex; align-items:center; gap:10px; min-width:0;">
                     <h3 class="gradient-text" id="colecoesTitulo" style="margin:0; font-size:1.8rem; font-family:'Inter',sans-serif; word-break:break-word;">Minhas Coleções</h3>
                     <button type="button" id="btnRenomearColecao" class="btn-renomear" onclick="iniciarRenomearColecao()"
-                            style="display:none;" aria-label="Renomear coleção" title="Renomear coleção">✎</button>
+                            style="display:none;" aria-label="Renomear coleção" title="Renomear coleção"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-lapis"></use></svg></button>
                 </div>
                 <input type="text" id="colecaoNomeEdit" class="settings-input colecao-nome-edit" maxlength="80"
                        style="display:none;" aria-label="Novo nome da coleção"
@@ -1153,14 +1203,14 @@
                     <div style="display:flex; gap:8px;">
                         <button id="btnStatusPasta" class="action-btn" onclick="abrirStatusPasta()"
                                 style="margin:0; padding:8px 14px; background:transparent; display:none;"
-                                title="Ver quais imagens já estão na pasta e quais faltam">🔍 Status da pasta</button>
+                                title="Ver quais imagens já estão na pasta e quais faltam"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-lupa"></use></svg> Status da pasta</button>
                         <button id="btnConfigColecao" class="action-btn" onclick="abrirConfigColecao()"
                                 style="margin:0; padding:8px 14px; background:transparent;"
-                                title="Escolher quando as novas fotos vão para a pasta">⚙ Configurações</button>
+                                title="Escolher quando as novas fotos vão para a pasta"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-engrenagem"></use></svg> Configurações</button>
                         <button id="btnAbrirPastaColecao" class="action-btn" onclick="abrirPastaDaColecao()"
                                 style="margin:0; padding:8px 14px; background:transparent; display:none;"
-                                title="Abrir no Explorer a pasta exportada desta coleção">📂 Abrir pasta exportada</button>
-                        <button class="action-btn gradient-btn" onclick="exportarColecao()" style="margin:0; padding:8px 16px;" title="Salvar as imagens desta coleção numa pasta do computador">⬇ Exportar coleção</button>
+                                title="Abrir no Explorer a pasta exportada desta coleção"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-pasta-aberta"></use></svg> Abrir pasta exportada</button>
+                        <button class="action-btn gradient-btn" onclick="exportarColecao()" style="margin:0; padding:8px 16px;" title="Salvar as imagens desta coleção numa pasta do computador"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-baixar"></use></svg> Exportar coleção</button>
                     </div>
                 </div>
                 <div id="colecaoItens" class="recent-grid"></div>
@@ -1203,27 +1253,27 @@
             </div>
             <div class="ajuda-conteudo">
                 <div class="ajuda-item">
-                    <h4>🔍 Como buscar</h4>
+                    <h4 class="tem-icone"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-lupa"></use></svg> Como buscar</h4>
                     <p>Digite o que você quer encontrar em linguagem natural — ex: "cachorro na grama", "prato de comida", "foto de festa". A IA entende o significado, não só palavras exatas.</p>
                 </div>
                 <div class="ajuda-item">
-                    <h4>📁 Adicionar pastas</h4>
+                    <h4 class="tem-icone"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-pasta"></use></svg> Adicionar pastas</h4>
                     <p>Clique em "Gerenciar Pastas" e escolha pastas do seu computador. A IA vai analisar todas as imagens e documentos dentro delas.</p>
                 </div>
                 <div class="ajuda-item">
-                    <h4>⏳ Primeira análise</h4>
+                    <h4 class="tem-icone"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-ampulheta"></use></svg> Primeira análise</h4>
                     <p>Ao adicionar uma pasta, a IA precisa analisar cada arquivo (alguns segundos por imagem). Acompanhe o progresso na barra inferior. Você pode buscar enquanto ela trabalha.</p>
                 </div>
                 <div class="ajuda-item">
-                    <h4>⌨️ Atalhos de teclado</h4>
+                    <h4 class="tem-icone"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-teclado"></use></svg> Atalhos de teclado</h4>
                     <p><b>/</b> — foca a barra de busca · <b>Esc</b> — fecha janelas abertas · <b>Enter</b> — busca</p>
                 </div>
                 <div class="ajuda-item">
-                    <h4>⭐ Favoritos</h4>
+                    <h4 class="tem-icone"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-estrela"></use></svg> Favoritos</h4>
                     <p>Clique no coração de qualquer resultado para favoritar. Acesse depois pelo botão "Favoritos".</p>
                 </div>
                 <div class="ajuda-item">
-                    <h4>⚠️ Algo não funciona?</h4>
+                    <h4 class="tem-icone"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-alerta"></use></svg> Algo não funciona?</h4>
                     <p>Verifique se o <b>Ollama</b> está aberto e se você tem <b>conexão com a internet</b> (o banco de dados fica na nuvem). Se a busca não traz nada, espere a IA terminar de analisar a pasta.</p>
                 </div>
             </div>
