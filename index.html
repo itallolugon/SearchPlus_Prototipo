@@ -1070,6 +1070,18 @@
                 <button class="action-btn gradient-btn" onclick="criarColecao()" style="padding:10px 18px;">Criar</button>
             </div>
 
+            <!-- Ordem da lista. Fica escondido quando se está DENTRO de uma
+                 coleção — lá não há lista de coleções para ordenar. -->
+            <div id="colecoesOrdem" class="colecoes-ordem">
+                <label for="ordemColecoes">Ordenar por</label>
+                <select id="ordemColecoes" onchange="trocarOrdemDasColecoes(this.value)">
+                    <option value="recentes">Mais recentes</option>
+                    <option value="antigas">Mais antigas</option>
+                    <option value="nome">Nome</option>
+                    <option value="tamanho">Quantidade de itens</option>
+                </select>
+            </div>
+
             <!-- Lista de coleções OU conteúdo de uma coleção -->
             <div id="colecoesLista" class="recent-grid"></div>
             <div id="colecaoConteudo" style="display:none;">

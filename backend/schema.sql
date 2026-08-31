@@ -82,6 +82,15 @@ CREATE TABLE IF NOT EXISTS collections (
     UNIQUE (user_id, nome)
 );
 
+-- Capa escolhida a dedo. NULL = mosaico das 4 mais recentes, que continua
+-- sendo o padrão. A coleção tem uma foto que a representa na cabeça de quem a
+-- montou, e o mosaico automático raramente é essa foto.
+--
+-- Sem FK para files de propósito: se a imagem escolhida sair da biblioteca, a
+-- coleção volta ao mosaico em vez de a exclusão falhar ou a capa virar uma
+-- referência quebrada.
+ALTER TABLE collections ADD COLUMN IF NOT EXISTS capa_file_id INTEGER;
+
 -- Vínculo opcional entre uma coleção e uma pasta do computador.
 -- Quando preenchido, a coleção deixa de ser só um agrupamento interno e passa
 -- a ter um espelho no disco. `modo_sync` decide o que acontece quando novas

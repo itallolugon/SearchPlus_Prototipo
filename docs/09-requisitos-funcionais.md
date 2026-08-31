@@ -431,6 +431,26 @@ cabeça: dá tempo de almoçar?
 | **RF-207** | Com a fila drenando e o ritmo constante, o texto **nunca volta atrás**. Estimativa que sobe sozinha destrói a confiança na barra. | Implementado |
 | **RF-208** | Um único arquivo lento não pode deslocar a estimativa; uma mudança real e sustentada de ritmo, sim. | Implementado |
 
+### Ordem e capa das coleções
+
+A lista vinha sempre da mais recente para a mais antiga, e a capa era sempre o
+mosaico das 4 imagens mais recentes. Duas decisões tomadas pelo app sobre algo
+que é do usuário: a ordem em que ele quer procurar, e a foto que representa uma
+coleção que ele montou à mão.
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-268** | As coleções podem ser ordenadas por recentes, antigas, nome e quantidade de itens. | Implementado |
+| **RF-269** | Só nomes de uma **lista fechada** viram SQL. `ORDER BY` não aceita parâmetro, então o valor vira texto na consulta — concatenar o que o cliente mandou seria injeção pela porta da frente. | Implementado |
+| **RF-270** | Ordem desconhecida cai no padrão, sem erro. | Implementado |
+| **RF-271** | Ordenar por quantidade desempata pelo nome. Sem desempate, coleções do mesmo tamanho trocam de lugar entre recarregamentos e a lista parece instável. | Implementado |
+| **RF-272** | A ordem escolhida sobrevive ao recarregamento. | Implementado |
+| **RF-273** | A capa pode ser **escolhida a dedo**; o mosaico continua sendo o padrão. | Implementado |
+| **RF-274** | A imagem escolhida precisa estar **na coleção**. Sem isso, a capa deixaria de representá-la. | Implementado |
+| **RF-275** | Se a imagem escolhida sair da biblioteca, a coleção volta ao mosaico sozinha — a coluna não tem chave estrangeira justamente para a exclusão não falhar nem a capa virar referência quebrada. | Implementado |
+| **RF-276** | Alterar outro campo da coleção não apaga a capa escolhida. | Implementado |
+| **RF-277** | Hierarquia de coleções (pastas aninhadas) segue **fora de escopo**, como o backlog define. | Não feito |
+
 ### Buscar entre os favoritos
 
 | ID | Requisito | Situação |

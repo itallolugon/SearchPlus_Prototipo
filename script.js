@@ -3867,17 +3867,32 @@ async function abrirColecoes() {
     document.getElementById('colecaoConteudo').style.display = 'none';
     document.getElementById('colecoesLista').style.display = 'grid';
     document.getElementById('colecoesCriar').style.display = 'flex';
+    document.getElementById('colecoesOrdem').style.display = 'flex';
     await carregarColecoes();
 }
 function fecharColecoes() {
     document.getElementById('colecoesModal').style.display = 'none';
 }
 
+// Como as coleções aparecem ordenadas. Guardado entre recarregamentos porque
+// é preferência de leitura, não um estado de trabalho.
+let _ordemColecoes = localStorage.getItem('searchplus_ordem_colecoes') || 'recentes';
+
+function trocarOrdemDasColecoes(valor) {
+    _ordemColecoes = valor;
+    try { localStorage.setItem('searchplus_ordem_colecoes', valor); } catch (e) { }
+    carregarColecoes();
+}
+
 async function carregarColecoes() {
     const lista = document.getElementById('colecoesLista');
     lista.innerHTML = '<p style="color:var(--text-secondary);">Carregando...</p>';
+
+    const seletor = document.getElementById('ordemColecoes');
+    if (seletor) seletor.value = _ordemColecoes;
+
     try {
-        const res = await fetch(`${API_BASE_URL}/api/collections`);
+        const res = await fetch(`${API_BASE_URL}/api/collections?ordem=${encodeURIComponent(_ordemColecoes)}`);
         const d = await res.json();
         const cols = d.colecoes || [];
         if (cols.length === 0) {
@@ -3894,7 +3909,17 @@ async function carregarColecoes() {
             const capa = document.createElement('div');
             capa.className = 'colecao-capa';
             const caps = c.capas || [];
-            if (caps.length === 0) {
+            if (c.capa) {
+                // Capa escolhida a dedo vence o mosaico. Se a imagem escolhida
+                // sair da biblioteca, o backend devolve `capa` vazia e a
+                // coleção volta ao mosaico sozinha.
+                capa.classList.add('colecao-capa-unica');
+                const img = document.createElement('img');
+                img.src = formatImagePath(c.capa);
+                img.alt = '';
+                img.loading = 'lazy';
+                capa.appendChild(img);
+            } else if (caps.length === 0) {
                 capa.classList.add('colecao-capa-vazia');
                 capa.textContent = '📁';
             } else {
@@ -4743,17 +4768,34 @@ async function definirPastaQueRecebe(caminhos, nome) {
 let _colecaoAtual = { id: null, nome: '' };
 
 async function verColecao(id, nome) {
-    _colecaoAtual = { id, nome };
+    // Preserva a capa já conhecida ao recarregar a mesma coleção; ao trocar de
+    // coleção, ela é redescoberta abaixo.
+    const capaConhecida = (_colecaoAtual && _colecaoAtual.id === id)
+        ? _colecaoAtual.capa_file_id : undefined;
+    _colecaoAtual = { id, nome, capa_file_id: capaConhecida };
     document.getElementById('colecoesTitulo').innerText = nome;
     const btnRen = document.getElementById('btnRenomearColecao');
     if (btnRen) btnRen.style.display = 'inline-block';
     document.getElementById('colecoesLista').style.display = 'none';
     document.getElementById('colecoesCriar').style.display = 'none';
+    // Dentro de uma coleção não há lista de coleções para ordenar.
+    document.getElementById('colecoesOrdem').style.display = 'none';
     document.getElementById('colecaoConteudo').style.display = 'block';
     atualizarBotaoAbrirPasta(id);
     const grid = document.getElementById('colecaoItens');
     grid.innerHTML = '<p style="color:var(--text-secondary);">Carregando...</p>';
     try {
+        // A capa vem da listagem, que é quem a conhece. Sem isto, entrar
+        // direto numa coleção (pelo desfazer, por exemplo) mostraria a estrela
+        // vazia em todas as imagens, mesmo havendo capa escolhida.
+        if (_colecaoAtual.capa_file_id === undefined) {
+            try {
+                const lista = await (await fetch(`${API_BASE_URL}/api/collections`)).json();
+                const dela = (lista.colecoes || []).find(c => c.id === id);
+                _colecaoAtual.capa_file_id = dela ? dela.capa_file_id : null;
+            } catch (e) { _colecaoAtual.capa_file_id = null; }
+        }
+
         const res = await fetch(`${API_BASE_URL}/api/collections/${id}`);
         const d = await res.json();
         const itens = d.resultados || [];
@@ -4790,11 +4832,53 @@ async function verColecao(id, nome) {
             rem.onclick = (e) => { e.stopPropagation(); removerDaColecao(r.id, r.nome); };
             card.appendChild(rem);
 
+            // Definir como capa. Só faz sentido em imagem: um PDF não tem o
+            // que mostrar na capa.
+            if (extensoesImagem.includes(ext)) {
+                const eCapa = _colecaoAtual && _colecaoAtual.capa_file_id === r.id;
+                const capaBtn = document.createElement('button');
+                capaBtn.className = 'colecao-item-capa' + (eCapa ? ' e-capa' : '');
+                capaBtn.textContent = eCapa ? '★' : '☆';
+                capaBtn.title = eCapa
+                    ? 'Esta é a capa. Clique para voltar ao mosaico automático.'
+                    : 'Usar como capa da coleção';
+                capaBtn.setAttribute('aria-pressed', eCapa ? 'true' : 'false');
+                capaBtn.setAttribute('aria-label', capaBtn.title);
+                capaBtn.onclick = (e) => {
+                    e.stopPropagation();
+                    definirCapaDaColecao(eCapa ? null : r.id);
+                };
+                card.appendChild(capaBtn);
+            }
+
             grid.appendChild(card);
         });
     } catch (e) {
         console.error(e);
         grid.innerHTML = '<p style="color:#f87171;">Erro ao carregar.</p>';
+    }
+}
+
+// Escolher a capa da coleção. `null` volta ao mosaico automático — a coleção
+// tem uma foto que a representa na cabeça de quem a montou, e o mosaico das 4
+// mais recentes raramente é essa foto.
+async function definirCapaDaColecao(fileId) {
+    if (!_colecaoAtual) return;
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/collections/${_colecaoAtual.id}`, {
+            method: 'PATCH', headers: fetchOptions.headers,
+            body: JSON.stringify({ capa_file_id: fileId }),
+        });
+        if (!r.ok) {
+            toastErro(await _erroDaResposta(r, 'Não foi possível definir a capa'));
+            return;
+        }
+        _colecaoAtual.capa_file_id = fileId;
+        toastOk(fileId ? 'Capa da coleção atualizada.'
+                       : 'A capa voltou ao mosaico automático.');
+        verColecao(_colecaoAtual.id, _colecaoAtual.nome);
+    } catch (e) {
+        toastErro('Não foi possível definir a capa. O servidor respondeu?');
     }
 }
 

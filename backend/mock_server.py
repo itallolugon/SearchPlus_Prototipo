@@ -727,10 +727,27 @@ def collections():
         for c in _COLECOES:
             capas = [a["caminho"] for a in (_por_id(i) for i in c["files"])
                      if a and a["tipo"] in _EXT_IMG][:4]
+            # Capa escolhida a dedo. Se a imagem sumiu, volta ao mosaico --
+            # mesmo comportamento do LEFT JOIN no backend real.
+            escolhida = _por_id(c.get("capa_file_id")) if c.get("capa_file_id") else None
             saida.append({"id": c["id"], "nome": c["nome"], "total": len(c["files"]),
                           "criado_em": c["criado_em"], "capas": capas,
+                          "capa": escolhida["caminho"] if escolhida else "",
+                          "capa_file_id": c.get("capa_file_id"),
                           "pasta_vinculada": c.get("pasta_vinculada"),
                           "modo_sync": c.get("modo_sync", "manual")})
+
+        # Mesmas ordens do backend real. Nome desconhecido cai no padrao.
+        ordem = (request.args.get("ordem") or "").strip()
+        if ordem == "antigas":
+            saida.sort(key=lambda x: x["criado_em"])
+        elif ordem == "nome":
+            saida.sort(key=lambda x: x["nome"].lower())
+        elif ordem == "tamanho":
+            saida.sort(key=lambda x: (-x["total"], x["nome"].lower()))
+        else:
+            saida.sort(key=lambda x: x["criado_em"], reverse=True)
+
         return jsonify({"colecoes": saida})
 
     data = request.get_json(force=True, silent=True) or {}
@@ -770,6 +787,21 @@ def collection_detail(col_id):
     if request.method == "PATCH":
         data = request.get_json(force=True, silent=True) or {}
         campos = 0
+        if "capa_file_id" in data:
+            capa = data.get("capa_file_id")
+            if capa is None:
+                col["capa_file_id"] = None
+            else:
+                try:
+                    capa = int(capa)
+                except (TypeError, ValueError):
+                    return jsonify({"error": "Imagem de capa inválida."}), 400
+                if capa not in col["files"]:
+                    return jsonify({
+                        "error": "Escolha uma imagem que esteja nesta coleção."
+                    }), 400
+                col["capa_file_id"] = capa
+            campos += 1
         renomeadas, ignoradas = [], []
         if "nome" in data:
             nome = (data.get("nome") or "").strip()

@@ -2992,17 +2992,31 @@ def api_collections():
         return jsonify({"error": "Não autenticado."}), 401
 
     if request.method == "GET":
+        # Como ordenar. Só nomes conhecidos entram na SQL — o valor vem da URL,
+        # e concatenar o que o cliente mandou seria injeção pela porta da frente.
+        ORDENS = {
+            "recentes": "c.criado_em DESC",
+            "antigas":  "c.criado_em ASC",
+            "nome":     "lower(c.nome) ASC",
+            "tamanho":  "COUNT(cf.file_id) DESC, lower(c.nome) ASC",
+        }
+        ordem = ORDENS.get((request.args.get("ordem") or "").strip(),
+                           ORDENS["recentes"])
+
         # Lista coleções com contagem e até 4 imagens de capa (mosaico)
         conn = get_db()
         rows = conn.execute(
-            """
+            f"""
             SELECT c.id, c.nome, c.criado_em, c.pasta_vinculada, c.modo_sync,
+                   c.capa_file_id, f.caminho AS capa_caminho,
                    COUNT(cf.file_id) AS total
             FROM collections c
             LEFT JOIN collection_files cf ON cf.collection_id = c.id
+            LEFT JOIN files f ON f.id = c.capa_file_id AND f.user_id = c.user_id
             WHERE c.user_id = %s
-            GROUP BY c.id, c.nome, c.criado_em, c.pasta_vinculada, c.modo_sync
-            ORDER BY c.criado_em DESC
+            GROUP BY c.id, c.nome, c.criado_em, c.pasta_vinculada, c.modo_sync,
+                     c.capa_file_id, f.caminho
+            ORDER BY {ordem}
             """,
             (uid,)
         ).fetchall()
@@ -3043,6 +3057,11 @@ def api_collections():
             "id": r["id"], "nome": r["nome"], "total": r["total"],
             "criado_em": r["criado_em"].isoformat() if r["criado_em"] else "",
             "capas": capas_por_colecao.get(r["id"], []),
+            # A capa escolhida vem separada do mosaico, não no lugar dele: se a
+            # imagem escolhida sair da biblioteca, `capa` fica vazia e o front
+            # volta ao mosaico sozinho, sem precisar de outra consulta.
+            "capa": r["capa_caminho"] or "",
+            "capa_file_id": r["capa_file_id"],
             "pasta_vinculada": r["pasta_vinculada"],
             "modo_sync": r["modo_sync"] or "manual",
         } for r in rows]
@@ -3280,6 +3299,42 @@ def _atualizar_colecao(col_id: int, uid: int):
             return jsonify({"error": "Nome da coleção é obrigatório."}), 400
         campos.append("nome = %s")
         valores.append(nome)
+
+    # Capa escolhida a dedo. `null` volta ao mosaico automático, que é o padrão
+    # — a coleção tem uma foto que a representa na cabeça de quem a montou, e o
+    # mosaico raramente é essa foto.
+    if "capa_file_id" in data:
+        capa = data.get("capa_file_id")
+        if capa is None:
+            campos.append("capa_file_id = NULL")
+        else:
+            try:
+                capa = int(capa)
+            except (TypeError, ValueError):
+                return jsonify({"error": "Imagem de capa inválida."}), 400
+
+            # A imagem precisa ser do usuário E estar na coleção. Sem a segunda
+            # parte dava para pôr como capa qualquer arquivo do acervo, e a capa
+            # deixaria de representar a coleção.
+            conn_capa = get_db()
+            try:
+                pertence = conn_capa.execute(
+                    "SELECT 1 FROM collection_files cf "
+                    "JOIN files f ON f.id = cf.file_id "
+                    "WHERE cf.collection_id = %s AND cf.file_id = %s "
+                    "AND f.user_id = %s",
+                    (col_id, capa, uid),
+                ).fetchone()
+            finally:
+                conn_capa.close()
+
+            if not pertence:
+                return jsonify({
+                    "error": "Escolha uma imagem que esteja nesta coleção."
+                }), 400
+
+            campos.append("capa_file_id = %s")
+            valores.append(capa)
 
     # `renomear_pastas` acompanha a troca de nome: o prefixo das pastas segue a
     # coleção, o sufixo escolhido pelo usuário fica. Precisa acontecer AQUI,

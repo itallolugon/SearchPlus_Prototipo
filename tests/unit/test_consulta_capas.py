@@ -26,7 +26,8 @@ UID_DA_SESSAO = 4242
 
 def _colecoes(n):
     return [{"id": i, "nome": f"Colecao {i}", "total": 4, "criado_em": None,
-             "pasta_vinculada": None, "modo_sync": "manual"} for i in range(1, n + 1)]
+             "pasta_vinculada": None, "modo_sync": "manual",
+             "capa_file_id": None, "capa_caminho": None} for i in range(1, n + 1)]
 
 
 def _capas(n, por_colecao=4):
@@ -166,6 +167,7 @@ class TestRespostaContinuaIgual:
         colecao = client_logado.get("/api/collections").get_json()["colecoes"][0]
 
         assert set(colecao) == {"id", "nome", "total", "criado_em", "capas",
+                                "capa", "capa_file_id",
                                 "pasta_vinculada", "modo_sync"}
 
     def test_exige_sessao(self, client, db_roteado):
