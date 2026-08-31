@@ -48,13 +48,19 @@ nome, para ficar o histórico do que já tinha sido entregue em cada momento.
 py tools/gerar_relatorio.py
 ```
 
-| Arquivo | Data |
-|---|---|
-| [`SearchPlus_Implementacoes_2026-08-31.docx`](SearchPlus_Implementacoes_2026-08-31.docx) | 31/08/2026 |
+Sai nos dois formatos: o `.docx` para editar, o `.pdf` para enviar.
+
+| Data | Word | PDF |
+|---|---|---|
+| 31/08/2026 | [`.docx`](SearchPlus_Implementacoes_2026-08-31.docx) | [`.pdf`](SearchPlus_Implementacoes_2026-08-31.pdf) |
 
 O conteúdo do relatório vive em `tools/gerar_relatorio.py`, e não num .docx
 editado à mão: assim o texto entra em revisão de código como o resto, e a
 versão seguinte parte da anterior em vez de recomeçar.
+
+O PDF sai do Word quando ele está instalado, e do LibreOffice quando não
+está. Sem nenhum dos dois, o `.docx` é gerado do mesmo jeito e o script
+avisa — a entrega não depende do conversor.
 
 ## Como visualizar os diagramas (.puml)
 

@@ -5,7 +5,8 @@ Gera o relatorio de implementacao em .docx.
     py tools/gerar_relatorio.py              # usa a data de hoje
     py tools/gerar_relatorio.py 2026-09-15   # usa a data informada
 
-Sai em docs/SearchPlus_Implementacoes_AAAA-MM-DD.docx. Cada rodada gera um
+Sai em docs/SearchPlus_Implementacoes_AAAA-MM-DD.docx e o .pdf ao lado.
+Cada rodada gera um
 arquivo novo, com data no nome, em vez de sobrescrever: a ideia e ter o
 historico do que foi entregue em cada momento, e nao so a foto de agora.
 
@@ -24,6 +25,7 @@ import datetime
 import io
 import os
 import re
+import subprocess
 
 from docx import Document
 from docx.enum.section import WD_SECTION
@@ -448,6 +450,60 @@ CAPITULOS = [
 ]
 
 
+def converter_para_pdf(caminho_docx):
+    """
+    Gera o PDF ao lado do .docx.
+
+    Duas rotas, nesta ordem, porque nem toda maquina tem as duas:
+
+      1. Word, se estiver instalado. E o que produz o resultado fiel -- foi com
+         ele que a paginacao e a capa foram conferidas.
+      2. LibreOffice, como alternativa. Pagina de forma ligeiramente diferente
+         (a contagem de paginas pode variar), mas resolve numa maquina sem Word.
+
+    Sem nenhum dos dois, avisa e devolve None em vez de derrubar: o .docx, que
+    e a entrega, ja esta gravado a essa altura.
+    """
+    absoluto = os.path.abspath(caminho_docx)
+    destino = absoluto[:-5] + ".pdf"
+
+    # --- 1. Word ----------------------------------------------------------
+    try:
+        import win32com.client
+
+        word = win32com.client.Dispatch("Word.Application")
+        word.Visible = False
+        try:
+            # ReadOnly=True para nao mexer no arquivo que acabou de sair.
+            documento = word.Documents.Open(absoluto, False, True)
+            documento.SaveAs(destino, FileFormat=17)   # 17 = PDF
+            documento.Close(False)
+        finally:
+            word.Quit()
+        return destino
+    except Exception as erro:
+        print("  Word nao converteu (%s); tentando o LibreOffice." % erro)
+
+    # --- 2. LibreOffice ---------------------------------------------------
+    for candidato in (
+        r"C:\Program Files\LibreOffice\program\soffice.exe",
+        r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+        "soffice",
+    ):
+        try:
+            subprocess.run(
+                [candidato, "--headless", "--convert-to", "pdf",
+                 "--outdir", os.path.dirname(absoluto), absoluto],
+                check=True, capture_output=True, timeout=180)
+            if os.path.exists(destino):
+                return destino
+        except (OSError, subprocess.SubprocessError):
+            continue
+
+    print("  Nenhum conversor disponivel; so o .docx foi gerado.")
+    return None
+
+
 def montar(hoje=None):
     global HOJE
     if hoje is not None:
@@ -723,7 +779,7 @@ def montar(hoje=None):
 
     nome = "docs/SearchPlus_Implementacoes_%s.docx" % HOJE.isoformat()
     doc.save(nome)
-    return nome
+    return nome, converter_para_pdf(nome)
 
 
 if __name__ == "__main__":
@@ -732,7 +788,7 @@ if __name__ == "__main__":
     # Roda a partir da raiz do repositorio, nao de onde o usuario chamou.
     os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-    if len(sys.argv) > 1:
-        print(montar(datetime.date.fromisoformat(sys.argv[1])))
-    else:
-        print(montar())
+    data = datetime.date.fromisoformat(sys.argv[1]) if len(sys.argv) > 1 else None
+    for caminho in montar(data):
+        if caminho:
+            print(os.path.relpath(caminho).replace("\\", "/"))
