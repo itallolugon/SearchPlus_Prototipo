@@ -431,6 +431,14 @@ cabeça: dá tempo de almoçar?
 | **RF-207** | Com a fila drenando e o ritmo constante, o texto **nunca volta atrás**. Estimativa que sobe sozinha destrói a confiança na barra. | Implementado |
 | **RF-208** | Um único arquivo lento não pode deslocar a estimativa; uma mudança real e sustentada de ritmo, sim. | Implementado |
 
+### Buscar entre os favoritos
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-265** | A barra de filtros deve ter "Favoritos", que restringe a busca ao que está favoritado. | Implementado |
+| **RF-266** | O filtro compõe com os demais e com o escopo — não substitui nenhum. | Implementado |
+| **RF-267** | Botões que não são de tipo ("Filtros", "Favoritos") não podem zerar o filtro de tipo. Sem essa distinção, abrir os filtros avançados escondia todas as imagens do resultado, em silêncio. | Corrigido |
+
 ### Favoritos como origem de coleção
 
 Favoritar era um beco sem saída: a estrela marcava o arquivo e parava por aí.

@@ -516,10 +516,12 @@ def search():
         query = (data.get("query") or "").strip()
         filtro = data.get("filtro", "all")
         escopo = data.get("escopo") or []
+        avancado = data.get("avancado") or {}
     else:
         query = (request.args.get("q") or "").strip()
         filtro = request.args.get("filtro", "all")
         escopo = []
+        avancado = {}
 
     # "praia -pessoas": mesma separacao do backend real.
     query, excluidos = _separar_exclusoes(query)
@@ -548,6 +550,8 @@ def search():
     candidatos = _ARQUIVOS
     if escopo_ids:
         candidatos = [a for a in candidatos if a["id"] in escopo_ids]
+    if avancado.get("so_favoritos"):
+        candidatos = [a for a in candidatos if a["favorito"]]
     if filtro == "imagem":
         candidatos = [a for a in candidatos if a["tipo"] in _EXT_IMG]
     elif filtro == "midia":

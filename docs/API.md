@@ -204,6 +204,10 @@ que sumiriam da vista junto com os resultados.
 Só exclusão, sem assunto (`-pessoas` sozinho), responde `200` com `erro`
 explicando a sintaxe: não dá para pedir "tudo menos pessoas".
 
+**Filtrar por favoritos.** `avancado.so_favoritos` restringe a busca ao que está
+favoritado. Compõe com os outros filtros e com o escopo — "as fotos favoritas da
+viagem, daquele mês" é uma pergunta só.
+
 **Filtros avançados** (`avancado`) sempre compuseram com a consulta — entram
 como `AND` no mesmo `SELECT`, não a substituem. Há teste garantindo que
 continue assim.

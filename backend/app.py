@@ -2228,6 +2228,12 @@ def api_search():
         params_filtro.append(len(prefixo_pasta))
         params_filtro.append(prefixo_pasta)
 
+    # Buscar só entre os favoritos. Favoritar marcava o arquivo e não servia
+    # para mais nada na busca — quem separou as fotos boas ao longo de meses
+    # não conseguia procurar dentro delas.
+    if avancado.get("so_favoritos"):
+        sql_filtros.append("favorito = 1")
+
     # Buscar dentro dos resultados anteriores. Entra como filtro do banco e não
     # como corte no fim: cortar depois faria os 100 candidatos serem escolhidos
     # entre a biblioteca inteira e só então reduzidos ao escopo — a maioria

@@ -38,11 +38,18 @@ const placeholderPreto = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAAB
 
 document.addEventListener('DOMContentLoaded', () => {
     carregarFavoritosDash();
-    document.querySelectorAll('.filter-tag').forEach(btn => {
+    // Só os botões de TIPO trocam o filtro. Os outros que moram nesta barra
+    // ("⚙ Filtros", "♡ Favoritos") não têm data-filter, e sem esta checagem
+    // clicar neles zerava `filtroAtual`. Com ele nulo, resultadosVisiveis()
+    // caía no último ramo e devolvia só documentos — abrir os filtros
+    // avançados escondia todas as imagens do resultado, em silêncio.
+    document.querySelectorAll('.filter-tag[data-filter]').forEach(btn => {
         btn.addEventListener('click', (e) => {
-            document.querySelectorAll('.filter-tag').forEach(b => b.classList.remove('active'));
-            e.target.classList.add('active');
-            filtroAtual = e.target.getAttribute('data-filter');
+            const alvo = e.currentTarget;
+            document.querySelectorAll('.filter-tag[data-filter]')
+                .forEach(b => b.classList.remove('active'));
+            alvo.classList.add('active');
+            filtroAtual = alvo.getAttribute('data-filter');
             if (document.getElementById('searchResultsView').style.display === 'block') {
                 renderizarResultados();
             }
@@ -1890,7 +1897,24 @@ function coletarFiltrosAvancados() {
     if (tamMin)  av.tam_min = parseFloat(tamMin);
     if (tamMax)  av.tam_max = parseFloat(tamMax);
     if (pasta)   av.pasta = pasta;
+    if (_soFavoritos) av.so_favoritos = true;
     return av;
+}
+
+// Buscar só entre os favoritos. Fica na barra de filtros, junto de "Imagens" e
+// "Documentos", porque é da mesma natureza: reduz o conjunto antes da busca.
+let _soFavoritos = false;
+
+function alternarBuscaSoFavoritos() {
+    _soFavoritos = !_soFavoritos;
+
+    const btn = document.getElementById('btnFiltroFavoritos');
+    btn.classList.toggle('active', _soFavoritos);
+    btn.setAttribute('aria-pressed', _soFavoritos ? 'true' : 'false');
+    btn.textContent = _soFavoritos ? `${ICONE_FAV.sim} Favoritos`
+                                   : `${ICONE_FAV.nao} Favoritos`;
+
+    if (document.getElementById('searchInput').value.trim()) realizarBusca();
 }
 
 function temFiltrosAtivos() {
