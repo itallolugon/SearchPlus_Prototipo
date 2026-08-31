@@ -431,6 +431,25 @@ cabeça: dá tempo de almoçar?
 | **RF-207** | Com a fila drenando e o ritmo constante, o texto **nunca volta atrás**. Estimativa que sobe sozinha destrói a confiança na barra. | Implementado |
 | **RF-208** | Um único arquivo lento não pode deslocar a estimativa; uma mudança real e sustentada de ritmo, sim. | Implementado |
 
+### Quais pastas a home mostra
+
+A home agrupa por categoria misturando tudo que foi indexado. Com duas pastas
+importadas — as fotos do celular e o arquivo do trabalho — as duas caem no
+mesmo "Pessoas", e não havia como olhar uma pasta de cada vez.
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-234** | A home deve ter, no canto, um seletor de **quais pastas** aparecem nas categorias. | Implementado |
+| **RF-235** | **Lista vazia significa todas**, nunca "nenhuma". Quem nunca escolheu vê tudo — o filtro é opcional por definição. | Implementado |
+| **RF-236** | Desmarcar a última pasta volta para "todas". Esconder a home inteira sem dizer por quê seria pior que ignorar o clique. | Implementado |
+| **RF-237** | Com uma pasta só, o seletor não aparece — viraria decoração. | Implementado |
+| **RF-238** | O seletor mostra o **nome e a contagem de imagens** de cada pasta, e o caminho completo ao passar o mouse. | Implementado |
+| **RF-239** | Pasta sem imagem continua na lista. Sumindo, quem importou e ainda não analisou acharia que o app perdeu a pasta. | Implementado |
+| **RF-240** | Se o filtro não deixar nada, a tela **diz isso** em vez de ficar vazia parecendo que a indexação sumiu. | Implementado |
+| **RF-241** | A escolha é guardada na **conta**, não no navegador. Quem separou trabalho de pessoal espera reencontrar amanhã. | Implementado |
+| **RF-242** | Id inválido na URL é descartado em silêncio — não pode virar erro na primeira tela que o usuário vê. | Implementado |
+| **RF-243** | Pedir a pasta de outra pessoa devolve vazio: o filtro é um `AND` sobre consulta que já exige o dono. | Implementado |
+
 ### Refinar a busca sem recomeçar
 
 Cada tentativa jogava fora o que a anterior já tinha acertado: quem procurou

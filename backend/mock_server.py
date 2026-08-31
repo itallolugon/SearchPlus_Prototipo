@@ -627,26 +627,67 @@ def stats():
     })
 
 
+def _pasta_do_arquivo(arq):
+    """
+    A qual pasta indexada o arquivo pertence.
+
+    O mock nao guarda folder_id nos arquivos; deriva do caminho, que e o que
+    o backend real tem gravado de qualquer jeito.
+    """
+    caminho = (arq.get("caminho") or "").lower()
+    for p in _PASTAS:
+        if caminho.startswith(p["path"].lower()):
+            return p["id"]
+    return None
+
+
 @app.route("/api/gallery")
 def gallery():
     if not _logado():
         return _nao_autenticado()
 
+    pedidas = []
+    for pedaco in (request.args.get("pastas") or "").split(","):
+        pedaco = pedaco.strip()
+        if pedaco:
+            try:
+                pedidas.append(int(pedaco))
+            except ValueError:
+                continue
+
+    def visivel(arq):
+        return not pedidas or _pasta_do_arquivo(arq) in pedidas
+
     grupos = []
     usados = set()
     for cat, ids in _CATEGORIAS.items():
-        itens = [_item(_por_id(i)) for i in ids if _por_id(i)]
+        itens = [_item(_por_id(i)) for i in ids
+                 if _por_id(i) and visivel(_por_id(i))]
         if itens:
             grupos.append({"categoria": cat, "total": len(itens), "itens": itens})
-            usados.update(ids)
+        usados.update(ids)
 
     outras = [_item(a) for a in _ARQUIVOS
-              if a["tipo"] in _EXT_IMG and a["id"] not in usados]
+              if a["tipo"] in _EXT_IMG and a["id"] not in usados and visivel(a)]
     if outras:
         grupos.append({"categoria": "outras", "total": len(outras), "itens": outras})
 
-    total_img = len([a for a in _ARQUIVOS if a["tipo"] in _EXT_IMG])
-    return jsonify({"grupos": grupos, "total_imagens": total_img})
+    imagens = [a for a in _ARQUIVOS if a["tipo"] in _EXT_IMG]
+    pastas = []
+    for p in _PASTAS:
+        pastas.append({
+            "id": p["id"],
+            "nome": p["path"].rstrip("\\/").split("\\")[-1] or p["path"],
+            "caminho": p["path"],
+            "imagens": len([a for a in imagens if _pasta_do_arquivo(a) == p["id"]]),
+        })
+
+    return jsonify({
+        "grupos": grupos,
+        "total_imagens": len([a for a in imagens if visivel(a)]),
+        "pastas": pastas,
+        "pastas_ativas": pedidas,
+    })
 
 
 # ──────────────────────────────────────────────────────────────────────────────

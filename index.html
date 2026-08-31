@@ -341,6 +341,17 @@
                 <h2 style="font-size: 2rem; margin-bottom: 5px; color: var(--text-primary);">Olá, <span id="dashHandle" class="gradient-text">@usuario</span> </h2>
                 <p style="color: var(--text-secondary); margin-bottom: 30px;">Pronto para continuar suas buscas?</p>
 
+                <!-- Quais pastas a home está mostrando. Fica no canto porque é
+                     um controle de exibição, não uma ação — não pode competir
+                     com as categorias. Escondido quando só há uma pasta. -->
+                <div id="seletorPastas" class="seletor-pastas" style="display: none;">
+                    <button type="button" id="seletorPastasBotao" class="seletor-pastas-botao"
+                            onclick="alternarSeletorDePastas()"
+                            aria-haspopup="true" aria-expanded="false"
+                            title="Escolher quais pastas aparecem aqui">📁 Todas as pastas</button>
+                    <div id="seletorPastasMenu" class="seletor-pastas-menu" style="display: none;"></div>
+                </div>
+
                 <!-- Galeria agrupada por categoria -->
                 <div id="galeriaCategorias" style="margin-top: 10px;"></div>
 

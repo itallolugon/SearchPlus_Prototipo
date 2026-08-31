@@ -506,6 +506,8 @@ body {
 .action-btn,
 .btn-renomear,
 .btn-verificar-pasta,
+.seletor-pastas-botao,
+.pasta-opcao,
 .faixa-preparando,
 .chip-refino,
 .resumo-numero,
@@ -1546,3 +1548,39 @@ body {
     padding: 0 6px; border-radius: 50%;
 }
 .chip-refino-x:hover { color: var(--text-primary); background: rgba(255,255,255,0.08); }
+
+
+/* Seletor de pastas da home. Alinhado à direita porque é controle de
+   exibição: informa e ajusta, sem disputar atenção com o conteúdo. */
+.seletor-pastas { position: relative; text-align: right; margin: 0 auto 10px; max-width: 1100px; padding: 0 20px; }
+.seletor-pastas-botao {
+    background: transparent; border: 1px solid var(--border-light);
+    color: var(--text-secondary); border-radius: 20px;
+    padding: 6px 14px; font-size: 0.78rem; cursor: pointer; transition: 0.3s;
+}
+.seletor-pastas-botao:hover { border-color: var(--accent-primary); color: var(--accent-primary); }
+.seletor-pastas-menu {
+    position: absolute; right: 20px; top: calc(100% + 6px); z-index: 950;
+    min-width: 260px; max-width: min(380px, calc(100vw - 40px));
+    max-height: 340px; overflow-y: auto; text-align: left;
+    background: var(--surface); border: 1px solid var(--border-light);
+    border-radius: 14px; padding: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+.pasta-opcao {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 10px; cursor: pointer;
+}
+.pasta-opcao:hover { background: rgba(255,255,255,0.05); }
+.pasta-opcao input { cursor: pointer; flex: 0 0 auto; }
+/* O nome da pasta pode ser longo; o caminho completo fica no title. */
+.pasta-opcao-nome {
+    flex: 1; min-width: 0; color: var(--text-primary); font-size: 0.84rem;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pasta-opcao-qtd { flex: 0 0 auto; color: var(--text-secondary); font-size: 0.72rem; }
+.pasta-opcao-todas {
+    width: 100%; margin-top: 6px; padding: 8px; border-radius: 10px;
+    background: transparent; border: 1px solid var(--border-light);
+    color: var(--accent-primary); font-size: 0.78rem; cursor: pointer;
+}
+.pasta-opcao-todas:hover { background: rgba(168, 85, 247, 0.10); }

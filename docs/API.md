@@ -573,16 +573,38 @@ Busca por similaridade visual. Envie **um** dos dois:
 ```
 `por_categoria` já vem ordenado (maior primeiro) e omite categorias zeradas.
 
-#### `GET /api/gallery`
+#### `GET /api/gallery?pastas=1,2`
 ```json
 {
   "grupos": [
     { "categoria": "animais", "total": 2, "itens": [ /* Arquivo */ ] }
   ],
-  "total_imagens": 9
+  "total_imagens": 9,
+  "pastas": [
+    { "id": 1, "nome": "Imagens", "caminho": "C:\\Users\\Demo\\Imagens", "imagens": 612 },
+    { "id": 2, "nome": "Documentos", "caminho": "C:\\Users\\Demo\\Documentos", "imagens": 0 }
+  ],
+  "pastas_ativas": [1]
 }
 ```
 Só imagens. **Um arquivo pode aparecer em mais de um grupo** (um desenho de cachorro entra em `animais` e `desenhos`) — não assuma unicidade ao montar a grade.
+
+**Filtrar por pasta.** `pastas` é uma lista de ids separados por vírgula. Sem o
+parâmetro — ou com ele vazio — vêm todas: **lista vazia significa todas**, nunca
+"nenhuma". Quem nunca escolheu vê tudo, que é o que sempre aconteceu.
+
+Ids não numéricos são descartados em silêncio; o parâmetro vem da URL e pode
+chegar torto, e isso não pode virar erro na primeira tela que o usuário vê.
+Pedir a pasta de outra pessoa devolve vazio: o filtro é um `AND` sobre uma
+consulta que já exige `user_id`.
+
+`pastas` acompanha a resposta com os nomes e a contagem de imagens de cada uma
+— o seletor precisa dos dois, e uma segunda chamada faria a tela montar em dois
+tempos. Pasta sem imagem nenhuma continua na lista: sumindo, quem importou uma
+pasta e ainda não a analisou acharia que o app a perdeu.
+
+A escolha do usuário é guardada em `pastas_visiveis`, via `POST /api/config` —
+vive na conta, não no navegador.
 
 ---
 

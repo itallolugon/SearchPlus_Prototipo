@@ -2836,13 +2836,44 @@ def api_gallery():
     if not uid:
         return jsonify({"error": "Não autenticado."}), 401
 
+    # Quais pastas mostrar. Vazio = todas — quem nunca escolheu vê tudo, que é
+    # o que sempre aconteceu; o filtro é opcional por definição.
+    pastas_pedidas = []
+    for pedaco in (request.args.get("pastas") or "").split(","):
+        pedaco = pedaco.strip()
+        if pedaco:
+            try:
+                pastas_pedidas.append(int(pedaco))
+            except ValueError:
+                continue
+
     conn = get_db()
-    rows = conn.execute(
-        "SELECT id, nome, caminho, tipo, descricao_ia, data_adicionado, favorito "
-        "FROM files WHERE user_id = %s AND processado = 1 AND tipo = ANY(%s) "
-        "ORDER BY data_adicionado DESC",
-        (uid, list(_EXT_IMG))
+
+    # As pastas indexadas, com quantas imagens cada uma tem. Vai junto da
+    # galeria de propósito: o seletor precisa dos nomes E dos números, e uma
+    # segunda chamada só para isso deixaria a tela montar em dois tempos.
+    pastas_rows = conn.execute(
+        """
+        SELECT p.id, p.path, p.name, COUNT(f.id) AS imagens
+        FROM folders p
+        LEFT JOIN files f
+               ON f.folder_id = p.id AND f.processado = 1 AND f.tipo = ANY(%s)
+        WHERE p.user_id = %s
+        GROUP BY p.id, p.path, p.name
+        ORDER BY p.added_at
+        """,
+        (list(_EXT_IMG), uid)
     ).fetchall()
+
+    sql = ("SELECT id, nome, caminho, tipo, descricao_ia, data_adicionado, favorito "
+           "FROM files WHERE user_id = %s AND processado = 1 AND tipo = ANY(%s)")
+    params = [uid, list(_EXT_IMG)]
+
+    if pastas_pedidas:
+        sql += " AND folder_id = ANY(%s)"
+        params.append(pastas_pedidas)
+
+    rows = conn.execute(sql + " ORDER BY data_adicionado DESC", tuple(params)).fetchall()
     conn.close()
 
     grupos = {k: [] for k in _CATEGORIAS_STATS}
@@ -2869,7 +2900,14 @@ def api_gallery():
     resultado = [{"categoria": c, "total": len(grupos[c]), "itens": grupos[c]}
                  for c in ordem if grupos[c]]
 
-    return jsonify({"grupos": resultado, "total_imagens": len(rows)})
+    return jsonify({
+        "grupos": resultado,
+        "total_imagens": len(rows),
+        "pastas": [{"id": p["id"], "nome": p["name"] or p["path"],
+                    "caminho": p["path"], "imagens": p["imagens"]}
+                   for p in pastas_rows],
+        "pastas_ativas": pastas_pedidas,
+    })
 
 
 # ──────────────────────────────────────────────────────────────────────────────

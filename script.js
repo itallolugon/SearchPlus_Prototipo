@@ -990,6 +990,11 @@ async function carregarConfiguracoesUX() {
         const res = await fetch(`${API_BASE_URL}/api/config`);
         currentConfig = await res.json();
 
+        // Quais pastas a home mostra. Vem da conta, não do navegador: quem
+        // separou as pastas de trabalho das pessoais espera reencontrar isso.
+        _pastasVisiveis = Array.isArray(currentConfig.pastas_visiveis)
+            ? currentConfig.pastas_visiveis : [];
+
         currentConfig.cor_primaria = currentConfig.cor_primaria || "#A855F7";
         currentConfig.cor_secundaria = currentConfig.cor_secundaria || "#E879F9";
         currentConfig.cor_texto_botao = currentConfig.cor_texto_botao || "#FFFFFF";
@@ -2777,15 +2782,151 @@ const _CAT_GALERIA = {
     outras:   { icone: '📦', nome: 'Outras' },
 };
 
+// ==========================================
+// QUAIS PASTAS A HOME ESTÁ MOSTRANDO
+// ==========================================
+function desenharSeletorDePastas(pastas) {
+    const caixa = document.getElementById('seletorPastas');
+    if (!caixa) return;
+
+    // Com uma pasta só não há o que escolher, e o botão viraria decoração.
+    if (!pastas || pastas.length < 2) {
+        caixa.style.display = 'none';
+        return;
+    }
+    caixa.style.display = 'block';
+    window._pastasDaGaleria = pastas;
+
+    const btn = document.getElementById('seletorPastasBotao');
+    const ativas = _pastasVisiveis.length ? _pastasVisiveis.length : pastas.length;
+    btn.textContent = ativas === pastas.length
+        ? `📁 Todas as pastas (${pastas.length})`
+        : `📁 ${ativas} de ${pastas.length} pastas`;
+    btn.setAttribute('aria-expanded', 'false');
+}
+
+function alternarSeletorDePastas() {
+    const menu = document.getElementById('seletorPastasMenu');
+    const btn = document.getElementById('seletorPastasBotao');
+    const abrindo = menu.style.display !== 'block';
+
+    if (!abrindo) {
+        menu.style.display = 'none';
+        btn.setAttribute('aria-expanded', 'false');
+        return;
+    }
+
+    const pastas = window._pastasDaGaleria || [];
+    menu.innerHTML = '';
+
+    pastas.forEach(p => {
+        const marcada = !_pastasVisiveis.length || _pastasVisiveis.includes(p.id);
+
+        const linha = document.createElement('label');
+        linha.className = 'pasta-opcao';
+
+        const cx = document.createElement('input');
+        cx.type = 'checkbox';
+        cx.checked = marcada;
+        cx.onchange = () => escolherPastaDaGaleria(p.id, cx.checked);
+
+        const nome = document.createElement('span');
+        nome.className = 'pasta-opcao-nome';
+        nome.textContent = p.nome;
+        nome.title = p.caminho;
+
+        const qtd = document.createElement('span');
+        qtd.className = 'pasta-opcao-qtd';
+        qtd.textContent = `${p.imagens} ${p.imagens === 1 ? 'imagem' : 'imagens'}`;
+
+        linha.append(cx, nome, qtd);
+        menu.appendChild(linha);
+    });
+
+    const todas = document.createElement('button');
+    todas.type = 'button';
+    todas.className = 'pasta-opcao-todas';
+    todas.textContent = 'Mostrar todas';
+    todas.onclick = async () => {
+        _pastasVisiveis = [];
+        await salvarPastasVisiveis();
+        menu.style.display = 'none';
+        btn.setAttribute('aria-expanded', 'false');
+        carregarGaleria();
+    };
+    menu.appendChild(todas);
+
+    menu.style.display = 'block';
+    btn.setAttribute('aria-expanded', 'true');
+}
+
+async function escolherPastaDaGaleria(pastaId, marcada) {
+    const pastas = window._pastasDaGaleria || [];
+
+    // Lista vazia significa "todas". Ao desmarcar a primeira, precisamos
+    // materializar a lista completa antes de tirar uma — senão desmarcar uma
+    // pasta não mudaria nada.
+    if (!_pastasVisiveis.length) _pastasVisiveis = pastas.map(p => p.id);
+
+    if (marcada) {
+        if (!_pastasVisiveis.includes(pastaId)) _pastasVisiveis.push(pastaId);
+    } else {
+        _pastasVisiveis = _pastasVisiveis.filter(id => id !== pastaId);
+    }
+
+    // Desmarcar tudo esconderia a home inteira sem dizer por quê. Voltar a
+    // "todas" é o que a pessoa quis dizer ao tirar a última.
+    if (_pastasVisiveis.length === 0) _pastasVisiveis = [];
+    if (_pastasVisiveis.length === pastas.length) _pastasVisiveis = [];
+
+    await salvarPastasVisiveis();
+    carregarGaleria();
+}
+
+async function salvarPastasVisiveis() {
+    // A escolha vive na conta, não no navegador: quem separou as pastas de
+    // trabalho das pessoais espera reencontrar isso amanhã.
+    try {
+        await fetch(`${API_BASE_URL}/api/config`, {
+            method: 'POST', headers: fetchOptions.headers,
+            body: JSON.stringify({ pastas_visiveis: _pastasVisiveis }),
+        });
+    } catch (e) { /* preferência de exibição: não vale um alarme na tela */ }
+}
+
+// Quais pastas a galeria está mostrando. Vazio = todas.
+//
+// A home mostra as categorias misturando tudo que foi indexado. Com duas
+// pastas importadas — as fotos do celular e o arquivo do trabalho, por
+// exemplo — as duas caem no mesmo "Pessoas", e não havia nem como saber de
+// onde cada imagem veio, nem como olhar uma pasta de cada vez.
+let _pastasVisiveis = [];
+
 async function carregarGaleria() {
     const container = document.getElementById('galeriaCategorias');
     if (!container) return;
     try {
-        const res = await fetch(`${API_BASE_URL}/api/gallery`, { headers: fetchOptions.headers });
+        const filtro = _pastasVisiveis.length
+            ? `?pastas=${_pastasVisiveis.join(',')}` : '';
+        const res = await fetch(`${API_BASE_URL}/api/gallery${filtro}`,
+                                { headers: fetchOptions.headers });
         const d = await res.json();
         const grupos = d.grupos || [];
+
+        desenharSeletorDePastas(d.pastas || []);
+
         container.innerHTML = '';
-        if (grupos.length === 0) return;
+        if (grupos.length === 0) {
+            // Filtrou tanto que não sobrou nada: sem esta mensagem a home fica
+            // vazia e parece que a indexação sumiu.
+            if (_pastasVisiveis.length) {
+                const vazio = document.createElement('p');
+                vazio.style.cssText = 'text-align:center; color:var(--text-secondary);';
+                vazio.textContent = 'Nenhuma imagem nas pastas escolhidas.';
+                container.appendChild(vazio);
+            }
+            return;
+        }
 
         grupos.forEach(g => {
             const meta = _CAT_GALERIA[g.categoria] || { icone: '📁', nome: g.categoria };
