@@ -4,8 +4,25 @@
     --border-light: rgba(255, 255, 255, 0.08); 
     --text-primary: #F8FAFC;
     --text-secondary: #94A3B8;
-    --accent-primary: #A855F7; 
-    --accent-secondary: #E879F9; 
+    /* Clareado 3% em relacao ao #A855F7 original: como TEXTO sobre a
+       superficie dos cards (#151A2A) o tom anterior media 4,38:1 e nao
+       passava. A diferenca e imperceptivel a olho; o numero, nao. */
+    --accent-primary: #AB5AF7;
+    --accent-secondary: #E879F9;
+    /* O destaque tem DOIS papéis, e o contraste que serve a um estraga o
+       outro: como TEXTO sobre o fundo escuro, ele precisa ser claro; como
+       FUNDO de botão com texto branco em cima, precisa ser escuro.
+       Medido no tema anterior, com um só valor para os dois:
+
+           branco sobre #A855F7 ....... 3,96:1   reprovado
+           branco sobre #E879F9 ....... 2,46:1   reprovado
+           #A855F7 sobre a superfície .. 4,38:1   reprovado
+
+       As variantes "-forte" existem só para as superfícies que carregam texto
+       branco. O tom original continua onde ele é lido COMO texto, que é onde a
+       identidade da cor aparece de fato. */
+    --accent-primary-forte: #9B4EE3;    /* branco em cima: 4,57:1 */
+    --accent-secondary-forte: #A757B3;  /* branco em cima: 4,51:1 */
     --btn-text-color: #FFFFFF; 
     --telemetry: #4FD1C5; 
 }
@@ -104,7 +121,7 @@ body {
 
 /* BOTOES ARREDONDADOS (PÍLULA) */
 .gradient-btn {
-    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)) !important;
+    background: linear-gradient(135deg, var(--accent-primary-forte), var(--accent-secondary-forte)) !important;
     border: none !important; 
     color: var(--btn-text-color) !important; 
     transition: 0.3s;
@@ -343,9 +360,9 @@ body {
 .filter-bar { display: flex; justify-content: center; align-items: center; gap: 10px; flex-wrap: wrap;}
 .filter-tag { background-color: transparent; padding: 8px 20px; border-radius: 30px; font-size: 0.9rem; font-weight: 600; color: var(--text-secondary); cursor: pointer; border: 1px solid var(--border-light); transition: 0.3s; }
 .filter-tag.active { 
-    background-color: var(--accent-primary) !important; 
+    background-color: var(--accent-primary-forte) !important; 
     color: var(--btn-text-color) !important; 
-    border-color: var(--accent-primary) !important; 
+    border-color: var(--accent-primary-forte) !important; 
     background-clip: padding-box !important;
 }
 
@@ -1737,4 +1754,22 @@ body {
 .export-hist-falhas ul {
     margin: 8px 0 0 0; padding-left: 18px;
     color: var(--text-secondary); font-size: 0.76rem; line-height: 1.6;
+}
+
+
+/* Aviso de contraste baixo, embaixo do seletor de cor. */
+.aviso-contraste {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    margin-top: 6px; padding: 8px 10px; border-radius: 8px;
+    background: rgba(234, 179, 8, 0.12);
+    border: 1px solid rgba(234, 179, 8, 0.35);
+    color: var(--text-primary); font-size: 0.74rem; line-height: 1.5;
+}
+/* O botao MOSTRA a cor sugerida no proprio fundo -- e a maneira mais direta
+   de responder "que cor e essa?". O texto fica branco com sombra porque a
+   sugestao pode ser clara ou escura. */
+.aviso-contraste-usar {
+    border: 1px solid rgba(255,255,255,0.4); border-radius: 6px;
+    padding: 4px 10px; cursor: pointer; font-size: 0.72rem; font-weight: 600;
+    color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.7);
 }

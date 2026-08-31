@@ -16,6 +16,12 @@ window.resultadosAtuais = [];
 window.ultimoTempoBusca = 0;
 let filtroAtual = 'all';
 
+// Cores padrão do tema. Auditadas contra o mínimo de contraste da WCAG (4,5:1
+// para texto normal) — ver o comentário em style.css sobre os dois papéis do
+// destaque. Ficam aqui porque é o JS que aplica o tema, sobrescrevendo o CSS.
+const COR_PRIMARIA_PADRAO = '#AB5AF7';
+const COR_SECUNDARIA_PADRAO = '#E879F9';
+
 // Indexação Inteligente Seletiva — estado local
 let _obPrioridades = ['tudo'];
 let _obPerfil = 'fast';
@@ -1196,8 +1202,12 @@ async function carregarConfiguracoesUX() {
         _pastasVisiveis = Array.isArray(currentConfig.pastas_visiveis)
             ? currentConfig.pastas_visiveis : [];
 
-        currentConfig.cor_primaria = currentConfig.cor_primaria || "#A855F7";
-        currentConfig.cor_secundaria = currentConfig.cor_secundaria || "#E879F9";
+        // #AB5AF7, e não o #A855F7 de antes: como TEXTO sobre a superfície dos
+        // cards, o tom anterior media 4,38:1 e não passava no mínimo de
+        // 4,5:1. A diferença é imperceptível a olho; o número, não.
+        // Este é o padrão que vale — ele sobrescreve o do CSS ao aplicar o tema.
+        currentConfig.cor_primaria = currentConfig.cor_primaria || COR_PRIMARIA_PADRAO;
+        currentConfig.cor_secundaria = currentConfig.cor_secundaria || COR_SECUNDARIA_PADRAO;
         currentConfig.cor_texto_botao = currentConfig.cor_texto_botao || "#FFFFFF";
 
         aplicarTemaNoDOM(currentConfig);
@@ -1371,8 +1381,8 @@ function aplicarTemaNoDOM(config) {
 
 async function restaurarPadroesUX() {
     tempConfig.tema = "dark";
-    tempConfig.cor_primaria = "#A855F7";
-    tempConfig.cor_secundaria = "#E879F9";
+    tempConfig.cor_primaria = COR_PRIMARIA_PADRAO;
+    tempConfig.cor_secundaria = COR_SECUNDARIA_PADRAO;
     tempConfig.cor_texto_botao = "#FFFFFF";
     tempConfig.bg_url = "";
     tempConfig.bg_blur = 15;
@@ -3870,6 +3880,173 @@ function abrirAjuda() {
 function fecharAjuda() {
     document.getElementById('ajudaModal').style.display = 'none';
 }
+
+// ==========================================
+// CONTRASTE DAS CORES ESCOLHIDAS
+// ==========================================
+// O tema é customizável, e nada impedia escolher amarelo claro sobre branco.
+// O app ficava ilegível e a culpa parecia ser dele — a pessoa não tem como
+// saber que o problema é a combinação, nem qual das duas cores mexer.
+//
+// A régua é a da WCAG: 4,5:1 para texto normal. Não é opinião de design, é o
+// limite abaixo do qual parte das pessoas simplesmente não lê.
+const CONTRASTE_MINIMO = 4.5;
+
+function _hexParaRgb(hex) {
+    const limpo = String(hex || '').replace('#', '').trim();
+    const completo = limpo.length === 3
+        ? limpo.split('').map(c => c + c).join('')
+        : limpo;
+    if (!/^[0-9a-fA-F]{6}$/.test(completo)) return null;
+    return [
+        parseInt(completo.slice(0, 2), 16),
+        parseInt(completo.slice(2, 4), 16),
+        parseInt(completo.slice(4, 6), 16),
+    ];
+}
+
+// Luminância relativa da WCAG. A correção de gama (o expoente 2.4) existe
+// porque o olho não enxerga o dobro de valor como o dobro de brilho — sem
+// ela, cores escuras pareceriam ter muito mais contraste do que têm.
+function _luminancia(rgb) {
+    const [r, g, b] = rgb.map(v => {
+        const c = v / 255;
+        return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+function contrasteEntre(corA, corB) {
+    const a = _hexParaRgb(corA), b = _hexParaRgb(corB);
+    if (!a || !b) return null;
+    const la = _luminancia(a), lb = _luminancia(b);
+    const claro = Math.max(la, lb), escuro = Math.min(la, lb);
+    return (claro + 0.05) / (escuro + 0.05);
+}
+
+// A cor mais PRÓXIMA que passa, e não uma cor bonita qualquer: quem escolheu
+// aquele tom queria aquele tom. Ajusta só o brilho, mantendo matiz e
+// saturação, e caminha para o lado que aumenta o contraste.
+function corMaisProximaQuePassa(cor, fundo, minimo = CONTRASTE_MINIMO) {
+    const rgb = _hexParaRgb(cor), fundoRgb = _hexParaRgb(fundo);
+    if (!rgb || !fundoRgb) return null;
+
+    const hex = (v) => Math.round(Math.max(0, Math.min(255, v)))
+        .toString(16).padStart(2, '0');
+
+    // Tenta os DOIS sentidos e fica com o que resolve com menos mudança.
+    // Escolher o sentido só pela luminância do fundo falha quando a cor já
+    // está no extremo: branco sobre roxo médio não tem como clarear, e a
+    // função devolvia "não dá" para um caso que escurecendo resolve.
+    const candidatos = [];
+    for (const paraEscuro of [true, false]) {
+        for (let passo = 1; passo <= 100; passo++) {
+            const fator = passo / 100;
+            const ajustada = '#' + rgb.map(v => hex(
+                paraEscuro ? v * (1 - fator) : v + (255 - v) * fator
+            )).join('');
+            if (contrasteEntre(ajustada, fundo) >= minimo) {
+                candidatos.push({ cor: ajustada, distancia: passo });
+                break;
+            }
+        }
+    }
+    if (candidatos.length) {
+        candidatos.sort((a, b) => a.distancia - b.distancia);
+        return candidatos[0].cor;
+    }
+    // Nem preto nem branco resolvem só quando o fundo é cinza médio — aí a
+    // cor a mudar é a do fundo, e dizer isso é mais útil que devolver algo.
+    return null;
+}
+
+// Fundo contra o qual cada cor será lida de verdade. Comparar contra a cor
+// errada produziria um aviso que não corresponde ao que aparece na tela.
+const _FUNDO_DE_LEITURA = {
+    corPrimaria:    () => _corDeFundoDaTela(),
+    corSecundaria:  () => _corDeFundoDaTela(),
+    corTextoBotao:  () => document.getElementById('corPrimaria')?.value || '#A855F7',
+    btnSearchTexto: () => document.getElementById('btnSearchCor')?.value || '#A855F7',
+    btnTopbarTexto: () => document.getElementById('btnTopbarCor')?.value || '#151A2A',
+};
+
+function _corDeFundoDaTela() {
+    const cs = getComputedStyle(document.body).backgroundColor;
+    const m = cs.match(/\d+/g);
+    if (!m) return '#0B0614';
+    const hex = (v) => Number(v).toString(16).padStart(2, '0');
+    return '#' + hex(m[0]) + hex(m[1]) + hex(m[2]);
+}
+
+function conferirContraste(campoId) {
+    const campo = document.getElementById(campoId);
+    if (!campo) return;
+
+    const obterFundo = _FUNDO_DE_LEITURA[campoId];
+    if (!obterFundo) return;
+
+    const fundo = obterFundo();
+    const razao = contrasteEntre(campo.value, fundo);
+    let aviso = document.getElementById(`contraste-${campoId}`);
+
+    if (razao === null || razao >= CONTRASTE_MINIMO) {
+        if (aviso) aviso.remove();
+        campo.removeAttribute('aria-describedby');
+        return;
+    }
+
+    if (!aviso) {
+        aviso = document.createElement('div');
+        aviso.id = `contraste-${campoId}`;
+        aviso.className = 'aviso-contraste';
+        // `polite`: a pessoa está mexendo no seletor de cor, e interromper a
+        // cada tom testado seria insuportável.
+        aviso.setAttribute('role', 'status');
+        aviso.setAttribute('aria-live', 'polite');
+        campo.insertAdjacentElement('afterend', aviso);
+        campo.setAttribute('aria-describedby', aviso.id);
+    }
+
+    aviso.innerHTML = '';
+    const texto = document.createElement('span');
+    texto.textContent = `Contraste baixo (${razao.toFixed(1)}:1). ` +
+        `Abaixo de ${CONTRASTE_MINIMO}:1 fica difícil de ler.`;
+    aviso.appendChild(texto);
+
+    const sugerida = corMaisProximaQuePassa(campo.value, fundo);
+    if (sugerida) {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'aviso-contraste-usar';
+        btn.style.background = sugerida;
+        btn.textContent = `Usar ${sugerida.toUpperCase()}`;
+        btn.setAttribute('aria-label', `Usar a cor ${sugerida} em vez desta`);
+        btn.onclick = () => {
+            campo.value = sugerida;
+            campo.dispatchEvent(new Event('input', { bubbles: true }));
+            campo.dispatchEvent(new Event('change', { bubbles: true }));
+            conferirContraste(campoId);
+        };
+        aviso.appendChild(btn);
+    } else {
+        const nota = document.createElement('span');
+        nota.textContent = ' Nenhum tom desta cor passa sobre este fundo — ' +
+                           'mude a cor de fundo.';
+        aviso.appendChild(nota);
+    }
+}
+
+function vigiarContraste() {
+    Object.keys(_FUNDO_DE_LEITURA).forEach(id => {
+        const campo = document.getElementById(id);
+        if (!campo) return;
+        campo.addEventListener('input', () => conferirContraste(id));
+        campo.addEventListener('change', () => conferirContraste(id));
+        conferirContraste(id);      // avisa também sobre o que já estava salvo
+    });
+}
+
+document.addEventListener('DOMContentLoaded', vigiarContraste);
 
 // ==========================================
 // ACESSIBILIDADE DOS MODAIS

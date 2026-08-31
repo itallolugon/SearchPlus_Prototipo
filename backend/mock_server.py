@@ -217,7 +217,7 @@ _CONFIG = {
     "perfil_nome": "Usuário Demo", "perfil_handle": "demo", "perfil_bio": "Conta de demonstração",
     "perfil_cargo": "Designer", "perfil_local": "São Paulo, BR",
     "perfil_avatar": "", "perfil_banner": "",
-    "cor_primaria": "#A855F7", "cor_secundaria": "#E879F9", "cor_texto_botao": "#FFFFFF",
+    "cor_primaria": "#AB5AF7", "cor_secundaria": "#E879F9", "cor_texto_botao": "#FFFFFF",
     "tema": "dark", "bg_url": "", "bg_blur": 15, "idioma": "pt-BR",
     "notificacoes": True, "atalho_busca": "Ctrl+Shift+F", "iniciar_sistema": False,
     "modo_privado": False, "pastas_ignoradas": "", "modo_desempenho": "economico",

@@ -431,6 +431,23 @@ cabeça: dá tempo de almoçar?
 | **RF-207** | Com a fila drenando e o ritmo constante, o texto **nunca volta atrás**. Estimativa que sobe sozinha destrói a confiança na barra. | Implementado |
 | **RF-208** | Um único arquivo lento não pode deslocar a estimativa; uma mudança real e sustentada de ritmo, sim. | Implementado |
 
+### Contraste das cores
+
+O tema é customizável, e nada impedia escolher amarelo claro sobre branco. O app
+ficava ilegível e a culpa parecia ser dele — a pessoa não tem como saber que o
+problema é a combinação, nem qual das duas cores mexer.
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-320** | O contraste é calculado **no momento da escolha**, contra o fundo em que a cor será lida de verdade. | Implementado |
+| **RF-321** | Abaixo de 4,5:1 a interface avisa, com a razão medida. | Implementado |
+| **RF-322** | O aviso oferece a cor **mais próxima** que passa — quem escolheu aquele tom queria aquele tom; só o brilho é ajustado. | Implementado |
+| **RF-323** | A busca pela cor tenta clarear **e** escurecer, ficando com a menor mudança. Escolher o sentido só pela luminância do fundo falha quando a cor já está no extremo. | Implementado |
+| **RF-324** | Quando nenhum tom da cor resolve, a interface diz que o problema é o fundo, em vez de sugerir algo que não serve. | Implementado |
+| **RF-325** | O aviso é anunciado em `polite` — interromper a cada tom testado seria insuportável. | Implementado |
+| **RF-326** | O tema padrão foi auditado e **corrigido**. Reprovavam: branco sobre o destaque (3,96:1), branco sobre o destaque 2 (2,46:1) e o destaque como texto sobre a superfície (4,38:1). | Corrigido |
+| **RF-327** | O destaque tem dois papéis (texto e fundo de botão) que pedem contrastes opostos. Variantes "-forte" atendem as superfícies com texto branco; o tom original fica onde é lido como texto. | Corrigido |
+
 ### O que muda sozinho na tela precisa ser anunciado
 
 Progresso de indexação, contagem de resultados e avisos apareciam e sumiam sem

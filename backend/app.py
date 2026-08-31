@@ -971,7 +971,12 @@ _DEFAULT_CFG = {
     "perfil_local": "",
     "perfil_avatar": "",
     "perfil_banner": "",
-    "cor_primaria": "#A855F7",
+    # Clareado 3% em relacao ao #A855F7 original: como TEXTO sobre a
+    # superficie dos cards, o tom anterior media 4,38:1 e nao passava no
+    # minimo de 4,5:1 da WCAG. A diferenca e imperceptivel a olho.
+    # Este e o padrao que VALE: o front so usa o dele quando o servidor
+    # nao manda nada.
+    "cor_primaria": "#AB5AF7",
     "cor_secundaria": "#E879F9",
     "cor_texto_botao": "#FFFFFF",
     "tema": "dark",
