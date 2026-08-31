@@ -928,9 +928,36 @@ resposta não muda.
 
 #### `GET /api/status`
 ```json
-{ "status": "Ocioso", "arquivos_pendentes": 0, "arquivos_processados_sessao": 12 }
+{
+  "status": "Ocioso",
+  "arquivos_pendentes": 0,
+  "restante_texto": "",
+  "segundos_por_arquivo": 0.5,
+  "arquivos_processados_sessao": 12
+}
 ```
 `status` é texto livre para exibição (`"Ocioso"`, `"Processando..."`). Use enquanto houver indexação em curso — o front atual consulta a cada poucos segundos.
+
+**Quanto falta.** `arquivos_pendentes` sozinho não responde à pergunta que a
+pessoa tem: dá tempo de almoçar? `restante_texto` já vem pronto para exibir
+(`"quase terminando"`, `"≈ 25 min restantes"`, `"≈ 2 horas restantes"`), ou
+vazio quando não há fila.
+
+`segundos_por_arquivo` é o ritmo **medido**, não estimado: o servidor cronometra
+cada arquivo e usa a **mediana** dos últimos 30. Mediana e não média porque um
+PDF de 300 páginas no meio de mil fotos multiplicaria a média e faria a
+estimativa saltar de "2 min" para "40 min" por causa de um arquivo. Enquanto
+houver menos de 5 medições, vale o padrão de 0,5 s/arquivo — o mesmo que
+`/api/estimate_time` usa, para as duas telas não se contradizerem.
+
+Só entra na conta o arquivo que foi de fato processado. O que voltou para a
+fila por estar fora da janela de horário não gastou tempo nenhum e entraria
+como "arquivo instantâneo", prometendo um fim que não vem.
+
+O texto é arredondado de propósito — de 5 em 5 minutos acima de 10 min. Numa
+fila de 1800 arquivos ele muda cerca de 14 vezes, não 1800: ninguém planeja o
+intervalo do café com um minuto de precisão, e número dançando passa a
+impressão de que o programa não sabe o que está fazendo.
 
 #### `POST /api/analyze_folders`
 Dispara a varredura de todas as pastas. Responde na hora; o trabalho roda em background — acompanhe por `/api/status`.

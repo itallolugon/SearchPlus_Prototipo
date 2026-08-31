@@ -2870,7 +2870,12 @@ async function buscarStatus() {
         // Monta o texto do status
         let texto;
         if (pend > 0) {
-            texto = `🔍 Indexando arquivos — ${pend} na fila`;
+            // "N na fila" não responde à pergunta que a pessoa tem: dá tempo
+            // de almoçar? O tempo restante vem calibrado pelo ritmo que a
+            // indexação está de fato conseguindo nesta máquina, e só aparece
+            // quando o servidor tem medição suficiente para arriscar um número.
+            const resta = s.restante_texto ? ` · ${s.restante_texto}` : '';
+            texto = `🔍 Indexando arquivos — ${pend} na fila${resta}`;
         } else if (s.status && s.status.startsWith('Aguardando janela')) {
             texto = `🕐 ${s.status}`;
         } else if (s.status && s.status.startsWith('Escaneando')) {

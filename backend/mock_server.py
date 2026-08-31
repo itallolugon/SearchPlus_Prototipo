@@ -1282,13 +1282,56 @@ def open_location():
 # Motor de indexação
 # ──────────────────────────────────────────────────────────────────────────────
 
+# Fila simulada. O mock nao indexa nada, mas o front precisa conseguir desenhar
+# a barra de progresso COM a estimativa -- e ver o numero cair -- sem depender
+# de alguem ter uma pasta de dez mil fotos a mao.
+#
+# Comeca zerada: quem so quer mexer nas colecoes nao precisa ver uma barra de
+# indexacao inventada. POST /api/analyze_folders enche a fila, e cada consulta
+# de status drena um pouco, como o worker de verdade faria.
+_FILA_SIMULADA = [0]
+_RITMO_SIMULADO = 0.9      # segundos por arquivo
+
+
+def _texto_do_restante(pendentes, segundos_por_arquivo):
+    """Mesmas faixas do backend real -- se divergirem, o front mente numa delas."""
+    if pendentes <= 0:
+        return ""
+    restante = pendentes * segundos_por_arquivo
+    if restante < 60:
+        return "quase terminando"
+    minutos = restante / 60
+    if minutos < 10:
+        return f"\u2248 {round(minutos)} min restantes"
+    if minutos < 60:
+        return f"\u2248 {int(round(minutos / 5) * 5)} min restantes"
+    horas = minutos / 60
+    if horas < 2:
+        return "\u2248 1 hora restante"
+    return f"\u2248 {round(horas)} horas restantes"
+
+
+def _drenar_fila_simulada():
+    if _FILA_SIMULADA[0] > 0:
+        _FILA_SIMULADA[0] = max(0, _FILA_SIMULADA[0] - 37)
+    return _FILA_SIMULADA[0]
+
+
 @app.route("/api/status")
 def status():
     if not _logado():
         return jsonify({"status": "Ocioso", "arquivos_pendentes": 0,
+                        "restante_texto": "", "segundos_por_arquivo": 0.5,
                         "arquivos_processados_sessao": 0})
-    return jsonify({"status": "Ocioso", "arquivos_pendentes": 0,
-                    "arquivos_processados_sessao": len(_ARQUIVOS)})
+
+    pendentes = _drenar_fila_simulada()
+    return jsonify({
+        "status": "Indexando" if pendentes else "Ocioso",
+        "arquivos_pendentes": pendentes,
+        "restante_texto": _texto_do_restante(pendentes, _RITMO_SIMULADO),
+        "segundos_por_arquivo": _RITMO_SIMULADO,
+        "arquivos_processados_sessao": len(_ARQUIVOS),
+    })
 
 
 # Lixeira do mock. Reproduz o que importa para o front: excluir devolve um
@@ -1385,7 +1428,10 @@ def health():
 def analyze_folders():
     if not _logado():
         return _nao_autenticado()
-    return jsonify({"status": "ok", "enfileirados": 0,
+    # Enche a fila simulada para o front conseguir ver a barra de progresso com
+    # a estimativa de tempo, e o numero caindo a cada consulta de status.
+    _FILA_SIMULADA[0] = 640
+    return jsonify({"status": "ok", "enfileirados": _FILA_SIMULADA[0],
                     "mensagem": "Análise iniciada (mock — nada é processado)."})
 
 

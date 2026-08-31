@@ -17,6 +17,7 @@ import subprocess
 import threading
 import time
 import unicodedata
+from collections import deque
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -4617,10 +4618,15 @@ def api_status():
         if conn is not None:
             conn.close()
 
+    pendentes = _queue.qsize()
+    ritmo = _ritmo_observado()
+
     with _lock:
         return jsonify({
             "status":                    _status,
-            "arquivos_pendentes":        _queue.qsize(),
+            "arquivos_pendentes":        pendentes,
+            "restante_texto":            _texto_do_restante(pendentes, ritmo),
+            "segundos_por_arquivo":      round(ritmo, 2),
             "arquivos_processados_sessao": count,
         })
 
@@ -5464,6 +5470,94 @@ def _get_precomputed_clip_embs(category: str) -> list:
     return embs
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Ritmo observado da indexação
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# A barra dizia "N na fila". Isso não responde à pergunta que a pessoa tem na
+# cabeça: dá tempo de almoçar? Um número de arquivos só vira tempo se houver
+# uma taxa, e a taxa fixa de 0,5s por arquivo erra por ordens de grandeza —
+# um SSD com JPEG pequeno e um HD externo com PDF de 300 páginas não têm o
+# mesmo ritmo, e nem a mesma máquina tem o mesmo ritmo o dia inteiro.
+#
+# Aqui a taxa é medida enquanto a indexação acontece.
+
+# Janela do histórico. Trinta arquivos são suficientes para atravessar uma
+# sequência ruim (uma pasta de vídeos no meio de fotos) sem que a estimativa
+# fique presa a um começo atípico por muito tempo.
+_JANELA_RITMO = 30
+
+# Abaixo disso a amostra não diz nada: dois arquivos rápidos anunciariam "1
+# minuto" para uma pasta de dez mil. Até chegar aqui, vale o padrão.
+_MINIMO_PARA_CONFIAR = 5
+
+# Quanto custa um arquivo antes de haver medição. Mesmo valor que a estimativa
+# de antes de indexar usa, para as duas telas não se contradizerem.
+SEGUNDOS_POR_ARQUIVO_PADRAO = 0.5
+
+_duracoes = deque(maxlen=_JANELA_RITMO)
+_lock_ritmo = threading.Lock()
+
+
+def _registrar_duracao(segundos: float) -> None:
+    """Guarda quanto custou um arquivo. Chamado pelo worker a cada item."""
+    if segundos <= 0:
+        return
+    with _lock_ritmo:
+        _duracoes.append(segundos)
+
+
+def _ritmo_observado() -> float:
+    """
+    Segundos por arquivo, medidos.
+
+    Usa a MEDIANA, não a média. Um único PDF de 300 páginas no meio de mil
+    fotos multiplica a média e a estimativa salta de "2 minutos" para "40
+    minutos" por causa de um arquivo — exatamente a oscilação que o item pede
+    para eliminar. A mediana ignora o outlier e continua descrevendo o ritmo
+    típico, que é o que responde "dá tempo de almoçar?".
+    """
+    with _lock_ritmo:
+        amostra = list(_duracoes)
+
+    if len(amostra) < _MINIMO_PARA_CONFIAR:
+        return SEGUNDOS_POR_ARQUIVO_PADRAO
+
+    amostra.sort()
+    meio = len(amostra) // 2
+    if len(amostra) % 2:
+        return amostra[meio]
+    return (amostra[meio - 1] + amostra[meio]) / 2
+
+
+def _texto_do_restante(pendentes: int, segundos_por_arquivo: float) -> str:
+    """
+    A estimativa como a pessoa lê, não como o servidor calcula.
+
+    Arredonda para valores graúdos de propósito. "≈ 11 min" virando "≈ 12 min"
+    e voltando a cada atualização é ruído: ninguém planeja o intervalo do café
+    com um minuto de precisão, e o número mudando sozinho passa a impressão de
+    que o programa não sabe o que está fazendo.
+    """
+    if pendentes <= 0:
+        return ""
+
+    restante = pendentes * segundos_por_arquivo
+    if restante < 60:
+        return "quase terminando"
+
+    minutos = restante / 60
+    if minutos < 10:
+        return f"≈ {round(minutos)} min restantes"
+    if minutos < 60:
+        return f"≈ {int(round(minutos / 5) * 5)} min restantes"
+
+    horas = minutos / 60
+    if horas < 2:
+        return "≈ 1 hora restante"
+    return f"≈ {round(horas)} horas restantes"
+
+
 def _process_worker() -> None:
     global _processed, _status
 
@@ -5500,6 +5594,7 @@ def _process_worker() -> None:
         # Todo o processamento de UM item fica dentro deste try: sem ele, uma
         # exceção aqui matava a thread e a indexação parava para sempre — com o
         # status exibindo "Ocioso", sem nenhum sinal de que algo quebrou.
+        comecou_em = time.time()
         try:
             # ── Buscar config da pasta ──
             prioridades, perfil, janela = _get_folder_config(folder_id, uid)
@@ -5579,6 +5674,12 @@ def _process_worker() -> None:
                 # Flask não recolhe a conexão: sem o finally, cada falha no
                 # UPDATE vazava uma conexão até esgotar o pool.
                 conn.close()
+
+            # Só conta o arquivo que realmente foi processado. O que voltou
+            # para a fila por estar fora da janela de horário não gastou tempo
+            # de processamento nenhum, e entraria como "arquivo instantâneo",
+            # puxando a estimativa para baixo e prometendo o que não dá.
+            _registrar_duracao(time.time() - comecou_em)
 
             with _lock:
                 _processed += 1

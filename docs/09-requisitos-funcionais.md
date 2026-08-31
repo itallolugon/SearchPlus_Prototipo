@@ -395,6 +395,23 @@ levando a um clique que não abre nada.
 | **RF-167** | A varredura da indexação e a da verificação devem enxergar **o mesmo conjunto de arquivos** (mesmas extensões, mesma lista de pastas ignoradas). Divergir faria a verificação acusar como novo algo que a indexação ignora de propósito, e o contador nunca zeraria. | Implementado |
 | **RF-168** | A verificação não pode acontecer por GET. Um link ou um prefetch do navegador dispararia reindexação sozinho. | Implementado |
 
+### Quanto falta para a indexação terminar
+
+A barra dizia "N na fila", que não responde à pergunta que a pessoa tem na
+cabeça: dá tempo de almoçar?
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-200** | A barra de indexação deve mostrar **tempo restante** ao lado da contagem. | Implementado |
+| **RF-201** | O tempo deve vir do ritmo **medido** durante a própria indexação, não de uma taxa fixa. Um SSD com JPEG e um HD externo com PDF de 300 páginas não têm o mesmo ritmo. | Implementado |
+| **RF-202** | A medição usa a **mediana** dos últimos 30 arquivos. Média faria um único arquivo enorme saltar a estimativa de "2 min" para "40 min". | Implementado |
+| **RF-203** | Com menos de 5 medições vale o padrão, o mesmo usado antes de indexar — as duas telas não podem se contradizer. | Implementado |
+| **RF-204** | Só conta o arquivo **realmente processado**. O que voltou para a fila por estar fora da janela de horário entraria como "arquivo instantâneo" e prometeria um fim que não vem. | Implementado |
+| **RF-205** | Abaixo de 1 minuto, o texto é "quase terminando" — não um número. | Implementado |
+| **RF-206** | O número é arredondado de 5 em 5 acima de 10 minutos. Numa fila de 1800 arquivos o texto muda ~14 vezes, não 1800. | Implementado |
+| **RF-207** | Com a fila drenando e o ritmo constante, o texto **nunca volta atrás**. Estimativa que sobe sozinha destrói a confiança na barra. | Implementado |
+| **RF-208** | Um único arquivo lento não pode deslocar a estimativa; uma mudança real e sustentada de ritmo, sim. | Implementado |
+
 ### Por que o resultado apareceu
 
 O número que ordena a busca existe e continua escondido de propósito: "0,72"
