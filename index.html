@@ -385,7 +385,7 @@
                      role="group" aria-label="Refinamentos aplicados à busca"></div>
 
                 <div class="resultados-acoes" id="resultadosAcoes" style="display: none;">
-                    <span id="resultadosResumo" class="resultados-resumo"></span>
+                    <span id="resultadosResumo" class="resultados-resumo" role="status" aria-live="polite"></span>
                     <button type="button" id="btnSelecionarTodos" class="action-btn btn-selecionar-todos"
                             onclick="alternarSelecionarTodos()" aria-pressed="false"
                             aria-label="Selecionar todas as imagens dos resultados"
@@ -818,7 +818,7 @@
         </div>
     </div>
 
-    <div id="statusBar" class="status-bar">Conectando ao motor...</div>
+    <div id="statusBar" class="status-bar" role="status" aria-live="polite">Conectando ao motor...</div>
 
     <!-- Container de notificações (toasts) -->
     <div id="toastContainer" class="toast-container"></div>
@@ -1187,7 +1187,7 @@
 
     <!-- Barra flutuante: ações sobre as imagens selecionadas -->
     <div id="barraSelecao" class="barra-selecao">
-        <span id="selecaoContador">0 imagens selecionadas</span>
+        <span id="selecaoContador" role="status" aria-live="polite">0 imagens selecionadas</span>
         <div class="barra-selecao-acoes">
             <button class="action-btn gradient-btn" onclick="abrirSeletorColecao()" style="margin:0;">＋ Adicionar à coleção</button>
             <button class="action-btn" onclick="limparSelecao()" style="margin:0;">Limpar seleção</button>

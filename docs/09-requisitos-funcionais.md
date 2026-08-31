@@ -431,6 +431,19 @@ cabeça: dá tempo de almoçar?
 | **RF-207** | Com a fila drenando e o ritmo constante, o texto **nunca volta atrás**. Estimativa que sobe sozinha destrói a confiança na barra. | Implementado |
 | **RF-208** | Um único arquivo lento não pode deslocar a estimativa; uma mudança real e sustentada de ritmo, sim. | Implementado |
 
+### O que muda sozinho na tela precisa ser anunciado
+
+Progresso de indexação, contagem de resultados e avisos apareciam e sumiam sem
+nada dizer a quem não está olhando para o lugar certo.
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-315** | O progresso da indexação é anunciado em `polite`. | Implementado |
+| **RF-316** | A contagem de resultados e a de seleção são anunciadas em `polite`. | Implementado |
+| **RF-317** | Erros são anunciados em `assertive`; o resto em `polite`. Anunciar "salvo com sucesso" por cima do que a pessoa está lendo é tão ruim quanto deixar um erro passar em silêncio. | Implementado |
+| **RF-318** | O aviso com **desfazer** é anunciado. Sem isso, quem não vê a tela descobre a ação depois que ela já sumiu. | Implementado |
+| **RF-319** | Os ícones dos avisos ficam `aria-hidden` — ler "✓" antes da frase só atrapalha. | Implementado |
+
 ### Acessibilidade dos modais
 
 O `index.html` tinha um único `aria-label` antes das features recentes, e nenhum

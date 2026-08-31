@@ -69,8 +69,16 @@ function mostrarToast(mensagem, tipo = 'info', duracaoMs = 4500) {
     const icones = { sucesso: '✓', erro: '✕', info: 'ℹ', aviso: '⚠' };
     const toast = document.createElement('div');
     toast.className = `toast toast-${tipo}`;
+
+    // Erro interrompe a leitura; o resto espera a pausa. Anunciar um "salvo
+    // com sucesso" por cima do que a pessoa está lendo é tão ruim quanto
+    // deixar um erro passar em silêncio.
+    const grave = (tipo === 'erro');
+    toast.setAttribute('role', grave ? 'alert' : 'status');
+    toast.setAttribute('aria-live', grave ? 'assertive' : 'polite');
+
     toast.innerHTML = `
-        <span class="toast-icone">${icones[tipo] || 'ℹ'}</span>
+        <span class="toast-icone" aria-hidden="true">${icones[tipo] || 'ℹ'}</span>
         <span class="toast-msg"></span>
         <button class="toast-fechar" aria-label="Fechar">&times;</button>
     `;
@@ -103,7 +111,10 @@ function toastComAcao(mensagem, rotulo, aoAgir, duracaoMs = 8000) {
 
     const toast = document.createElement('div');
     toast.className = 'toast toast-info toast-com-acao';
+    // O botão de desfazer é o motivo de este aviso existir. Sem `aria-live`,
+    // quem não vê a tela descobre a ação depois que ela já sumiu.
     toast.setAttribute('role', 'status');
+    toast.setAttribute('aria-live', 'polite');
     toast.innerHTML = `
         <span class="toast-icone" aria-hidden="true">ℹ</span>
         <span class="toast-msg"></span>
