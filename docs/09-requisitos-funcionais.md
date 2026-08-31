@@ -395,6 +395,25 @@ levando a um clique que não abre nada.
 | **RF-167** | A varredura da indexação e a da verificação devem enxergar **o mesmo conjunto de arquivos** (mesmas extensões, mesma lista de pastas ignoradas). Divergir faria a verificação acusar como novo algo que a indexação ignora de propósito, e o contador nunca zeraria. | Implementado |
 | **RF-168** | A verificação não pode acontecer por GET. Um link ou um prefetch do navegador dispararia reindexação sozinho. | Implementado |
 
+### Resumo da indexação
+
+Ao terminar, o app dizia "Indexação concluída!" e pronto. Quem apontou uma pasta
+com 4.000 arquivos e viu 3.200 indexados não tinha como saber o que houve com os
+outros 800 — nem se houve.
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-209** | Ao concluir, deve haver um resumo **por pasta**: indexados, ignorados e com erro. | Implementado |
+| **RF-210** | Ignorado e erro são contados **separadamente**. Juntos viram "800 problemas" e mandam a pessoa procurar defeito onde não há: um `.zip` no meio das fotos não é falha do programa. | Implementado |
+| **RF-211** | Os erros são expansíveis, com **nome do arquivo e motivo**. | Implementado |
+| **RF-212** | A lista de nomes é limitada a 50 por pasta; a contagem continua exata. A lista existe para investigar, não para inventariar. | Implementado |
+| **RF-213** | O resumo é **persistido** e reabre pelas Configurações. Quem estava com a janela fechada quando a indexação acabou perdia a informação inteira — justamente quando ela faz mais falta. | Implementado |
+| **RF-214** | O aviso de conclusão leva ao resumo com um clique. | Implementado |
+| **RF-215** | Duas indexações seguidas não somam: começar uma nova zera o acumulado. | Implementado |
+| **RF-216** | Indexação que não olhou pasta nenhuma não gera resumo. | Implementado |
+| **RF-217** | Falha ao gravar o resumo não pode derrubar o processo de indexação. | Implementado |
+| **RF-218** | "Nunca indexou" e "indexou e não achou nada" são estados distintos na tela. | Implementado |
+
 ### Quanto falta para a indexação terminar
 
 A barra dizia "N na fila", que não responde à pergunta que a pessoa tem na

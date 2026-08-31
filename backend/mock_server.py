@@ -1314,6 +1314,9 @@ def _texto_do_restante(pendentes, segundos_por_arquivo):
 def _drenar_fila_simulada():
     if _FILA_SIMULADA[0] > 0:
         _FILA_SIMULADA[0] = max(0, _FILA_SIMULADA[0] - 37)
+        if _FILA_SIMULADA[0] == 0:
+            # Fila zerou: o resumo fica disponivel, como no backend real.
+            _fechar_resumo_simulado()
     return _FILA_SIMULADA[0]
 
 
@@ -1422,6 +1425,37 @@ def health():
         "busca_pronta": True,
         "carregando": False,
     })
+
+
+# Resumo da ultima indexacao. Comeca vazio (nunca indexou) e e preenchido
+# quando a fila simulada zera -- assim o front exercita os DOIS estados: o
+# "nunca rodou" e o resumo com erro para expandir.
+_RESUMO = [None]
+
+
+def _fechar_resumo_simulado():
+    _RESUMO[0] = {
+        "inicio": (_HOJE - timedelta(minutes=8)).isoformat(),
+        "fim": _HOJE.isoformat(),
+        "pastas": [
+            {"caminho": _BASE, "indexados": 612, "ignorados": 24, "erros": 3,
+             "arquivos_com_erro": [
+                 {"nome": "foto-corrompida.jpg", "motivo": "não foi possível ler o conteúdo"},
+                 {"nome": "camera_raw.cr2", "motivo": "não foi possível ler o conteúdo"},
+                 {"nome": "scan-antigo.tiff", "motivo": "não foi possível ler o conteúdo"},
+             ]},
+            {"caminho": _DOCS, "indexados": 28, "ignorados": 5, "erros": 0,
+             "arquivos_com_erro": []},
+        ],
+        "totais": {"indexados": 640, "ignorados": 29, "erros": 3},
+    }
+
+
+@app.route("/api/resumo_indexacao")
+def resumo_indexacao():
+    if not _logado():
+        return _nao_autenticado()
+    return jsonify({"resumo": _RESUMO[0]})
 
 
 @app.route("/api/analyze_folders", methods=["POST"])

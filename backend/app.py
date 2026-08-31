@@ -4764,6 +4764,39 @@ def api_health():
     })
 
 
+@app.route("/api/resumo_indexacao")
+def api_resumo_indexacao():
+    """
+    O resumo da última indexação, para reabrir depois.
+
+    Só o mais recente: guardar histórico de todas as rodadas seria um arquivo
+    morto — ninguém volta na indexação de três semanas atrás. O que faz falta
+    é a última, quando a pergunta "cadê minhas fotos?" aparece.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    conn = get_db()
+    try:
+        linha = conn.execute(
+            "SELECT conteudo, fim FROM resumos_indexacao "
+            "WHERE user_id = %s ORDER BY fim DESC LIMIT 1",
+            (uid,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if not linha:
+        return jsonify({"resumo": None})
+
+    conteudo = linha["conteudo"]
+    if isinstance(conteudo, str):
+        conteudo = _safe_json_loads(conteudo, {}) or {}
+
+    return jsonify({"resumo": conteudo})
+
+
 @app.route("/api/analyze_folders", methods=["POST"])
 def api_analyze_folders():
     uid = _uid()
@@ -4775,6 +4808,8 @@ def api_analyze_folders():
         "SELECT path FROM folders WHERE user_id = %s", (uid,)
     ).fetchall()
     conn.close()
+
+    _resumo_iniciar(uid)
 
     for f in folders:
         threading.Thread(target=_scan_folder, args=(f["path"], uid), daemon=True).start()
@@ -5071,7 +5106,8 @@ def _esta_na_blacklist(caminho: str, blacklist: list[str]) -> bool:
     return any(cam.startswith(b) for b in blacklist)
 
 
-def _percorrer_arquivos(pasta: str, blacklist: list[str]):
+def _percorrer_arquivos(pasta: str, blacklist: list[str],
+                        ignorados: list | None = None):
     """
     Gera (caminho, nome, extensão) de cada arquivo indexável sob `pasta`.
 
@@ -5080,6 +5116,11 @@ def _percorrer_arquivos(pasta: str, blacklist: list[str]):
     deles ganhar um filtro para a verificação passar a acusar como "novo" algo
     que a varredura ignorava de propósito — e o usuário veria um número que
     nunca zerava.
+
+    `ignorados`, se vier, recebe um item por arquivo pulado por não ser de um
+    tipo que o Search+ abre. Quem monta o resumo da indexação precisa dessa
+    contagem, e este laço é o único lugar que a conhece — contar de novo por
+    fora significaria varrer o disco duas vezes.
     """
     for root, _, filenames in os.walk(pasta):
         # Pula diretórios inteiros que estão na blacklist
@@ -5088,6 +5129,8 @@ def _percorrer_arquivos(pasta: str, blacklist: list[str]):
         for fname in filenames:
             ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
             if ext not in _EXT_ALL:
+                if ignorados is not None:
+                    ignorados.append(fname)
                 continue
 
             fpath = os.path.join(root, fname)
@@ -5368,7 +5411,8 @@ def _scan_folder(folder_path: str, uid: int) -> None:
 
     blacklist = _blacklist_do_usuario(cfg_row["config_json"] if cfg_row else None)
 
-    for fpath, fname, ext in _percorrer_arquivos(folder_path, blacklist):
+    ignorados: list[str] = []
+    for fpath, fname, ext in _percorrer_arquivos(folder_path, blacklist, ignorados):
         conn = get_db()
         existing = conn.execute(
             "SELECT processado FROM files WHERE user_id = %s AND caminho = %s",
@@ -5399,7 +5443,10 @@ def _scan_folder(folder_path: str, uid: int) -> None:
                 conn.rollback()
         conn.close()
 
-        _queue.put({"path": fpath, "nome": fname, "ext": ext, "uid": uid, "folder_id": folder_id})
+        _queue.put({"path": fpath, "nome": fname, "ext": ext, "uid": uid,
+                    "folder_id": folder_id, "pasta": folder_path})
+
+    _resumo_contar_ignorados(uid, folder_id, folder_path, len(ignorados))
 
     with _lock:
         if _queue.empty():
@@ -5468,6 +5515,134 @@ def _get_precomputed_clip_embs(category: str) -> list:
                 embs.append(emb)
     _CLIP_EMBS_CACHE[category] = embs
     return embs
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Resumo da indexação
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# Ao terminar, o app dizia "Indexação concluída!" e pronto. Quem apontou uma
+# pasta com 4.000 arquivos e viu 3.200 indexados não tinha como saber o que
+# houve com os outros 800 — nem se houve. A pergunta "cadê minhas fotos?"
+# aparecia semanas depois, sem nada para responder.
+#
+# Três desfechos, e cada um pede uma reação diferente de quem lê:
+#   indexado  — nada a fazer
+#   ignorado  — o Search+ não abre esse tipo de arquivo; nada quebrou
+#   com erro  — o arquivo devia ter entrado e não entrou; aqui vale investigar
+#
+# Separar "ignorado" de "erro" é o ponto. Juntos, viram "800 problemas" e a
+# pessoa vai procurar defeito onde não há: um .zip no meio das fotos não é
+# falha do programa.
+
+# Quantos nomes de arquivo com erro guardar por pasta. A lista existe para
+# investigar, não para inventariar: com 4.000 nomes ninguém lê nenhum, e o
+# JSON incha à toa. A contagem total continua exata.
+LIMITE_ERROS_LISTADOS = 50
+
+_resumo_aberto: dict[int, dict] = {}
+_lock_resumo = threading.Lock()
+
+
+def _resumo_iniciar(uid: int) -> None:
+    """Zera o acumulado e marca o começo. Chamado ao disparar a análise."""
+    with _lock_resumo:
+        _resumo_aberto[uid] = {
+            "inicio": datetime.now(timezone.utc).isoformat(),
+            "pastas": {},
+        }
+
+
+def _resumo_pasta(uid: int, folder_id, caminho: str) -> dict | None:
+    """A entrada da pasta dentro do resumo aberto. None se não há resumo."""
+    dados = _resumo_aberto.get(uid)
+    if dados is None:
+        return None
+    chave = str(folder_id) if folder_id is not None else caminho
+    return dados["pastas"].setdefault(chave, {
+        "caminho": caminho, "indexados": 0, "ignorados": 0,
+        "erros": 0, "arquivos_com_erro": [],
+    })
+
+
+def _resumo_contar_ignorados(uid: int, folder_id, caminho: str, quantos: int) -> None:
+    if quantos <= 0:
+        return
+    with _lock_resumo:
+        pasta = _resumo_pasta(uid, folder_id, caminho)
+        if pasta is not None:
+            pasta["ignorados"] += quantos
+
+
+def _resumo_registrar_arquivo(uid: int, folder_id, caminho_pasta: str,
+                              nome: str, motivo: str = "") -> None:
+    """
+    Um arquivo terminou. `motivo` vazio significa que deu certo.
+
+    O nome da pasta pode não ser conhecido aqui (o worker só tem o folder_id),
+    e tudo bem: a entrada já foi criada pelo scan, que conhecia.
+    """
+    with _lock_resumo:
+        pasta = _resumo_pasta(uid, folder_id, caminho_pasta)
+        if pasta is None:
+            return
+        if motivo:
+            pasta["erros"] += 1
+            if len(pasta["arquivos_com_erro"]) < LIMITE_ERROS_LISTADOS:
+                pasta["arquivos_com_erro"].append({"nome": nome, "motivo": motivo})
+        else:
+            pasta["indexados"] += 1
+
+
+def _resumo_fechar(uid: int) -> dict | None:
+    """Tira o resumo do ar e devolve pronto para gravar."""
+    with _lock_resumo:
+        dados = _resumo_aberto.pop(uid, None)
+    if dados is None:
+        return None
+
+    pastas = list(dados["pastas"].values())
+    return {
+        "inicio": dados["inicio"],
+        "fim": datetime.now(timezone.utc).isoformat(),
+        "pastas": pastas,
+        "totais": {
+            "indexados": sum(p["indexados"] for p in pastas),
+            "ignorados": sum(p["ignorados"] for p in pastas),
+            "erros": sum(p["erros"] for p in pastas),
+        },
+    }
+
+
+def _gravar_resumo(uid: int) -> None:
+    """
+    Fecha e persiste. Chamado quando a fila esvazia.
+
+    Guardar em banco e não em memória é o que permite reabrir o resumo depois:
+    quem estava com a janela fechada quando a indexação acabou perdia a
+    informação inteira, que é justamente quando ela faz mais falta.
+    """
+    resumo = _resumo_fechar(uid)
+    if not resumo:
+        return
+    # Indexação que não olhou arquivo nenhum não rende resumo — seria uma
+    # linha vazia atrapalhando a lista.
+    if not resumo["pastas"]:
+        return
+
+    conn = get_db()
+    try:
+        conn.execute(
+            "INSERT INTO resumos_indexacao (user_id, inicio, fim, conteudo) "
+            "VALUES (%s, %s::timestamptz, %s::timestamptz, %s)",
+            (uid, resumo["inicio"], resumo["fim"], json.dumps(resumo)),
+        )
+        conn.commit()
+    except Exception as exc:
+        print(f"[Resumo] não foi possível gravar: {exc}")
+        conn.rollback()
+    finally:
+        conn.close()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5583,13 +5758,19 @@ def _process_worker() -> None:
             with _lock:
                 _status = "Ocioso"
             fora_da_janela_consecutivos = 0
+            # Fila vazia é o único sinal confiável de que a indexação acabou:
+            # o scan é assíncrono e não sabe quando o worker terminou o que
+            # ele enfileirou.
+            for uid_aberto in list(_resumo_aberto):
+                _gravar_resumo(uid_aberto)
             continue
 
-        fpath     = item["path"]
-        fname     = item["nome"]
-        ext       = item["ext"]
-        uid       = item["uid"]
-        folder_id = item.get("folder_id")
+        fpath       = item["path"]
+        fname       = item["nome"]
+        ext         = item["ext"]
+        uid         = item["uid"]
+        folder_id   = item.get("folder_id")
+        pasta_do_item = item.get("pasta", "")
 
         # Todo o processamento de UM item fica dentro deste try: sem ele, uma
         # exceção aqui matava a thread e a indexação parava para sempre — com o
@@ -5681,6 +5862,14 @@ def _process_worker() -> None:
             # puxando a estimativa para baixo e prometendo o que não dá.
             _registrar_duracao(time.time() - comecou_em)
 
+            # `processado = 0` aqui significa que o arquivo passou pelo motor e
+            # não pôde ser indexado: imagem que o leitor não abriu, documento
+            # que só rendeu o nome. Vai para o resumo como erro, porque é
+            # exatamente o caso de "devia ter entrado e não entrou".
+            _resumo_registrar_arquivo(
+                uid, folder_id, pasta_do_item, fname,
+                motivo="" if processado_flag else "não foi possível ler o conteúdo")
+
             with _lock:
                 _processed += 1
 
@@ -5688,6 +5877,8 @@ def _process_worker() -> None:
 
         except Exception as exc:
             print(f"[WORKER] Falha ao processar '{fname}': {type(exc).__name__}: {exc}")
+            _resumo_registrar_arquivo(uid, folder_id, pasta_do_item, fname,
+                                      motivo=f"{type(exc).__name__}: {exc}")
             try:
                 _queue.task_done()
             except ValueError:

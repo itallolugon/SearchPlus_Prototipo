@@ -492,6 +492,9 @@
             </div>
             
             <div style="margin-top: 20px; border-top: 1px solid var(--border-light); padding-top: 15px;">
+                <button type="button" onclick="abrirResumoIndexacao()" class="action-btn" style="width: 100%; margin: 0 0 8px 0;">
+                    Última indexação — o que entrou e o que não entrou
+                </button>
                 <button type="button" onclick="abrirLixeira()" class="action-btn" style="width: 100%; margin: 0;">
                     Lixeira — o que você excluiu
                 </button>
@@ -699,13 +702,22 @@
     </div>
     <div id="sidebarOverlay" class="sidebar-overlay" onclick="fecharSidebarConfig()"></div>
 
+    <!-- Resumo da última indexação: o que entrou, o que foi ignorado, o que falhou. -->
+    <div id="resumoModal" class="modal">
+        <div class="modal-content" style="max-width: 640px;">
+            <button class="close-btn" onclick="fecharResumoIndexacao()" aria-label="Fechar">&times;</button>
+            <h2 style="margin-top: 0; color: var(--text-primary);">Última indexação</h2>
+            <div id="resumoCorpo" style="margin-top: 14px;"></div>
+        </div>
+    </div>
+
     <!-- Lixeira: o que foi excluído e ainda dá para trazer de volta. -->
     <div id="lixeiraModal" class="modal">
         <div class="modal-content" style="max-width: 620px;">
             <button class="close-btn" onclick="fecharLixeira()" aria-label="Fechar">&times;</button>
             <h2 style="margin-top: 0; color: var(--text-primary);">Lixeira</h2>
             <p id="lixeiraPrazo" style="color: var(--text-secondary); font-size: 0.85rem;"></p>
-            <div id="lixeiraLista" style="margin-top: 14px; max-height: 52vh; overflow-y: auto;"></div>
+            <div id="lixeiraLista" style="margin-top: 14px;"></div>
         </div>
     </div>
 

@@ -86,6 +86,11 @@ function mostrarToast(mensagem, tipo = 'info', duracaoMs = 4500) {
 // alcançar o botão, sem que a faixa fique atravancando a tela. Quem perder a
 // janela ainda encontra o item na lixeira, dentro das Configurações.
 function toastComDesfazer(mensagem, aoDesfazer, duracaoMs = 8000) {
+    return toastComAcao(mensagem, 'Desfazer', aoDesfazer, duracaoMs);
+}
+
+// Toast com um botão de ação nomeada. `toastComDesfazer` é o caso mais comum.
+function toastComAcao(mensagem, rotulo, aoAgir, duracaoMs = 8000) {
     const container = document.getElementById('toastContainer');
     if (!container) { console.log(mensagem); return; }
 
@@ -95,10 +100,11 @@ function toastComDesfazer(mensagem, aoDesfazer, duracaoMs = 8000) {
     toast.innerHTML = `
         <span class="toast-icone" aria-hidden="true">ℹ</span>
         <span class="toast-msg"></span>
-        <button type="button" class="toast-acao">Desfazer</button>
+        <button type="button" class="toast-acao"></button>
         <button type="button" class="toast-fechar" aria-label="Fechar">&times;</button>
     `;
     toast.querySelector('.toast-msg').textContent = mensagem;
+    toast.querySelector('.toast-acao').textContent = rotulo;
 
     let encerrado = false;
     const remover = () => {
@@ -116,10 +122,10 @@ function toastComDesfazer(mensagem, aoDesfazer, duracaoMs = 8000) {
         // pedidos de restauração, e o segundo acharia o item já restaurado e
         // devolveria 404 — um erro na tela por ter clicado com vontade.
         ev.currentTarget.disabled = true;
-        ev.currentTarget.textContent = 'Desfazendo...';
+        ev.currentTarget.textContent = 'Um instante...';
         clearTimeout(prazo);
         try {
-            await aoDesfazer();
+            await aoAgir();
         } finally {
             remover();
         }
@@ -144,6 +150,133 @@ async function desfazerExclusao(lixeiraId, aoTerminar) {
     } catch (e) {
         toastErro('Não foi possível desfazer. O servidor respondeu?');
     }
+}
+
+// ==========================================
+// RESUMO DA INDEXAÇÃO
+// ==========================================
+// Antes, ao terminar, aparecia "Indexação concluída!" e mais nada. Quem
+// apontou uma pasta com 4.000 arquivos e viu 3.200 indexados não tinha como
+// saber o que houve com os outros 800 — nem se houve. A pergunta "cadê minhas
+// fotos?" aparecia semanas depois, sem nada para responder.
+async function abrirResumoIndexacao() {
+    const modal = document.getElementById('resumoModal');
+    const corpo = document.getElementById('resumoCorpo');
+    modal.style.display = 'flex';
+    corpo.innerHTML = '<p style="color:var(--text-secondary);">Carregando...</p>';
+
+    let d;
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/resumo_indexacao`);
+        if (!r.ok) {
+            corpo.innerHTML = '<p style="color:var(--text-secondary);">' +
+                'Não foi possível abrir o resumo.</p>';
+            return;
+        }
+        d = await r.json();
+    } catch (e) {
+        corpo.innerHTML = '<p style="color:var(--text-secondary);">' +
+            'Não foi possível abrir o resumo. O servidor respondeu?</p>';
+        return;
+    }
+
+    if (!d.resumo) {
+        corpo.innerHTML = '<p style="color:var(--text-secondary);">' +
+            'Nenhuma indexação foi concluída ainda. Depois de analisar suas ' +
+            'pastas, o resultado aparece aqui.</p>';
+        return;
+    }
+
+    corpo.innerHTML = '';
+    corpo.appendChild(_resumoCabecalho(d.resumo));
+    (d.resumo.pastas || []).forEach(p => corpo.appendChild(_resumoDaPasta(p)));
+}
+
+function _resumoCabecalho(resumo) {
+    const t = resumo.totais || {};
+    const box = document.createElement('div');
+    box.className = 'resumo-totais';
+
+    const quando = resumo.fim
+        ? new Date(resumo.fim).toLocaleString('pt-BR',
+            { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+        : '';
+
+    box.innerHTML = `
+        <div class="resumo-linha-total"></div>
+        <div class="resumo-quando"></div>
+    `;
+    box.querySelector('.resumo-linha-total').textContent =
+        `${t.indexados || 0} ${t.indexados === 1 ? 'arquivo indexado' : 'arquivos indexados'}` +
+        `${t.ignorados ? `, ${t.ignorados} ignorados` : ''}` +
+        `${t.erros ? `, ${t.erros} com erro` : ''}.`;
+    box.querySelector('.resumo-quando').textContent =
+        quando ? `Concluída em ${quando}.` : '';
+    return box;
+}
+
+function _resumoDaPasta(pasta) {
+    const bloco = document.createElement('div');
+    bloco.className = 'resumo-pasta';
+
+    const nome = document.createElement('div');
+    nome.className = 'resumo-pasta-caminho';
+    nome.textContent = pasta.caminho || '(pasta desconhecida)';
+    bloco.appendChild(nome);
+
+    const linha = document.createElement('div');
+    linha.className = 'resumo-pasta-numeros';
+
+    // Ignorado e erro ficam separados de propósito. Juntos virariam "800
+    // problemas" e a pessoa iria procurar defeito onde não há: um .zip no meio
+    // das fotos não é falha do programa.
+    const parte = (n, rotulo, ajuda) => {
+        const el = document.createElement('span');
+        el.className = 'resumo-numero';
+        el.textContent = `${n} ${rotulo}`;
+        el.title = ajuda;
+        return el;
+    };
+    linha.appendChild(parte(pasta.indexados || 0, 'indexados',
+        'Entraram na busca.'));
+    linha.appendChild(parte(pasta.ignorados || 0, 'ignorados',
+        'Tipos de arquivo que o Search+ não abre. Não é falha.'));
+    linha.appendChild(parte(pasta.erros || 0, 'com erro',
+        'Deviam ter entrado e não entraram.'));
+    bloco.appendChild(linha);
+
+    const comErro = pasta.arquivos_com_erro || [];
+    if (comErro.length) {
+        const det = document.createElement('details');
+        det.className = 'resumo-erros';
+        const sum = document.createElement('summary');
+        sum.textContent = `Ver os ${comErro.length} ` +
+            `${comErro.length === 1 ? 'arquivo' : 'arquivos'} com erro`;
+        det.appendChild(sum);
+
+        const lista = document.createElement('ul');
+        comErro.forEach(a => {
+            const li = document.createElement('li');
+            li.textContent = `${a.nome} — ${a.motivo}`;
+            lista.appendChild(li);
+        });
+        det.appendChild(lista);
+
+        if ((pasta.erros || 0) > comErro.length) {
+            const nota = document.createElement('p');
+            nota.className = 'resumo-nota';
+            nota.textContent =
+                `Mais ${pasta.erros - comErro.length} não estão listados aqui.`;
+            det.appendChild(nota);
+        }
+        bloco.appendChild(det);
+    }
+
+    return bloco;
+}
+
+function fecharResumoIndexacao() {
+    document.getElementById('resumoModal').style.display = 'none';
 }
 
 // ==========================================
@@ -2863,7 +2996,11 @@ async function buscarStatus() {
         // Detecta transição fila>0 -> fila=0: análise terminou.
         // Só notifica se as notificações estiverem ativadas nas configs.
         if (_ultimaFila > 0 && pend === 0 && currentConfig.notificacoes !== false) {
-            toastOk("Indexação concluída! Os arquivos já podem ser buscados.");
+            // Com o resumo a um clique: é o momento em que a pessoa está
+            // olhando e a pergunta "entrou tudo?" está viva. Depois ela ainda
+            // encontra o mesmo resumo nas Configurações.
+            toastComAcao('Indexação concluída! Os arquivos já podem ser buscados.',
+                         'Ver resumo', abrirResumoIndexacao);
         }
         _ultimaFila = pend;
 

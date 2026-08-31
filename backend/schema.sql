@@ -134,6 +134,24 @@ UPDATE collection_folders cf
    );
 
 -- Relação N:N entre coleções e arquivos
+-- Resumo de cada rodada de indexação.
+--
+-- Ao terminar, o app dizia "Indexação concluída!" e pronto. Quem apontou uma
+-- pasta com 4.000 arquivos e viu 3.200 indexados não tinha como saber o que
+-- houve com os outros 800 -- nem se houve. Guardar em banco (e não só na tela)
+-- é o que permite reabrir depois: quem estava com a janela fechada quando a
+-- indexação acabou perdia a informação inteira.
+CREATE TABLE IF NOT EXISTS resumos_indexacao (
+    id       SERIAL PRIMARY KEY,
+    user_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    inicio   TIMESTAMPTZ NOT NULL,
+    fim      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    conteudo JSONB NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS resumos_indexacao_user_idx
+    ON resumos_indexacao (user_id, fim DESC);
+
 -- Lixeira: o que foi excluído e ainda dá para trazer de volta.
 --
 -- Guarda um RETRATO do que foi apagado, não uma marca de "apagado" na linha

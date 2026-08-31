@@ -959,6 +959,48 @@ fila de 1800 arquivos ele muda cerca de 14 vezes, não 1800: ninguém planeja o
 intervalo do café com um minuto de precisão, e número dançando passa a
 impressão de que o programa não sabe o que está fazendo.
 
+#### `GET /api/resumo_indexacao`
+O resumo da **última** indexação. `{"resumo": null}` quando nunca houve uma.
+
+```json
+{
+  "resumo": {
+    "inicio": "2026-08-30T21:10:00+00:00",
+    "fim": "2026-08-30T21:18:00+00:00",
+    "pastas": [
+      { "caminho": "C:\\Users\\Demo\\Imagens",
+        "indexados": 612, "ignorados": 24, "erros": 3,
+        "arquivos_com_erro": [
+          { "nome": "foto-corrompida.jpg", "motivo": "não foi possível ler o conteúdo" }
+        ] }
+    ],
+    "totais": { "indexados": 640, "ignorados": 29, "erros": 3 }
+  }
+}
+```
+
+Antes, ao terminar, o app dizia "Indexação concluída!" e pronto. Quem apontou
+uma pasta com 4.000 arquivos e viu 3.200 indexados não tinha como saber o que
+houve com os outros 800 — nem se houve.
+
+Os três desfechos são separados porque pedem reações diferentes:
+
+| Campo | O que significa | O que fazer |
+|---|---|---|
+| `indexados` | entrou na busca | nada |
+| `ignorados` | tipo de arquivo que o Search+ não abre | nada; não é falha |
+| `erros` | devia ter entrado e não entrou | vale investigar |
+
+Juntar `ignorados` com `erros` viraria "800 problemas" e mandaria a pessoa
+procurar defeito onde não há: um `.zip` no meio das fotos não é falha do
+programa.
+
+`arquivos_com_erro` lista no máximo 50 nomes por pasta — a lista existe para
+investigar, não para inventariar. `erros` continua sendo a contagem exata.
+
+Só o resumo mais recente é guardado: ninguém volta na indexação de três semanas
+atrás, e é a última que responde "cadê minhas fotos?".
+
 #### `POST /api/analyze_folders`
 Dispara a varredura de todas as pastas. Responde na hora; o trabalho roda em background — acompanhe por `/api/status`.
 ```json

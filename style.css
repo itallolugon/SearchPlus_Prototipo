@@ -507,6 +507,8 @@ body {
 .btn-renomear,
 .btn-verificar-pasta,
 .faixa-preparando,
+.resumo-numero,
+.resumo-erros summary,
 .lixeira-item-nome,
 .lixeira-item-meta,
 .toast-acao,
@@ -1468,7 +1470,7 @@ body {
    z-index base de .modal (1000) ela ficaria escondida atrás justamente da
    tela que a chamou. Fica ABAIXO de confirmModal (10100), porque o
    "descartar de vez" pede confirmação e esse diálogo precisa vencer. */
-#lixeiraModal { z-index: 10050; }
+#lixeiraModal, #resumoModal { z-index: 10050; }
 
 /* Lixeira */
 .lixeira-item {
@@ -1480,3 +1482,38 @@ body {
 .lixeira-item-nome { color: var(--text-primary); font-weight: 600; font-size: 0.92rem;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lixeira-item-meta { color: var(--text-secondary); font-size: 0.76rem; margin-top: 3px; }
+
+
+/* Resumo da indexação */
+.resumo-totais {
+    padding: 12px 14px; border-radius: 12px; margin-bottom: 14px;
+    background: rgba(168, 85, 247, 0.08);
+    border: 1px solid rgba(168, 85, 247, 0.22);
+}
+.resumo-linha-total { color: var(--text-primary); font-weight: 600; font-size: 0.95rem; }
+.resumo-quando { color: var(--text-secondary); font-size: 0.78rem; margin-top: 3px; }
+
+.resumo-pasta {
+    padding: 12px 14px; margin-bottom: 8px;
+    border: 1px solid var(--border-light); border-radius: 12px;
+    background: rgba(255, 255, 255, 0.03);
+}
+/* O caminho fica selecionável: é o que a pessoa copia para ir até a pasta. */
+.resumo-pasta-caminho {
+    color: var(--text-primary); font-size: 0.86rem; word-break: break-all;
+}
+.resumo-pasta-numeros { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.resumo-numero {
+    font-size: 0.74rem; padding: 3px 9px; border-radius: 20px;
+    border: 1px solid var(--border-light); color: var(--text-secondary);
+    cursor: help;
+}
+.resumo-erros { margin-top: 10px; }
+.resumo-erros summary {
+    cursor: pointer; color: var(--accent-primary); font-size: 0.8rem;
+}
+.resumo-erros ul {
+    margin: 8px 0 0 0; padding-left: 18px;
+    color: var(--text-secondary); font-size: 0.78rem; line-height: 1.6;
+}
+.resumo-nota { color: var(--text-secondary); font-size: 0.74rem; margin-top: 6px; }
