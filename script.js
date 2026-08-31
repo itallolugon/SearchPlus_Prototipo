@@ -2941,6 +2941,18 @@ async function carregarGaleria() {
             cont.style.cssText = 'font-size:0.8rem; color:var(--text-secondary); font-weight:normal;';
             cont.textContent = `(${g.total})`;
             titulo.appendChild(cont);
+
+            // Selecionar a categoria inteira. É o motivo de a pessoa estar
+            // aqui em vez de na busca: ela já sabe que quer "todas as fotos de
+            // animais", e marcar de uma em uma seria o trabalho que o
+            // agrupamento existe para poupar.
+            const btnCat = document.createElement('button');
+            btnCat.type = 'button';
+            btnCat.className = 'btn-sel-categoria';
+            btnCat.dataset.categoria = g.categoria;
+            btnCat.onclick = () => alternarSelecaoDaCategoria(g.categoria);
+            titulo.appendChild(btnCat);
+
             secao.appendChild(titulo);
 
             const grid = document.createElement('div');
@@ -2950,7 +2962,23 @@ async function carregarGaleria() {
             g.itens.forEach(r => {
                 const card = document.createElement('div');
                 card.className = 'recent-card';
+                if (_selecionados.has(r.id)) card.classList.add('card-selecionado');
+                card.dataset.fileId = r.id;
                 card.onclick = () => abrirPainelGaleria(g.categoria, r.id);
+
+                // Mesma caixa de seleção dos resultados de busca, e o mesmo
+                // Set por trás. Quem navega por categoria em vez de buscar
+                // precisa poder montar coleção do mesmo jeito.
+                const sel = document.createElement('button');
+                sel.type = 'button';
+                sel.className = 'btn-sel-abs' + (_selecionados.has(r.id) ? ' is-sel' : '');
+                sel.setAttribute('role', 'checkbox');
+                sel.setAttribute('aria-checked', _selecionados.has(r.id) ? 'true' : 'false');
+                sel.setAttribute('aria-label', 'Selecionar para coleção');
+                sel.title = 'Selecionar para coleção';
+                sel.textContent = _selecionados.has(r.id) ? '✓' : '';
+                sel.onclick = (ev) => alternarSelecao(ev, r.id, sel);
+                card.appendChild(sel);
 
                 const ext = (r.tipo || '').toLowerCase();
                 const imgBox = document.createElement('div');
@@ -2975,7 +3003,60 @@ async function carregarGaleria() {
         // Mapa categoria -> itens, pra abrir o painel lateral corretamente
         window._galeriaGrupos = {};
         grupos.forEach(g => { window._galeriaGrupos[g.categoria] = g.itens; });
+
+        atualizarBotoesDeCategoria();
+        atualizarBarraSelecao();
     } catch (e) { console.error(e); }
+}
+
+// ── Seleção por categoria ───────────────────────────────────────────────────
+// O rótulo do botão diz o que o clique FAZ, não o estado atual: "Selecionar
+// tudo" quando falta alguém, "Desmarcar" quando a categoria inteira já está
+// marcada. Um botão que anuncia o estado deixa a pessoa sem saber o que
+// acontece ao clicar.
+function alternarSelecaoDaCategoria(categoria) {
+    const itens = (window._galeriaGrupos || {})[categoria] || [];
+    if (!itens.length) return;
+
+    const todosMarcados = itens.every(r => _selecionados.has(r.id));
+    itens.forEach(r => {
+        if (todosMarcados) _selecionados.delete(r.id);
+        else _selecionados.add(r.id);
+    });
+
+    sincronizarCardsDaGaleria();
+    atualizarBotoesDeCategoria();
+    atualizarBarraSelecao();
+}
+
+function atualizarBotoesDeCategoria() {
+    document.querySelectorAll('.btn-sel-categoria').forEach(btn => {
+        const itens = (window._galeriaGrupos || {})[btn.dataset.categoria] || [];
+        const todos = itens.length > 0 && itens.every(r => _selecionados.has(r.id));
+        btn.textContent = todos ? '☒ Desmarcar' : '☑ Selecionar tudo';
+        btn.setAttribute('aria-pressed', todos ? 'true' : 'false');
+        btn.setAttribute('aria-label', todos
+            ? 'Desmarcar todas as imagens desta categoria'
+            : 'Selecionar todas as imagens desta categoria');
+    });
+}
+
+// A mesma imagem pode estar em mais de uma categoria (um desenho de cachorro
+// entra em "Animais" e em "Desenhos"). Por isso a marcação é aplicada por
+// file_id em toda a galeria, e não só nos cards da categoria clicada — senão
+// a mesma foto apareceria marcada num lugar e desmarcada no outro.
+function sincronizarCardsDaGaleria() {
+    document.querySelectorAll('.recent-card[data-file-id]').forEach(card => {
+        const id = Number(card.dataset.fileId);
+        const marcado = _selecionados.has(id);
+        card.classList.toggle('card-selecionado', marcado);
+        const btn = card.querySelector('.btn-sel-abs');
+        if (btn) {
+            btn.classList.toggle('is-sel', marcado);
+            btn.textContent = marcado ? '✓' : '';
+            btn.setAttribute('aria-checked', marcado ? 'true' : 'false');
+        }
+    });
 }
 
 // Abre o painel lateral usando os itens da categoria como resultadosAtuais
@@ -3400,7 +3481,8 @@ let _selecionados = new Set();   // file_id dos itens marcados
 
 function alternarSelecao(event, fileId, btn) {
     event.stopPropagation();     // não abre o painel lateral
-    const card = btn.closest('.card');
+    // `.card` nos resultados de busca, `.recent-card` na galeria da home.
+    const card = btn.closest('.card') || btn.closest('.recent-card');
 
     if (_selecionados.has(fileId)) {
         _selecionados.delete(fileId);
@@ -3415,6 +3497,9 @@ function alternarSelecao(event, fileId, btn) {
         btn.setAttribute('aria-checked', 'true');
         if (card) card.classList.add('card-selecionado');
     }
+    // A mesma imagem pode estar em duas categorias da home ao mesmo tempo.
+    if (typeof sincronizarCardsDaGaleria === 'function') sincronizarCardsDaGaleria();
+    if (typeof atualizarBotoesDeCategoria === 'function') atualizarBotoesDeCategoria();
     atualizarBarraSelecao();
 }
 
@@ -3442,6 +3527,7 @@ function limparSelecao() {
         b.setAttribute('aria-checked', 'false');
     });
     document.querySelectorAll('.card-selecionado').forEach(c => c.classList.remove('card-selecionado'));
+    if (typeof atualizarBotoesDeCategoria === 'function') atualizarBotoesDeCategoria();
     atualizarBarraSelecao();
 }
 

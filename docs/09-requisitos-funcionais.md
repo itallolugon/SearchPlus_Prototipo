@@ -431,6 +431,21 @@ cabeça: dá tempo de almoçar?
 | **RF-207** | Com a fila drenando e o ritmo constante, o texto **nunca volta atrás**. Estimativa que sobe sozinha destrói a confiança na barra. | Implementado |
 | **RF-208** | Um único arquivo lento não pode deslocar a estimativa; uma mudança real e sustentada de ritmo, sim. | Implementado |
 
+### Selecionar na home, sem passar pela busca
+
+O motor separa as imagens em categorias, e há quem prefira navegar por aí a
+escrever uma busca. Até aqui, montar uma coleção a partir da home era impossível:
+a seleção em massa só existia nos resultados de busca.
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-244** | Os cards da home devem ter a **mesma caixa de seleção** dos resultados de busca, alimentando a mesma seleção. | Implementado |
+| **RF-245** | Cada categoria deve ter "selecionar tudo", que marca as imagens daquele grupo de uma vez. | Implementado |
+| **RF-246** | O rótulo do botão diz o que o clique **faz** ("Selecionar tudo" / "Desmarcar"), não o estado atual. | Implementado |
+| **RF-247** | A mesma imagem pode estar em duas categorias (um desenho de cachorro entra em Animais e Desenhos). Marcar num lugar marca no outro — senão a mesma foto apareceria marcada e desmarcada ao mesmo tempo. | Implementado |
+| **RF-248** | A barra de seleção e o "adicionar à coleção" existentes atendem a home sem duplicação. | Implementado |
+| **RF-249** | Trocar o filtro de pastas preserva a seleção do que continua na tela. | Implementado |
+
 ### Quais pastas a home mostra
 
 A home agrupa por categoria misturando tudo que foi indexado. Com duas pastas
