@@ -3209,6 +3209,267 @@ def _atualizar_colecao(col_id: int, uid: int):
     })
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Lixeira — desfazer exclusões
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# Excluir uma coleção apagava trabalho que não volta: o agrupamento que a
+# pessoa montou à mão, e o vínculo com as pastas que ela gerou no disco. Um
+# clique errado custava tudo isso sem recurso.
+#
+# A abordagem é guardar um RETRATO do que foi apagado, e não marcar a linha
+# original como excluída. Marcar exigiria `AND excluido_em IS NULL` em cada
+# uma das ~22 consultas que leem coleção; esquecer uma não quebra nada de
+# forma visível — ela só passa a enxergar coleção excluída, e o usuário
+# consegue adicionar foto a uma coleção que está na lixeira. Com o retrato, a
+# linha some de verdade e nenhuma consulta precisa saber da lixeira.
+
+# Depois disso o retrato é descartado. É bem mais que os 8 segundos do botão
+# "desfazer": o botão é para o arrependimento imediato, a lixeira é para o
+# arrependimento de quinta-feira.
+DIAS_NA_LIXEIRA = 30
+
+
+def _guardar_na_lixeira(conn, uid: int, tipo: str, rotulo: str, conteudo: dict) -> int:
+    row = conn.execute(
+        "INSERT INTO lixeira (user_id, tipo, rotulo, conteudo) "
+        "VALUES (%s, %s, %s, %s) RETURNING id",
+        (uid, tipo, rotulo, json.dumps(conteudo)),
+    ).fetchone()
+    return row["id"]
+
+
+def _retrato_da_colecao(conn, uid: int, col_id: int) -> dict | None:
+    """
+    Tudo que é preciso para reconstruir a coleção exatamente como estava.
+
+    O id entra no retrato de propósito: restaurar com um id novo faria a
+    coleção voltar como se fosse outra, e qualquer coisa que apontasse para a
+    antiga passaria a apontar para o nada.
+    """
+    col = conn.execute(
+        "SELECT id, nome, criado_em, pasta_vinculada, modo_sync "
+        "FROM collections WHERE id = %s AND user_id = %s",
+        (col_id, uid),
+    ).fetchone()
+    if not col:
+        return None
+
+    arquivos = conn.execute(
+        "SELECT file_id, adicionado_em FROM collection_files WHERE collection_id = %s",
+        (col_id,),
+    ).fetchall()
+    pastas = conn.execute(
+        "SELECT caminho, recebe, criado_em FROM collection_folders "
+        "WHERE collection_id = %s AND user_id = %s",
+        (col_id, uid),
+    ).fetchall()
+
+    return {
+        "id": col["id"],
+        "nome": col["nome"],
+        "criado_em": col["criado_em"].isoformat() if col["criado_em"] else None,
+        "pasta_vinculada": col["pasta_vinculada"],
+        "modo_sync": col["modo_sync"] or "manual",
+        "arquivos": [{"file_id": a["file_id"],
+                      "adicionado_em": a["adicionado_em"].isoformat()
+                      if a["adicionado_em"] else None} for a in arquivos],
+        "pastas": [{"caminho": f["caminho"], "recebe": bool(f["recebe"]),
+                    "criado_em": f["criado_em"].isoformat()
+                    if f["criado_em"] else None} for f in pastas],
+    }
+
+
+def _restaurar_colecao(conn, uid: int, retrato: dict) -> tuple[bool, str]:
+    """
+    Recria a coleção. Devolve (deu_certo, motivo).
+
+    Reinsere com o id original. O id vem de uma sequence e já foi usado, então
+    é sempre menor que o próximo valor dela — não há risco de colidir com uma
+    coleção futura, e não é preciso mexer na sequence.
+    """
+    ja_existe = conn.execute(
+        "SELECT id FROM collections WHERE user_id = %s AND lower(nome) = %s",
+        (uid, (retrato["nome"] or "").lower()),
+    ).fetchone()
+    if ja_existe:
+        return False, ("Você criou outra coleção com esse nome depois de excluir "
+                       "esta. Renomeie a atual e tente restaurar de novo.")
+
+    conn.execute(
+        "INSERT INTO collections (id, user_id, nome, criado_em, pasta_vinculada, modo_sync) "
+        "VALUES (%s, %s, %s, COALESCE(%s::timestamptz, NOW()), %s, %s)",
+        (retrato["id"], uid, retrato["nome"], retrato.get("criado_em"),
+         retrato.get("pasta_vinculada"), retrato.get("modo_sync") or "manual"),
+    )
+
+    # Arquivo que o usuário removeu da biblioteca no meio do caminho não existe
+    # mais para ser reapontado. A coleção volta sem ele, o que é melhor que
+    # falhar a restauração inteira por causa de uma foto.
+    ids = [a["file_id"] for a in retrato.get("arquivos", [])]
+    if ids:
+        vivos = {r["id"] for r in conn.execute(
+            "SELECT id FROM files WHERE id = ANY(%s) AND user_id = %s", (ids, uid)
+        ).fetchall()}
+        for a in retrato["arquivos"]:
+            if a["file_id"] in vivos:
+                conn.execute(
+                    "INSERT INTO collection_files (collection_id, file_id, adicionado_em) "
+                    "VALUES (%s, %s, COALESCE(%s::timestamptz, NOW())) "
+                    "ON CONFLICT DO NOTHING",
+                    (retrato["id"], a["file_id"], a.get("adicionado_em")),
+                )
+
+    for f in retrato.get("pastas", []):
+        conn.execute(
+            "INSERT INTO collection_folders (collection_id, user_id, caminho, recebe, criado_em) "
+            "VALUES (%s, %s, %s, %s, COALESCE(%s::timestamptz, NOW())) "
+            "ON CONFLICT DO NOTHING",
+            (retrato["id"], uid, f["caminho"], f.get("recebe", False),
+             f.get("criado_em")),
+        )
+
+    return True, ""
+
+
+def _restaurar_itens(conn, uid: int, retrato: dict) -> tuple[bool, str]:
+    """Devolve à coleção os arquivos que foram tirados dela."""
+    col = conn.execute(
+        "SELECT id FROM collections WHERE id = %s AND user_id = %s",
+        (retrato["collection_id"], uid),
+    ).fetchone()
+    if not col:
+        return False, "A coleção foi excluída depois. Restaure a coleção primeiro."
+
+    ids = [a["file_id"] for a in retrato.get("arquivos", [])]
+    vivos = set()
+    if ids:
+        vivos = {r["id"] for r in conn.execute(
+            "SELECT id FROM files WHERE id = ANY(%s) AND user_id = %s", (ids, uid)
+        ).fetchall()}
+
+    for a in retrato.get("arquivos", []):
+        if a["file_id"] in vivos:
+            conn.execute(
+                "INSERT INTO collection_files (collection_id, file_id, adicionado_em) "
+                "VALUES (%s, %s, COALESCE(%s::timestamptz, NOW())) "
+                "ON CONFLICT DO NOTHING",
+                (retrato["collection_id"], a["file_id"], a.get("adicionado_em")),
+            )
+    return True, ""
+
+
+def _expurgar_lixeira(conn, uid: int) -> int:
+    """Descarta o que passou do prazo. Roda junto de qualquer uso da lixeira."""
+    apagados = conn.execute(
+        "DELETE FROM lixeira WHERE user_id = %s "
+        "AND excluido_em < NOW() - make_interval(days => %s) RETURNING id",
+        (uid, DIAS_NA_LIXEIRA),
+    ).fetchall()
+    return len(apagados)
+
+
+@app.route("/api/lixeira", methods=["GET"])
+def api_lixeira():
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    conn = get_db()
+    try:
+        _expurgar_lixeira(conn, uid)
+        conn.commit()
+        itens = conn.execute(
+            "SELECT id, tipo, rotulo, excluido_em, conteudo FROM lixeira "
+            "WHERE user_id = %s ORDER BY excluido_em DESC",
+            (uid,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    def _quantos(item):
+        conteudo = item["conteudo"] or {}
+        if isinstance(conteudo, str):
+            conteudo = _safe_json_loads(conteudo, {}) or {}
+        return len(conteudo.get("arquivos") or [])
+
+    return jsonify({
+        "dias": DIAS_NA_LIXEIRA,
+        "itens": [{
+            "id": i["id"],
+            "tipo": i["tipo"],
+            "rotulo": i["rotulo"],
+            "imagens": _quantos(i),
+            "excluido_em": i["excluido_em"].isoformat() if i["excluido_em"] else "",
+        } for i in itens],
+    })
+
+
+@app.route("/api/lixeira/<int:item_id>/restaurar", methods=["POST"])
+def api_lixeira_restaurar(item_id):
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    conn = get_db()
+    try:
+        item = conn.execute(
+            "SELECT id, tipo, rotulo, conteudo FROM lixeira WHERE id = %s AND user_id = %s",
+            (item_id, uid),
+        ).fetchone()
+        if not item:
+            return jsonify({"error": "Este item não está mais na lixeira."}), 404
+
+        conteudo = item["conteudo"]
+        if isinstance(conteudo, str):
+            conteudo = _safe_json_loads(conteudo, {}) or {}
+
+        if item["tipo"] == "colecao":
+            ok, motivo = _restaurar_colecao(conn, uid, conteudo)
+        elif item["tipo"] == "itens":
+            ok, motivo = _restaurar_itens(conn, uid, conteudo)
+        else:
+            ok, motivo = False, "Não sei restaurar este tipo de item."
+
+        if not ok:
+            conn.rollback()
+            return jsonify({"error": motivo}), 409
+
+        # Só sai da lixeira depois que a restauração deu certo. Apagar antes
+        # deixaria o usuário sem a coleção E sem o retrato dela.
+        conn.execute("DELETE FROM lixeira WHERE id = %s AND user_id = %s", (item_id, uid))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    return jsonify({"status": "ok", "rotulo": item["rotulo"], "tipo": item["tipo"]})
+
+
+@app.route("/api/lixeira/<int:item_id>", methods=["DELETE"])
+def api_lixeira_descartar(item_id):
+    """Descarta um item da lixeira de vez. Daqui não volta."""
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    conn = get_db()
+    try:
+        apagado = conn.execute(
+            "DELETE FROM lixeira WHERE id = %s AND user_id = %s RETURNING id",
+            (item_id, uid),
+        ).fetchone()
+        conn.commit()
+    finally:
+        conn.close()
+
+    if not apagado:
+        return jsonify({"error": "Este item não está mais na lixeira."}), 404
+    return jsonify({"status": "ok"})
+
+
 @app.route("/api/collections/<int:col_id>", methods=["GET", "DELETE", "PATCH"])
 def api_collection_detail(col_id):
     uid = _uid()
@@ -3228,10 +3489,21 @@ def api_collection_detail(col_id):
         return jsonify({"error": "Coleção não encontrada."}), 404
 
     if request.method == "DELETE":
+        # O retrato é tirado ANTES do DELETE: depois dele o ON DELETE CASCADE
+        # já levou os arquivos e as pastas da coleção junto, e não há mais o
+        # que fotografar.
+        retrato = _retrato_da_colecao(conn, uid, col_id)
+        lixeira_id = None
+        if retrato:
+            lixeira_id = _guardar_na_lixeira(
+                conn, uid, "colecao", retrato["nome"], retrato)
+
         conn.execute("DELETE FROM collections WHERE id = %s AND user_id = %s", (col_id, uid))
+        _expurgar_lixeira(conn, uid)
         conn.commit()
         conn.close()
-        return jsonify({"status": "ok"})
+        return jsonify({"status": "ok", "lixeira_id": lixeira_id,
+                        "nome": retrato["nome"] if retrato else ""})
 
     # GET — arquivos da coleção (formato igual ao de busca/favoritos)
     rows = conn.execute(
@@ -3314,10 +3586,40 @@ def api_collection_files(col_id):
                 (ids_validos, uid)
             ).fetchall()]
 
+            # Retrato antes do DELETE, pelo mesmo motivo da exclusão da
+            # coleção: depois não há mais o que fotografar. Guarda a data de
+            # adição para que o arquivo volte para o mesmo lugar na ordem, e
+            # não para o topo como se tivesse acabado de entrar.
+            no_momento = conn.execute(
+                "SELECT file_id, adicionado_em FROM collection_files "
+                "WHERE collection_id = %s AND file_id = ANY(%s)",
+                (col_id, ids_validos)
+            ).fetchall()
+            nome_col = conn.execute(
+                "SELECT nome FROM collections WHERE id = %s AND user_id = %s",
+                (col_id, uid)
+            ).fetchone()
+
+            lixeira_id = None
+            if no_momento:
+                quantos = len(no_momento)
+                rotulo = (f"{quantos} imagem de \u201c{nome_col['nome']}\u201d"
+                          if quantos == 1
+                          else f"{quantos} imagens de \u201c{nome_col['nome']}\u201d")
+                lixeira_id = _guardar_na_lixeira(conn, uid, "itens", rotulo, {
+                    "collection_id": col_id,
+                    "colecao": nome_col["nome"] if nome_col else "",
+                    "arquivos": [{"file_id": r["file_id"],
+                                  "adicionado_em": r["adicionado_em"].isoformat()
+                                  if r["adicionado_em"] else None}
+                                 for r in no_momento],
+                })
+
             conn.execute(
                 "DELETE FROM collection_files WHERE collection_id = %s AND file_id = ANY(%s)",
                 (col_id, ids_validos)
             )
+            _expurgar_lixeira(conn, uid)
             conn.commit()
 
             vinc = conn.execute(
@@ -3326,6 +3628,7 @@ def api_collection_files(col_id):
             return jsonify({"status": "ok", "acao": "removido",
                             "removidos": len(ids_validos),
                             "nomes_removidos": nomes,
+                            "lixeira_id": lixeira_id,
                             "modo_sync": (dict(vinc).get("modo_sync") if vinc else None) or "manual",
                             "pastas_que_recebem": _pastas_que_recebem(conn, col_id, uid)})
 

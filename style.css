@@ -498,6 +498,9 @@ body {
 .btn-renomear,
 .btn-verificar-pasta,
 .faixa-preparando,
+.lixeira-item-nome,
+.lixeira-item-meta,
+.toast-acao,
 .btn-fav-abs,
 .btn-fav-icon,
 .btn-sel-abs,
@@ -1436,3 +1439,35 @@ body {
 @media (prefers-reduced-motion: reduce) {
     .faixa-preparando-ponto { animation: none; opacity: 0.9; }
 }
+
+
+/* Toast com ação — o botão "desfazer" precisa competir com o texto sem virar
+   a coisa mais chamativa da tela. */
+.toast-com-acao { align-items: center; }
+.toast-acao {
+    flex: 0 0 auto; margin-left: 10px;
+    background: transparent; border: 1px solid var(--accent-primary);
+    color: var(--accent-primary); border-radius: 16px;
+    padding: 4px 12px; font-size: 0.75rem; font-weight: 600;
+    cursor: pointer; transition: 0.2s;
+}
+.toast-acao:hover:not(:disabled) { background: var(--accent-primary); color: #fff; }
+.toast-acao:disabled { opacity: 0.55; cursor: default; }
+
+/* Lixeira.
+   Abre POR CIMA das Configurações Gerais, que é de onde ela é aberta — com o
+   z-index base de .modal (1000) ela ficaria escondida atrás justamente da
+   tela que a chamou. Fica ABAIXO de confirmModal (10100), porque o
+   "descartar de vez" pede confirmação e esse diálogo precisa vencer. */
+#lixeiraModal { z-index: 10050; }
+
+/* Lixeira */
+.lixeira-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px; margin-bottom: 8px;
+    border: 1px solid var(--border-light); border-radius: 12px;
+    background: rgba(255, 255, 255, 0.03);
+}
+.lixeira-item-nome { color: var(--text-primary); font-weight: 600; font-size: 0.92rem;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lixeira-item-meta { color: var(--text-secondary); font-size: 0.76rem; margin-top: 3px; }

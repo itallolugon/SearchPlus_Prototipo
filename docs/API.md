@@ -331,6 +331,57 @@ Erros:
 ```
 Aceita `id` **ou** `path` para identificar a pasta. Campos alteráveis: `prioridades`, `perfil_analise` (`fast`/`deep`), `janela_processamento`.
 
+### Lixeira
+
+Excluir uma coleção apagava trabalho que não volta: o agrupamento montado à mão
+e o vínculo com as pastas geradas no disco. Agora a exclusão guarda um
+**retrato** do que foi apagado, por 30 dias.
+
+O retrato é um registro à parte, não uma marca de "excluído" na linha original.
+Marcar exigiria `AND excluido_em IS NULL` em cada uma das ~22 consultas que leem
+coleção, e esquecer uma não quebra nada de forma visível — ela só passa a
+enxergar coleção excluída, e o usuário consegue adicionar foto a uma coleção que
+está na lixeira. Com o retrato, a linha some de verdade e nenhuma consulta
+precisa saber que a lixeira existe.
+
+#### `GET /api/lixeira`
+```json
+{
+  "dias": 30,
+  "itens": [
+    { "id": 4, "tipo": "colecao", "rotulo": "Viagem",
+      "imagens": 12, "excluido_em": "2026-08-30T18:00:00+00:00" },
+    { "id": 3, "tipo": "itens", "rotulo": "2 imagens de “Praia”",
+      "imagens": 2, "excluido_em": "2026-08-30T17:55:00+00:00" }
+  ]
+}
+```
+Toda leitura da lixeira descarta antes o que passou dos 30 dias.
+
+#### `POST /api/lixeira/<id>/restaurar`
+Sem corpo. Recria o que foi apagado e tira o item da lixeira — nessa ordem: sair
+da lixeira antes deixaria o usuário sem a coleção **e** sem o retrato dela.
+
+A coleção volta com o **mesmo id**. Arquivo que o usuário apagou da biblioteca
+nesse meio-tempo não volta; a coleção é restaurada sem ele, o que é melhor do
+que falhar tudo por causa de uma foto.
+
+Erros:
+
+- `404` — o item não está mais na lixeira
+- `409` — já existe outra coleção com esse nome, ou (para `tipo: "itens"`) a
+  coleção de destino foi excluída depois
+
+#### `DELETE /api/lixeira/<id>`
+Descarta um item da lixeira de vez. Daqui não volta. `404` se já não estiver lá.
+
+#### Onde o `lixeira_id` aparece
+
+`DELETE /api/collections/<id>` e `DELETE /api/collections/<id>/files` passaram a
+devolver `lixeira_id` — é o que o botão "desfazer" usa.
+
+---
+
 #### `GET /api/health`
 Diz se o programa já está inteiro de pé. **Não exige sessão** — a espera
 acontece justamente na tela de login, antes de qualquer sessão existir.

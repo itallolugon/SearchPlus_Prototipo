@@ -134,6 +134,31 @@ UPDATE collection_folders cf
    );
 
 -- Relação N:N entre coleções e arquivos
+-- Lixeira: o que foi excluído e ainda dá para trazer de volta.
+--
+-- Guarda um RETRATO do que foi apagado, não uma marca de "apagado" na linha
+-- original. A alternativa seria uma coluna `excluido_em` em collections e
+-- collection_files, mas aí cada uma das ~22 consultas que leem coleção teria
+-- de ganhar `AND excluido_em IS NULL`. Esquecer uma só não quebra nada de
+-- forma visível: ela simplesmente passa a enxergar coleção excluída, e o
+-- usuário consegue, por exemplo, adicionar uma foto a uma coleção que está
+-- na lixeira. Com o retrato, a linha some de verdade e nenhuma consulta
+-- precisa saber que a lixeira existe.
+--
+-- `conteudo` guarda o suficiente para reconstruir: a coleção com o MESMO id
+-- (para que qualquer coisa que aponte para ele continue apontando), os
+-- arquivos que ela tinha e as pastas geradas.
+CREATE TABLE IF NOT EXISTS lixeira (
+    id          SERIAL PRIMARY KEY,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    tipo        TEXT NOT NULL,
+    rotulo      TEXT NOT NULL,
+    conteudo    JSONB NOT NULL,
+    excluido_em TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS lixeira_user_idx ON lixeira (user_id, excluido_em DESC);
+
 CREATE TABLE IF NOT EXISTS collection_files (
     collection_id INTEGER NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
     file_id       INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,

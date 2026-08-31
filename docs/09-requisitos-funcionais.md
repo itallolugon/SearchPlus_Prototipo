@@ -395,6 +395,38 @@ levando a um clique que não abre nada.
 | **RF-167** | A varredura da indexação e a da verificação devem enxergar **o mesmo conjunto de arquivos** (mesmas extensões, mesma lista de pastas ignoradas). Divergir faria a verificação acusar como novo algo que a indexação ignora de propósito, e o contador nunca zeraria. | Implementado |
 | **RF-168** | A verificação não pode acontecer por GET. Um link ou um prefetch do navegador dispararia reindexação sozinho. | Implementado |
 
+### Desfazer exclusões
+
+Excluir uma coleção apagava trabalho que não volta: o agrupamento montado à mão
+e o vínculo com as pastas geradas no disco. Um clique errado custava tudo isso
+sem recurso.
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-180** | Excluir uma coleção deve guardar um **retrato** do que foi apagado, e oferecer desfazer. | Implementado |
+| **RF-181** | Remover imagens de uma coleção deve oferecer o mesmo desfazer. | Implementado |
+| **RF-182** | O botão "desfazer" fica **8 segundos** na tela: tempo de ler, entender e alcançar o botão, sem atravancar. | Implementado |
+| **RF-183** | Quem perder os 8 segundos deve encontrar o item na **lixeira**, dentro das Configurações. | Implementado |
+| **RF-184** | O que está na lixeira é descartado após **30 dias**. O expurgo roda a cada uso da lixeira. | Implementado |
+| **RF-185** | A coleção restaurada deve voltar com o **mesmo identificador**. Voltar com outro faria dela uma coleção diferente, e o que apontasse para a antiga passaria a apontar para o nada. | Implementado |
+| **RF-186** | A restauração deve devolver também as **pastas geradas** e o modo de envio. | Implementado |
+| **RF-187** | Arquivo que o usuário apagou da biblioteca nesse meio-tempo é **pulado**. Falhar a restauração inteira por causa de uma foto seria pior que devolver a coleção sem ela. | Implementado |
+| **RF-188** | Se o nome foi reaproveitado por outra coleção, a restauração deve **recusar com explicação** — não com erro de banco. | Implementado |
+| **RF-189** | O item só sai da lixeira **depois** que a restauração deu certo. Sair antes deixaria o usuário sem a coleção e sem o que a traria de volta. | Implementado |
+| **RF-190** | Descartar da lixeira é definitivo e deve pedir confirmação. É a única exclusão sem desfazer do app, e é assim de propósito: a lixeira **é** o desfazer. | Implementado |
+| **RF-191** | O botão "desfazer" se desabilita ao ser clicado. Dois cliques mandariam dois pedidos, e o segundo acharia o item já restaurado e devolveria erro — um erro na tela por ter clicado com vontade. | Implementado |
+| **RF-192** | As pastas apagadas do disco **não** voltam com o desfazer. Quem escolheu apagá-las já confirmou em duas etapas, e ressuscitar arquivo apagado não é algo que o app possa prometer. | Implementado |
+
+**Decisão de projeto.** O enunciado pedia exclusão lógica com uma coluna
+`excluido_em`. Isso exigiria acrescentar `AND excluido_em IS NULL` a cada uma
+das ~22 consultas que leem coleção — e é o tipo de mudança ampla que as regras
+de trabalho deste backlog pedem para evitar. Pior: esquecer uma consulta não
+quebra nada de forma visível; ela apenas passa a enxergar coleção excluída, e o
+usuário consegue, por exemplo, adicionar uma foto a uma coleção que está na
+lixeira. Com o retrato guardado à parte, a linha some de verdade e **nenhuma**
+consulta precisa saber que a lixeira existe. O resultado para quem usa é o
+mesmo; o risco de bug silencioso, não.
+
 ### Inicialização do servidor
 
 Os modelos de busca eram carregados na importação: por ~30 segundos o Flask não

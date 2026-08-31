@@ -648,8 +648,15 @@ def collection_detail(col_id):
         return jsonify({"error": "Coleção não encontrada."}), 404
 
     if request.method == "DELETE":
+        lixeira_id = _para_lixeira("colecao", col["nome"], {
+            "id": col["id"], "nome": col["nome"],
+            "criado_em": col.get("criado_em"),
+            "pasta_vinculada": col.get("pasta_vinculada"),
+            "modo_sync": col.get("modo_sync", "manual"),
+            "arquivos": [{"file_id": f, "adicionado_em": None} for f in col["files"]],
+        })
         _COLECOES.remove(col)
-        return jsonify({"status": "ok"})
+        return jsonify({"status": "ok", "lixeira_id": lixeira_id, "nome": col["nome"]})
 
     if request.method == "PATCH":
         data = request.get_json(force=True, silent=True) or {}
@@ -775,6 +782,16 @@ def collection_files(col_id):
         return jsonify({"error": "Coleção ou arquivo não encontrado."}), 404
 
     if request.method == "DELETE":
+        estavam = [n for n in validos if n in col["files"]]
+        lixeira_id = None
+        if estavam:
+            rotulo = (f"{len(estavam)} imagem de “{col['nome']}”"
+                      if len(estavam) == 1
+                      else f"{len(estavam)} imagens de “{col['nome']}”")
+            lixeira_id = _para_lixeira("itens", rotulo, {
+                "collection_id": col["id"], "colecao": col["nome"],
+                "arquivos": [{"file_id": n, "adicionado_em": None} for n in estavam],
+            })
         for n in validos:
             if n in col["files"]:
                 col["files"].remove(n)
@@ -782,6 +799,7 @@ def collection_files(col_id):
         return jsonify({"status": "ok", "acao": "removido",
                         "removidos": len(validos),
                         "nomes_removidos": nomes,
+                        "lixeira_id": lixeira_id,
                         "modo_sync": col.get("modo_sync", "manual"),
                         "pastas_que_recebem": col.get("pastas_que_recebem") or []})
 
@@ -1258,6 +1276,83 @@ def status():
                         "arquivos_processados_sessao": 0})
     return jsonify({"status": "Ocioso", "arquivos_pendentes": 0,
                     "arquivos_processados_sessao": len(_ARQUIVOS)})
+
+
+# Lixeira do mock. Reproduz o que importa para o front: excluir devolve um
+# lixeira_id, restaurar traz a colecao de volta com o mesmo id, e restaurar
+# duas vezes o mesmo item da 404.
+_LIXEIRA = []
+_PROX_LIXEIRA = [1]
+
+
+def _para_lixeira(tipo, rotulo, conteudo):
+    item = {"id": _PROX_LIXEIRA[0], "tipo": tipo, "rotulo": rotulo,
+            "conteudo": conteudo, "excluido_em": _HOJE.isoformat()}
+    _PROX_LIXEIRA[0] += 1
+    _LIXEIRA.append(item)
+    return item["id"]
+
+
+@app.route("/api/lixeira", methods=["GET"])
+def lixeira():
+    if not _logado():
+        return _nao_autenticado()
+    return jsonify({
+        "dias": 30,
+        "itens": [{"id": i["id"], "tipo": i["tipo"], "rotulo": i["rotulo"],
+                   "imagens": len(i["conteudo"].get("arquivos") or []),
+                   "excluido_em": i["excluido_em"]}
+                  for i in reversed(_LIXEIRA)],
+    })
+
+
+@app.route("/api/lixeira/<int:item_id>/restaurar", methods=["POST"])
+def lixeira_restaurar(item_id):
+    if not _logado():
+        return _nao_autenticado()
+
+    item = next((i for i in _LIXEIRA if i["id"] == item_id), None)
+    if not item:
+        return jsonify({"error": "Este item não está mais na lixeira."}), 404
+
+    conteudo = item["conteudo"]
+    if item["tipo"] == "colecao":
+        if any(c["nome"].lower() == (conteudo.get("nome") or "").lower()
+               for c in _COLECOES):
+            return jsonify({
+                "error": "Você criou outra coleção com esse nome depois de "
+                         "excluir esta. Renomeie a atual e tente restaurar de novo."
+            }), 409
+        _COLECOES.append({
+            "id": conteudo["id"], "nome": conteudo["nome"],
+            "criado_em": conteudo.get("criado_em") or _HOJE.isoformat(),
+            "files": [a["file_id"] for a in conteudo.get("arquivos") or []],
+            "pasta_vinculada": conteudo.get("pasta_vinculada"),
+            "modo_sync": conteudo.get("modo_sync", "manual"),
+        })
+    else:
+        alvo = next((c for c in _COLECOES if c["id"] == conteudo["collection_id"]), None)
+        if not alvo:
+            return jsonify({
+                "error": "A coleção foi excluída depois. Restaure a coleção primeiro."
+            }), 409
+        for a in conteudo.get("arquivos") or []:
+            if a["file_id"] not in alvo["files"]:
+                alvo["files"].append(a["file_id"])
+
+    _LIXEIRA.remove(item)
+    return jsonify({"status": "ok", "rotulo": item["rotulo"], "tipo": item["tipo"]})
+
+
+@app.route("/api/lixeira/<int:item_id>", methods=["DELETE"])
+def lixeira_descartar(item_id):
+    if not _logado():
+        return _nao_autenticado()
+    item = next((i for i in _LIXEIRA if i["id"] == item_id), None)
+    if not item:
+        return jsonify({"error": "Este item não está mais na lixeira."}), 404
+    _LIXEIRA.remove(item)
+    return jsonify({"status": "ok"})
 
 
 @app.route("/api/health")

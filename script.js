@@ -80,6 +80,159 @@ function mostrarToast(mensagem, tipo = 'info', duracaoMs = 4500) {
     if (duracaoMs > 0) setTimeout(remover, duracaoMs);
 }
 
+// Toast com um botão de ação — hoje só "desfazer".
+//
+// Oito segundos: tempo de ler a frase, entender que era a coleção errada e
+// alcançar o botão, sem que a faixa fique atravancando a tela. Quem perder a
+// janela ainda encontra o item na lixeira, dentro das Configurações.
+function toastComDesfazer(mensagem, aoDesfazer, duracaoMs = 8000) {
+    const container = document.getElementById('toastContainer');
+    if (!container) { console.log(mensagem); return; }
+
+    const toast = document.createElement('div');
+    toast.className = 'toast toast-info toast-com-acao';
+    toast.setAttribute('role', 'status');
+    toast.innerHTML = `
+        <span class="toast-icone" aria-hidden="true">ℹ</span>
+        <span class="toast-msg"></span>
+        <button type="button" class="toast-acao">Desfazer</button>
+        <button type="button" class="toast-fechar" aria-label="Fechar">&times;</button>
+    `;
+    toast.querySelector('.toast-msg').textContent = mensagem;
+
+    let encerrado = false;
+    const remover = () => {
+        if (encerrado) return;
+        encerrado = true;
+        clearTimeout(prazo);
+        toast.classList.add('saindo');
+        setTimeout(() => toast.remove(), 300);
+    };
+    const prazo = setTimeout(remover, duracaoMs);
+
+    toast.querySelector('.toast-fechar').onclick = remover;
+    toast.querySelector('.toast-acao').onclick = async (ev) => {
+        // Desabilita antes de esperar a rede: dois cliques mandariam dois
+        // pedidos de restauração, e o segundo acharia o item já restaurado e
+        // devolveria 404 — um erro na tela por ter clicado com vontade.
+        ev.currentTarget.disabled = true;
+        ev.currentTarget.textContent = 'Desfazendo...';
+        clearTimeout(prazo);
+        try {
+            await aoDesfazer();
+        } finally {
+            remover();
+        }
+    };
+
+    container.appendChild(toast);
+}
+
+async function desfazerExclusao(lixeiraId, aoTerminar) {
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/lixeira/${lixeiraId}/restaurar`,
+                              { method: 'POST', headers: fetchOptions.headers });
+        if (!r.ok) {
+            toastErro(await _erroDaResposta(r, 'Não foi possível desfazer'));
+            return;
+        }
+        const d = await r.json();
+        toastOk(d.tipo === 'colecao'
+            ? `“${d.rotulo}” foi restaurada.`
+            : `${d.rotulo} de volta na coleção.`);
+        if (aoTerminar) await aoTerminar();
+    } catch (e) {
+        toastErro('Não foi possível desfazer. O servidor respondeu?');
+    }
+}
+
+// ==========================================
+// LIXEIRA (Configurações)
+// ==========================================
+async function abrirLixeira() {
+    const modal = document.getElementById('lixeiraModal');
+    const lista = document.getElementById('lixeiraLista');
+    modal.style.display = 'flex';
+    lista.innerHTML = '<p style="color:var(--text-secondary);">Carregando...</p>';
+
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/lixeira`);
+        if (!r.ok) {
+            lista.innerHTML = '<p style="color:var(--text-secondary);">' +
+                'Não foi possível abrir a lixeira.</p>';
+            return;
+        }
+        const d = await r.json();
+        document.getElementById('lixeiraPrazo').textContent =
+            `O que você exclui fica aqui por ${d.dias} dias e depois é descartado.`;
+
+        if (!d.itens.length) {
+            lista.innerHTML = '<p style="color:var(--text-secondary);">' +
+                'A lixeira está vazia.</p>';
+            return;
+        }
+
+        lista.innerHTML = '';
+        d.itens.forEach(i => {
+            const quando = new Date(i.excluido_em).toLocaleString('pt-BR', {
+                day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+            const detalhe = i.tipo === 'colecao'
+                ? `Coleção · ${i.imagens} ${i.imagens === 1 ? 'imagem' : 'imagens'}`
+                : 'Imagens de uma coleção';
+            const linha = document.createElement('div');
+            linha.className = 'lixeira-item';
+            linha.innerHTML = `
+                <div style="flex:1; min-width:0;">
+                    <div class="lixeira-item-nome"></div>
+                    <div class="lixeira-item-meta"></div>
+                </div>
+                <button type="button" class="btn-config-folder">Restaurar</button>
+                <button type="button" class="btn-remover">Descartar</button>
+            `;
+            linha.querySelector('.lixeira-item-nome').textContent = i.rotulo;
+            linha.querySelector('.lixeira-item-meta').textContent = `${detalhe} · ${quando}`;
+
+            const [btnRestaurar, btnDescartar] = linha.querySelectorAll('button');
+            btnRestaurar.onclick = async () => {
+                btnRestaurar.disabled = true;
+                await desfazerExclusao(i.id, abrirLixeira);
+                if (typeof carregarColecoes === 'function') carregarColecoes();
+            };
+            btnDescartar.onclick = () => descartarDaLixeira(i.id, i.rotulo);
+            lista.appendChild(linha);
+        });
+    } catch (e) {
+        lista.innerHTML = '<p style="color:var(--text-secondary);">' +
+            'Não foi possível abrir a lixeira. O servidor respondeu?</p>';
+    }
+}
+
+async function descartarDaLixeira(itemId, rotulo) {
+    // Daqui não volta, então confirma. É a única exclusão do app sem desfazer,
+    // e é assim de propósito: a lixeira é justamente o desfazer.
+    const ok = await confirmarAcao(
+        'Descartar de vez',
+        `“${rotulo}” sai da lixeira e não poderá mais ser restaurado.`,
+        'Descartar');
+    if (!ok) return;
+
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/lixeira/${itemId}`,
+                              { method: 'DELETE', headers: fetchOptions.headers });
+        if (!r.ok) {
+            toastErro(await _erroDaResposta(r, 'Não foi possível descartar'));
+            return;
+        }
+        abrirLixeira();
+    } catch (e) {
+        toastErro('Não foi possível descartar. O servidor respondeu?');
+    }
+}
+
+function fecharLixeira() {
+    document.getElementById('lixeiraModal').style.display = 'none';
+}
+
 // Atalhos semânticos
 const toastOk   = (m) => mostrarToast(m, 'sucesso');
 const toastErro = (m) => mostrarToast(m, 'erro', 6000);
@@ -3072,9 +3225,22 @@ async function excluirColecao(id, nome) {
     }
 
     try {
-        await fetch(`${API_BASE_URL}/api/collections/${id}`, { method: 'DELETE' });
-        toastInfo(`Coleção "${nome}" excluída.`);
+        const r = await fetch(`${API_BASE_URL}/api/collections/${id}`,
+                              { method: 'DELETE', headers: fetchOptions.headers });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) { toastErro(await _erroDaResposta(r, 'Não foi possível excluir')); return; }
+
         carregarColecoes();
+
+        // As pastas no disco NÃO voltam com o desfazer — quem escolheu apagá-las
+        // já confirmou isso em duas etapas, e ressuscitar arquivo apagado não é
+        // algo que o app possa prometer. O desfazer traz a coleção e o vínculo.
+        if (d.lixeira_id) {
+            toastComDesfazer(`Coleção "${nome}" excluída.`,
+                             () => desfazerExclusao(d.lixeira_id, carregarColecoes));
+        } else {
+            toastInfo(`Coleção "${nome}" excluída.`);
+        }
     } catch (e) { console.error(e); toastErro("Não foi possível excluir."); }
 }
 
@@ -3875,7 +4041,17 @@ async function removerDaColecao(fileId, nomeArquivo) {
         });
         if (res.ok) {
             const d = await res.json().catch(() => ({}));
-            toastInfo(`"${nomeArquivo}" removido da coleção.`);
+            const col = _colecaoAtual;
+            if (d.lixeira_id) {
+                // O desfazer devolve a imagem à coleção. A cópia na pasta
+                // espelho, se foi apagada logo abaixo, não volta — apagar
+                // arquivo do disco é do usuário, e o app não desfaz isso.
+                toastComDesfazer(`"${nomeArquivo}" removido da coleção.`,
+                    () => desfazerExclusao(d.lixeira_id,
+                                           () => verColecao(col.id, col.nome)));
+            } else {
+                toastInfo(`"${nomeArquivo}" removido da coleção.`);
+            }
             verColecao(_colecaoAtual.id, _colecaoAtual.nome);  // recarrega a coleção
             // Espelhar é nos dois sentidos: se a coleção manda na pasta, sair
             // da coleção também tira da pasta.
