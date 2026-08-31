@@ -2047,6 +2047,30 @@ function resultadosVisiveis() {
     });
 }
 
+// Por que este resultado apareceu.
+//
+// O número que ordena a busca continua escondido: "0,72" não ensina nada a
+// ninguém. O que ajuda é saber QUAL sinal respondeu, porque é isso que diz
+// como pedir da próxima vez — se a foto veio pela aparência, descrever a cena
+// funciona; se veio pelo nome, vale continuar usando o nome.
+const ROTULO_ORIGEM = {
+    aparencia: { texto: 'pela aparência',
+                 ajuda: 'A imagem foi reconhecida pelo que aparece nela. ' +
+                        'Descrever a cena costuma funcionar bem.' },
+    descricao: { texto: 'pelo que a imagem mostra',
+                 ajuda: 'Bateu com a descrição que o Search+ escreveu sobre esta imagem.' },
+    texto:     { texto: 'pelo texto do documento',
+                 ajuda: 'O termo que você procurou está escrito dentro do arquivo.' },
+    nome:      { texto: 'pelo nome do arquivo',
+                 ajuda: 'O nome do arquivo contém o que você digitou.' },
+};
+
+function badgeDeOrigem(origem) {
+    const r = ROTULO_ORIGEM[origem];
+    if (!r) return '';   // origem desconhecida: melhor nada que um rótulo errado
+    return `<span class="badge origem" title="${_attr(r.ajuda)}">${r.texto}</span>`;
+}
+
 function renderizarResultados() {
     const mGrid = document.getElementById('melhoresGrid'); const oGrid = document.getElementById('outrasGrid');
     mGrid.innerHTML = ''; oGrid.innerHTML = '';
@@ -2091,7 +2115,7 @@ function renderizarResultados() {
         const sel = _selecionados.has(r.id);
         const selBtn = `<button type="button" class="btn-sel-abs${sel ? ' is-sel' : ''}" role="checkbox" aria-checked="${sel}" aria-label="Selecionar para coleção" title="Selecionar para coleção" onclick="alternarSelecao(event, ${r.id}, this)">${sel ? '✓' : ''}</button>`;
 
-        return `<div class="card${sel ? ' card-selecionado' : ''}" data-file-id="${r.id}" data-idx="${idx}" onclick="abrirPainelLateral(${idx})" onmouseenter="mostrarHoverPreview(event, ${idx})" onmousemove="moverHoverPreview(event)" onmouseleave="esconderHoverPreview()">${selBtn}${favBtn}<div class="media-container">${midia}</div><div class="card-content"><h3>${r.nome}</h3><div class="tags"><span class="badge type">${ext.toUpperCase()}</span></div>${trecho}</div></div>`;
+        return `<div class="card${sel ? ' card-selecionado' : ''}" data-file-id="${r.id}" data-idx="${idx}" onclick="abrirPainelLateral(${idx})" onmouseenter="mostrarHoverPreview(event, ${idx})" onmousemove="moverHoverPreview(event)" onmouseleave="esconderHoverPreview()">${selBtn}${favBtn}<div class="media-container">${midia}</div><div class="card-content"><h3>${r.nome}</h3><div class="tags"><span class="badge type">${ext.toUpperCase()}</span>${badgeDeOrigem(r.origem)}</div>${trecho}</div></div>`;
     };
 
     mGrid.innerHTML = ordenados.map(buildCard).join('');

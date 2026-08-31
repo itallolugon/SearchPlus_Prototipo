@@ -136,7 +136,8 @@ Formato usado em busca, favoritos, coleções e galeria — sempre o mesmo:
   "trecho": "(primeiros ~200 caracteres, para preview)",
   "data": "2026-08-10T19:32:58.960360",
   "favorito": false,
-  "score": 0.95
+  "score": 0.95,
+  "origem": "aparencia"
 }
 ```
 
@@ -146,6 +147,29 @@ Formato usado em busca, favoritos, coleções e galeria — sempre o mesmo:
 | `tipo` | Extensão sem ponto (`jpg`, `pdf`, `mp4`) |
 | `descricao_ia` | **Pode vir vazio** em imagens — veja [indexação lazy](#indexação-lazy) |
 | `score` | `0.0`–`1.0`. O front atual separa "Melhores" (≥ 0.60) de "Semânticos" |
+| `origem` | Por que o resultado apareceu — veja abaixo |
+
+#### `origem` — por que o resultado apareceu
+
+O número que ordena a busca é exposto na API mas **fica escondido na
+interface**, de propósito: "0,72" não ensina nada a ninguém. `origem` é a
+explicação que entra no lugar dele — diz qual sinal mais contribuiu, o que
+ensina o usuário a formular a próxima busca.
+
+| Valor | O que a interface mostra | Quando acontece |
+|---|---|---|
+| `aparencia` | "pela aparência" | a imagem foi reconhecida pelo que aparece nela |
+| `descricao` | "pelo que a imagem mostra" | bateu com a descrição escrita sobre a imagem |
+| `texto` | "pelo texto do documento" | o termo está escrito dentro do arquivo |
+| `nome` | "pelo nome do arquivo" | o nome contém o que foi digitado |
+
+São quatro e não três porque, numa imagem, o texto que o Search+ tem não é
+texto do arquivo — é a descrição gerada olhando para ela. Chamar isso de
+"texto do documento" seria mentira sobre a origem do dado.
+
+A escolha compara **contribuições já multiplicadas pelos pesos**, não os sinais
+crus: um sinal visual alto que entra com peso baixo pode contribuir menos que
+um textual médio com peso alto, e é a contribuição que explica a posição.
 
 ### Descrição de imagem
 

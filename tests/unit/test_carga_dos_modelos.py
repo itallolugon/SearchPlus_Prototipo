@@ -79,7 +79,11 @@ class TestEstadoDosModelos:
         responderia "estou carregando" para sempre num computador onde os
         modelos nunca vão subir.
         """
-        assert app_module._MODELOS_RESOLVIDOS.wait(timeout=10) is True
+        # 60s, não 10: no ambiente de teste os MODELOS são stub e falham na
+        # hora, mas o scikit-learn e o SDK do Claude são importados de verdade
+        # pelo mesmo thread — juntos, ~11s medidos aqui. Um timeout apertado
+        # transformaria essa lentidão legítima em falha intermitente.
+        assert app_module._MODELOS_RESOLVIDOS.wait(timeout=60) is True
         assert app_module.SBERT_OK is False       # o stub do conftest derruba
         assert app_module.busca_pronta() is False
 

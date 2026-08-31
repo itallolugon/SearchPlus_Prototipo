@@ -395,6 +395,21 @@ levando a um clique que não abre nada.
 | **RF-167** | A varredura da indexação e a da verificação devem enxergar **o mesmo conjunto de arquivos** (mesmas extensões, mesma lista de pastas ignoradas). Divergir faria a verificação acusar como novo algo que a indexação ignora de propósito, e o contador nunca zeraria. | Implementado |
 | **RF-168** | A verificação não pode acontecer por GET. Um link ou um prefetch do navegador dispararia reindexação sozinho. | Implementado |
 
+### Por que o resultado apareceu
+
+O número que ordena a busca existe e continua escondido de propósito: "0,72"
+não ensina nada a ninguém. A origem é a explicação que entra no lugar dele.
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-193** | Cada resultado deve dizer **por que apareceu**, em linguagem direta, sem citar modelo nem mostrar número. | Implementado |
+| **RF-194** | A origem é derivada do sinal que **mais contribuiu** para a posição do resultado, comparando contribuições já multiplicadas pelos pesos — não os sinais crus. | Implementado |
+| **RF-195** | São quatro origens: aparência, o que a imagem mostra, texto do documento e nome do arquivo. Numa imagem o texto disponível é a descrição gerada, não conteúdo do arquivo — chamá-la de "texto do documento" seria mentira sobre a origem do dado. | Implementado |
+| **RF-196** | Documento nunca pode receber a origem "aparência": não há sinal visual nele. | Implementado |
+| **RF-197** | O nome do arquivo não pode vencer um sinal forte. Anunciá-lo como razão quando a imagem foi de fato reconhecida pela aparência ensinaria o usuário a caçar nome de arquivo em vez de descrever. | Implementado |
+| **RF-198** | O peso do nome deve ser o **mesmo valor** no cálculo do score e na escolha da origem. Separá-los faria a interface explicar uma coisa e o resultado ser ordenado por outra. | Implementado |
+| **RF-199** | Buscar um termo visual e um termo que só existe no corpo de um documento deve produzir badges **diferentes**. | Implementado |
+
 ### Desfazer exclusões
 
 Excluir uma coleção apagava trabalho que não volta: o agrupamento montado à mão

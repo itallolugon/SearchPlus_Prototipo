@@ -364,6 +364,15 @@ body {
 .tags { display: flex; gap: 8px; margin-bottom: 12px; }
 .badge { padding: 3px 9px; border-radius: 6px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.5px; }
 .badge.type { background-color: var(--border-light); color: var(--text-secondary); }
+/* Por que o resultado apareceu. Discreta de propósito: é uma explicação, não
+   um alerta — não pode competir com o nome do arquivo nem com a imagem.
+   Minúscula porque é frase ("pela aparência"), não sigla como o tipo. */
+.badge.origem {
+    background: transparent; color: var(--text-secondary);
+    border: 1px solid var(--border-light);
+    font-weight: 500; letter-spacing: 0; text-transform: none;
+    font-size: 0.68rem; cursor: help;
+}
 .trecho-preview { font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 10px; flex: 1; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;}
 .highlight { background-color: rgba(234, 82, 247, 0.3); color: #fff; padding: 2px 4px; border-radius: 4px; }
 

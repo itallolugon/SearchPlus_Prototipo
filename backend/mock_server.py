@@ -245,6 +245,18 @@ def _nao_autenticado():
     return jsonify({"error": "Não autenticado."}), 401
 
 
+def _origem_falsa(arq: dict) -> str:
+    """
+    Por que o resultado apareceu.
+
+    O mock nao tem motor de busca, entao deriva do tipo do arquivo: imagem vem
+    "pela aparencia", o resto "pelo texto do documento". O que importa aqui e
+    o front receber origens DIFERENTES e conseguir desenhar as duas badges sem
+    depender do motor real.
+    """
+    return "aparencia" if arq["tipo"] in _EXT_IMG else "texto"
+
+
 def _item(arq: dict, score: float = 1.0) -> dict:
     """Formato padrão de resultado, idêntico ao do backend real."""
     desc = arq["descricao_ia"]
@@ -253,6 +265,7 @@ def _item(arq: dict, score: float = 1.0) -> dict:
         "tipo": arq["tipo"], "descricao_ia": desc, "conteudo": desc,
         "trecho": desc[:200], "data": arq["data"],
         "favorito": bool(arq["favorito"]), "score": round(score, 4),
+        "origem": _origem_falsa(arq),
     }
 
 

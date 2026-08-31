@@ -1910,6 +1910,44 @@ def _analisar_query(query: str) -> dict:
     }
 
 
+# Como o resultado foi encontrado. O número que ordena a busca continua
+# escondido de propósito — dizer "0,72" não ensina nada a ninguém. O que ajuda
+# é saber QUAL sinal respondeu, porque é isso que diz ao usuário como pedir da
+# próxima vez: se a foto do cachorro veio "pela aparência", descrever a cena
+# funciona; se veio "pelo nome do arquivo", vale continuar usando o nome.
+#
+# São quatro e não três porque, numa imagem, o texto que o Search+ tem não é
+# texto do arquivo — é a descrição que a IA escreveu olhando para ela. Chamar
+# isso de "texto do documento" seria mentira sobre a origem do dado.
+ORIGEM_APARENCIA = "aparencia"
+ORIGEM_DESCRICAO = "descricao"
+ORIGEM_TEXTO     = "texto"
+ORIGEM_NOME      = "nome"
+
+# Quanto o nome do arquivo soma ao score quando a busca inteira aparece nele.
+# Precisa ser o mesmo valor usado em _ajustar_score: são as duas pontas da
+# mesma regra, e separá-las faria a badge dizer uma coisa e o score, outra.
+PESO_NOME = 0.15
+
+
+def _origem_do_resultado(eh_imagem: bool, peso_visual: float, peso_textual: float,
+                         nome_bateu: bool) -> str:
+    """
+    Qual sinal mais contribuiu para este resultado ter aparecido.
+
+    Compara contribuições já multiplicadas pelos pesos — não os sinais crus.
+    Um sinal visual de 0,9 que entra com peso 0,30 contribui menos que um
+    textual de 0,6 com peso 0,45, e é a contribuição que explica a posição.
+    """
+    candidatos = [(peso_textual, ORIGEM_DESCRICAO if eh_imagem else ORIGEM_TEXTO)]
+    if eh_imagem:
+        candidatos.append((peso_visual, ORIGEM_APARENCIA))
+    if nome_bateu:
+        candidatos.append((PESO_NOME, ORIGEM_NOME))
+
+    return max(candidatos, key=lambda c: c[0])[1]
+
+
 def _ajustar_score(score_raw: float, q: dict, desc_norm: str, nome_norm: str) -> float | None:
     """
     Aplica regras de negócio sobre o score (blended ou SBERT puro):
@@ -1973,7 +2011,7 @@ def _ajustar_score(score_raw: float, q: dict, desc_norm: str, nome_norm: str) ->
 
     # Query exata dentro do nome do arquivo → +15%
     if q["normalizada"] and q["normalizada"] in nome_norm:
-        score += 0.15
+        score += PESO_NOME
 
     # Cada palavra-chave da query que aparece na descrição → +5%
     if matches_desc:
@@ -2261,15 +2299,20 @@ def api_search():
 
             eh_imagem_clip = f["tipo"] in _EXT_IMG and CLIP_OK and s_clip > 0
             if eh_imagem_clip and desc_local:
-                blended = W_SBERT_IMG * s_sbert + W_BM25_IMG * s_bm25 + W_CLIP_IMG * s_visual
+                contrib_visual  = W_CLIP_IMG * s_visual
+                contrib_textual = W_SBERT_IMG * s_sbert + W_BM25_IMG * s_bm25
+                blended = contrib_textual + contrib_visual
             elif eh_imagem_clip:
                 # Imagem ainda sem descrição (indexada só com CLIP): não faz
                 # sentido cobrar dela os pesos de texto que ela não tem como
                 # ganhar. O sinal visual responde sozinho, mas com teto, pra
                 # não passar na frente de um acerto textual bem descrito.
                 blended = min(0.70, 0.85 * s_visual)
+                contrib_visual, contrib_textual = blended, 0.0
             else:
-                blended = W_SBERT_DOC * s_sbert + W_BM25_DOC * s_bm25
+                contrib_visual  = 0.0
+                contrib_textual = W_SBERT_DOC * s_sbert + W_BM25_DOC * s_bm25
+                blended = contrib_textual
 
             desc      = f["descricao_ia"] or ""
             desc_norm = _normalizar(desc)
@@ -2277,7 +2320,14 @@ def api_search():
             score = _ajustar_score(float(blended), q, desc_norm, nome_norm)
             if score is None:
                 continue
-            out.append((f, desc, score, float(s_sbert)))
+
+            origem = _origem_do_resultado(
+                eh_imagem=bool(eh_imagem_clip),
+                peso_visual=float(contrib_visual),
+                peso_textual=float(contrib_textual),
+                nome_bateu=bool(q["normalizada"] and q["normalizada"] in nome_norm),
+            )
+            out.append((f, desc, score, float(s_sbert), origem))
         return out
 
     candidatos = _filtrar_e_pontuar(0.35)
@@ -2285,7 +2335,7 @@ def api_search():
         candidatos = _filtrar_e_pontuar(0.30)
 
     results = []
-    for f, desc, score, s_sbert in candidatos:
+    for f, desc, score, s_sbert, origem in candidatos:
         results.append({
             "id": f["id"], "nome": f["nome"], "caminho": f["caminho"],
             "tipo": f["tipo"], "descricao_ia": desc, "conteudo": desc,
@@ -2293,6 +2343,7 @@ def api_search():
             "data": f["data_adicionado"].isoformat() if f["data_adicionado"] else "",
             "favorito": bool(f["favorito"]),
             "score": round(score, 4),
+            "origem": origem,
             "_sbert": round(s_sbert, 4),   # usado pelo rerank pra proteger hits semânticos fortes
         })
 
