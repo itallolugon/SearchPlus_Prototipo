@@ -463,6 +463,12 @@ a seleção em massa só existia nos resultados de busca.
 | **RF-247** | A mesma imagem pode estar em duas categorias (um desenho de cachorro entra em Animais e Desenhos). Marcar num lugar marca no outro — senão a mesma foto apareceria marcada e desmarcada ao mesmo tempo. | Implementado |
 | **RF-248** | A barra de seleção e o "adicionar à coleção" existentes atendem a home sem duplicação. | Implementado |
 | **RF-249** | Trocar o filtro de pastas preserva a seleção do que continua na tela. | Implementado |
+| **RF-259** | Os controles sobre o card da home são menores que os do card de busca — o card da home é bem menor, e o mesmo tamanho cobre um pedaço grande da miniatura. | Corrigido |
+| **RF-260** | O card da home deve ter **botão de favoritar**. Quem navega por categoria está olhando muita coisa de uma vez; abrir cada imagem para marcar a estrela desfaz a vantagem de estar ali. | Implementado |
+| **RF-261** | Favoritar na home atualiza **todos** os cards daquela imagem: a mesma foto pode estar em duas categorias, e cada uma desenha o seu botão. | Implementado |
+| **RF-262** | O estado do favorito é gravado nos itens da galeria, senão a estrela volta ao estado antigo quando a galeria é redesenhada. | Implementado |
+| **RF-263** | O seletor de pastas **fecha ao escolher**. Um menu aberto por cima do resultado esconde justamente a mudança que a pessoa pediu para ver. | Corrigido |
+| **RF-264** | Clicar fora do seletor também fecha — senão o único jeito de sair sem escolher seria clicar no botão, que fica atrás do menu. | Implementado |
 
 ### Quais pastas a home mostra
 

@@ -2883,7 +2883,21 @@ async function toggleFavorito(event, id, btnElement, fromModal = false) {
                 });
             }
 
+            // A galeria da home guarda seus próprios itens. Sem atualizar
+            // aqui, a estrela voltaria ao estado antigo assim que a galeria
+            // fosse redesenhada — ao trocar o filtro de pastas, por exemplo.
+            Object.values(window._galeriaGrupos || {}).forEach(itens => {
+                itens.forEach(r => { if (r.id === id) r.favorito = isFav; });
+            });
+
             if (btnElement) aplicarEstadoFavorito(btnElement, isFav);
+
+            // A mesma imagem pode estar em duas categorias ao mesmo tempo (um
+            // desenho de cachorro entra em Animais e em Desenhos), e cada uma
+            // desenha o seu botão. Atualizar só o clicado deixaria a mesma
+            // foto com estrela cheia num lugar e vazia no outro.
+            document.querySelectorAll(`.recent-card[data-file-id="${id}"] .btn-fav-abs`)
+                .forEach(b => { if (b !== btnElement) aplicarEstadoFavorito(b, isFav); });
 
             if (fromModal && !isFav) {
                 const card = document.getElementById(`favCard_${id}`);
@@ -3030,15 +3044,24 @@ function alternarSeletorDePastas() {
     todas.textContent = 'Mostrar todas';
     todas.onclick = async () => {
         _pastasVisiveis = [];
+        fecharSeletorDePastas();
         await salvarPastasVisiveis();
-        menu.style.display = 'none';
-        btn.setAttribute('aria-expanded', 'false');
         carregarGaleria();
     };
     menu.appendChild(todas);
 
     menu.style.display = 'block';
     btn.setAttribute('aria-expanded', 'true');
+
+    // Clicar fora fecha. Sem isto o único jeito de sair do menu sem escolher
+    // nada seria clicar de novo no botão, que fica atrás dele.
+    setTimeout(() => {
+        document.addEventListener('click', function foraDoMenu(ev) {
+            if (menu.contains(ev.target) || btn.contains(ev.target)) return;
+            document.removeEventListener('click', foraDoMenu);
+            fecharSeletorDePastas();
+        });
+    }, 0);
 }
 
 async function escolherPastaDaGaleria(pastaId, marcada) {
@@ -3060,8 +3083,19 @@ async function escolherPastaDaGaleria(pastaId, marcada) {
     if (_pastasVisiveis.length === 0) _pastasVisiveis = [];
     if (_pastasVisiveis.length === pastas.length) _pastasVisiveis = [];
 
+    // Fecha ao escolher. Um menu que fica aberto por cima do resultado esconde
+    // justamente a mudança que a pessoa acabou de pedir para ver.
+    fecharSeletorDePastas();
+
     await salvarPastasVisiveis();
     carregarGaleria();
+}
+
+function fecharSeletorDePastas() {
+    const menu = document.getElementById('seletorPastasMenu');
+    const btn = document.getElementById('seletorPastasBotao');
+    if (menu) menu.style.display = 'none';
+    if (btn) btn.setAttribute('aria-expanded', 'false');
 }
 
 async function salvarPastasVisiveis() {
@@ -3160,6 +3194,21 @@ async function carregarGaleria() {
                 sel.textContent = _selecionados.has(r.id) ? '✓' : '';
                 sel.onclick = (ev) => alternarSelecao(ev, r.id, sel);
                 card.appendChild(sel);
+
+                // Favoritar sem precisar abrir a imagem. Quem navega por
+                // categoria está justamente olhando muita coisa de uma vez —
+                // ter de abrir cada uma para marcar a estrela desfaz a
+                // vantagem de estar aqui em vez de na busca.
+                const fav = document.createElement('button');
+                fav.type = 'button';
+                fav.className = 'btn-fav-abs' + (r.favorito ? ' is-fav' : '');
+                fav.setAttribute('aria-pressed', r.favorito ? 'true' : 'false');
+                fav.setAttribute('aria-label',
+                    r.favorito ? 'Remover dos favoritos' : 'Favoritar');
+                fav.title = fav.getAttribute('aria-label');
+                fav.textContent = r.favorito ? ICONE_FAV.sim : ICONE_FAV.nao;
+                fav.onclick = (ev) => toggleFavorito(ev, r.id, fav);
+                card.appendChild(fav);
 
                 const ext = (r.tipo || '').toLowerCase();
                 const imgBox = document.createElement('div');

@@ -1557,9 +1557,10 @@ body {
    exibição: informa e ajusta, sem disputar atenção com o conteúdo. */
 .seletor-pastas { position: relative; text-align: right; margin: 0 auto 10px; max-width: 1100px; padding: 0 20px; }
 .seletor-pastas-botao {
-    background: transparent; border: 1px solid var(--border-light);
-    color: var(--text-secondary); border-radius: 20px;
-    padding: 6px 14px; font-size: 0.78rem; cursor: pointer; transition: 0.3s;
+    background: rgba(255,255,255,0.04); border: 1px solid var(--border-light);
+    color: var(--text-primary); border-radius: 22px;
+    padding: 10px 20px; font-size: 0.92rem; font-weight: 600;
+    cursor: pointer; transition: 0.3s;
 }
 .seletor-pastas-botao:hover { border-color: var(--accent-primary); color: var(--accent-primary); }
 .seletor-pastas-menu {
@@ -1628,3 +1629,19 @@ body {
     background: var(--accent-primary); border-color: var(--accent-primary);
 }
 .fav-card.card-selecionado { border-color: var(--accent-primary); }
+
+
+/* Controles sobre o card da HOME.
+   Os cards da home são bem menores que os de resultado de busca, e os mesmos
+   32px/35px que funcionam lá cobrem um pedaço grande da miniatura aqui. */
+.recent-card .btn-sel-abs {
+    top: 7px; left: 7px; width: 22px; height: 22px;
+    border-radius: 5px; font-size: 0.75rem;
+}
+.recent-card .btn-fav-abs {
+    top: 7px; right: 7px; width: 24px; height: 24px; font-size: 0.85rem;
+}
+/* Sem o hover ampliando: num grid denso, o botão crescendo sob o cursor
+   encosta no card vizinho. */
+.recent-card .btn-sel-abs:hover,
+.recent-card .btn-fav-abs:hover { transform: none; }
