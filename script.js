@@ -3861,6 +3861,180 @@ function fecharAjuda() {
 }
 
 // ==========================================
+// ACESSIBILIDADE DOS MODAIS
+// ==========================================
+// O index.html tinha um único aria-label antes das features recentes, e nenhum
+// dos 23 modais se anunciava como diálogo. Para quem usa leitor de tela, abrir
+// um deles não dizia nada: o foco continuava na página atrás, e o Tab passeava
+// por links que estavam visualmente cobertos.
+//
+// Tudo aqui é genérico, aplicado por observação do DOM. A alternativa seria
+// marcar cada modal à mão — e foi assim que a lista fixa do Esc nasceu com 14
+// dos 23 modais, deixando os outros nove sem tecla de fechar sem ninguém
+// perceber.
+
+let _focoAntesDoModal = new WeakMap();
+
+function _modalEstaVisivel(el) {
+    return el && getComputedStyle(el).display !== 'none';
+}
+
+// Do mais acima para o mais abaixo: com dois modais abertos, o Esc e o Tab
+// pertencem ao de cima.
+function _modaisAbertos() {
+    return [...document.querySelectorAll('.modal')]
+        .filter(_modalEstaVisivel)
+        .sort((a, b) => (parseInt(getComputedStyle(b).zIndex, 10) || 0)
+                      - (parseInt(getComputedStyle(a).zIndex, 10) || 0));
+}
+
+function _focaveis(container) {
+    const seletor = 'a[href], button:not([disabled]), input:not([disabled]), ' +
+                    'select:not([disabled]), textarea:not([disabled]), ' +
+                    'details > summary, [tabindex]:not([tabindex="-1"])';
+    return [...container.querySelectorAll(seletor)].filter(el => {
+        // Elemento escondido dentro do modal não pode receber foco: o Tab
+        // pararia num campo que ninguém vê.
+        const cs = getComputedStyle(el);
+        return cs.display !== 'none' && cs.visibility !== 'hidden' && el.offsetParent !== null;
+    });
+}
+
+// Um modal que se anuncia como diálogo precisa dizer QUAL é. O título já está
+// lá em todos eles; só falta amarrá-lo por id.
+function _prepararModal(modal) {
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+
+    if (!modal.getAttribute('aria-labelledby')) {
+        const titulo = modal.querySelector('h1, h2, h3');
+        if (titulo) {
+            if (!titulo.id) titulo.id = `titulo-${modal.id || Math.random().toString(36).slice(2)}`;
+            modal.setAttribute('aria-labelledby', titulo.id);
+        }
+    }
+
+    // O X é um <span> em vários modais: sem role e tabindex, o teclado não
+    // alcança o único jeito de fechar.
+    modal.querySelectorAll('.close-btn').forEach(x => {
+        if (x.tagName !== 'BUTTON') {
+            x.setAttribute('role', 'button');
+            if (!x.hasAttribute('tabindex')) x.setAttribute('tabindex', '0');
+        }
+        if (!x.getAttribute('aria-label')) x.setAttribute('aria-label', 'Fechar');
+    });
+}
+
+function _aoAbrirModal(modal) {
+    _prepararModal(modal);
+
+    // Guarda quem abriu, para devolver o foco no fim. Sem isso o foco volta
+    // para o começo da página e a pessoa refaz todo o caminho de navegação.
+    const anterior = document.activeElement;
+    if (anterior && anterior !== document.body) _focoAntesDoModal.set(modal, anterior);
+
+    // Pula o X: começar o foco no botão de fechar é anunciar a saída antes do
+    // conteúdo. Quando ele é o ÚNICO foco possível — modal ainda carregando,
+    // ou só com texto —, o foco vai para o próprio diálogo, que faz o leitor
+    // de tela ler o título em vez de dizer "Fechar".
+    const alvos = _focaveis(modal).filter(el => !el.classList.contains('close-btn'));
+    if (alvos.length) {
+        alvos[0].focus();
+    } else {
+        modal.setAttribute('tabindex', '-1');
+        modal.focus();
+    }
+}
+
+function _aoFecharModal(modal) {
+    const anterior = _focoAntesDoModal.get(modal);
+    _focoAntesDoModal.delete(modal);
+    if (anterior && document.body.contains(anterior)) {
+        try { anterior.focus(); } catch (e) { }
+    }
+}
+
+// Observa o `style` de cada modal: é assim que o app os abre e fecha. Detectar
+// aqui evita ter de alterar as 23 funções de abrir — e evita que a 24ª nasça
+// sem acessibilidade.
+function _vigiarModais() {
+    const observador = new MutationObserver(mudancas => {
+        mudancas.forEach(m => {
+            const modal = m.target;
+            if (!modal.classList || !modal.classList.contains('modal')) return;
+            const visivel = _modalEstaVisivel(modal);
+            const estava = modal.dataset.aberto === '1';
+            if (visivel && !estava) {
+                modal.dataset.aberto = '1';
+                _aoAbrirModal(modal);
+            } else if (!visivel && estava) {
+                modal.dataset.aberto = '0';
+                _aoFecharModal(modal);
+            }
+        });
+    });
+
+    document.querySelectorAll('.modal').forEach(modal => {
+        _prepararModal(modal);
+        modal.dataset.aberto = _modalEstaVisivel(modal) ? '1' : '0';
+        observador.observe(modal, { attributes: true, attributeFilter: ['style', 'class'] });
+    });
+}
+
+// Fecha o modal de cima usando o botão que ELE já tem. Assim cada modal
+// executa a própria rotina de fechar — que às vezes cancela uma promessa ou
+// devolve um estado, e simplesmente esconder passaria por cima disso.
+function fecharModalDeCima() {
+    const [topo] = _modaisAbertos();
+    if (!topo) return false;
+
+    const x = topo.querySelector('.close-btn');
+    if (x) { x.click(); return true; }
+    topo.style.display = 'none';
+    return true;
+}
+
+document.addEventListener('DOMContentLoaded', _vigiarModais);
+
+// Prende o Tab dentro do modal de cima. Sem isso o foco escapa para a página
+// atrás — que está visualmente coberta, então a pessoa navega às cegas.
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Tab') return;
+    const [topo] = _modaisAbertos();
+    if (!topo) return;
+
+    const alvos = _focaveis(topo);
+    if (!alvos.length) return;
+
+    const primeiro = alvos[0];
+    const ultimo = alvos[alvos.length - 1];
+
+    if (!topo.contains(document.activeElement)) {
+        e.preventDefault();
+        primeiro.focus();
+        return;
+    }
+    if (e.shiftKey && document.activeElement === primeiro) {
+        e.preventDefault();
+        ultimo.focus();
+    } else if (!e.shiftKey && document.activeElement === ultimo) {
+        e.preventDefault();
+        primeiro.focus();
+    }
+});
+
+// O X é <span> em vários modais; teclado precisa de Enter e Espaço.
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const alvo = e.target;
+    if (alvo && alvo.classList && alvo.classList.contains('close-btn')
+            && alvo.tagName !== 'BUTTON') {
+        e.preventDefault();
+        alvo.click();
+    }
+});
+
+// ==========================================
 // ATALHOS DE TECLADO
 // ==========================================
 // "/" foca a busca · "Esc" fecha janelas abertas
@@ -3870,29 +4044,12 @@ document.addEventListener('keydown', (e) => {
         // Menu lateral aberto? fecha ele primeiro
         const ml = document.getElementById('menuLateral');
         if (ml && ml.classList.contains('aberto')) { fecharMenuLateral(); return; }
-        const fechaveis = [
-            ['statusPastaModal', () => { if (typeof fecharStatusPasta === 'function') fecharStatusPasta(); }],
-            ['configColecaoModal', () => { if (typeof fecharConfigColecao === 'function') fecharConfigColecao(); }],
-            ['exportarDeNovoModal', () => { if (typeof fecharExportarDeNovo === 'function') fecharExportarDeNovo(); }],
-            ['pastasExportadasModal', () => { if (typeof fecharPastasExportadas === 'function') fecharPastasExportadas(); }],
-            ['pastasColecaoModal', () => { if (typeof fecharPastasColecao === 'function') fecharPastasColecao(); }],
-            ['vincularPastaModal', () => { if (typeof fecharVincularPasta === 'function') fecharVincularPasta(); }],
-            ['exportModal', () => { if (typeof fecharExportacao === 'function') fecharExportacao(); }],
-            ['escolherColecaoModal', () => { if (typeof fecharEscolherColecao === 'function') fecharEscolherColecao(); }],
-            ['ajudaModal', fecharAjuda],
-            ['cropperModal', () => { if (typeof fecharCropper === 'function') fecharCropper(); }],
-            ['modalFavoritos', () => { if (typeof fecharFavoritos === 'function') fecharFavoritos(); }],
-            ['foldersModal', () => { if (typeof fecharModalPastas === 'function') fecharModalPastas(); }],
-            ['editPerfilModal', () => { if (typeof fecharEditPerfil === 'function') fecharEditPerfil(); }],
-            ['viewPerfilModal', () => { if (typeof fecharViewPerfil === 'function') fecharViewPerfil(); }],
-        ];
-        for (const [id, fechar] of fechaveis) {
-            const el = document.getElementById(id);
-            if (el && getComputedStyle(el).display !== 'none') {
-                fechar();
-                return;
-            }
-        }
+
+        // Qualquer modal aberto, sem lista para manter. A versão anterior
+        // enumerava os modais um a um, e nasceu cobrindo 14 dos 23 — os outros
+        // nove ficaram sem tecla de fechar, sem ninguém perceber.
+        if (fecharModalDeCima()) return;
+
         return;
     }
 

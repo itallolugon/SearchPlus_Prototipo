@@ -431,6 +431,24 @@ cabeça: dá tempo de almoçar?
 | **RF-207** | Com a fila drenando e o ritmo constante, o texto **nunca volta atrás**. Estimativa que sobe sozinha destrói a confiança na barra. | Implementado |
 | **RF-208** | Um único arquivo lento não pode deslocar a estimativa; uma mudança real e sustentada de ritmo, sim. | Implementado |
 
+### Acessibilidade dos modais
+
+O `index.html` tinha um único `aria-label` antes das features recentes, e nenhum
+dos 23 modais se anunciava como diálogo. Abrir um deles não dizia nada a quem
+usa leitor de tela: o foco continuava na página atrás, e o Tab passeava por
+links visualmente cobertos.
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-307** | Todo modal tem `role="dialog"`, `aria-modal="true"` e `aria-labelledby` apontando para o próprio título. | Implementado |
+| **RF-308** | O foco entra no modal ao abrir, no primeiro campo — **nunca no X**, que anunciaria a saída antes do conteúdo. | Implementado |
+| **RF-309** | Quando o X é o único foco possível, o foco vai para o diálogo, que faz o leitor ler o título. | Implementado |
+| **RF-310** | O Tab fica **preso** dentro do modal, nos dois sentidos. | Implementado |
+| **RF-311** | `Esc` fecha o modal mais acima, usando a rotina de fechar dele — algumas cancelam promessas, e simplesmente esconder passaria por cima disso. | Implementado |
+| **RF-312** | O foco **volta** ao elemento que abriu o modal. | Implementado |
+| **RF-313** | O X, que é `<span>` em vários modais, responde a Enter e Espaço e tem `role="button"`. | Corrigido |
+| **RF-314** | A marcação é aplicada por observação do DOM, não modal a modal. A lista fixa anterior do `Esc` cobria 14 dos 23 — nove ficaram sem tecla de fechar sem ninguém perceber. | Corrigido |
+
 ### Histórico das exportações e ação corretiva
 
 O resultado sumia junto com o modal. Quem exportou 200 fotos, viu "8 falharam" e
