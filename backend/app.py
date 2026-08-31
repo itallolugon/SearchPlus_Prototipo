@@ -2831,6 +2831,47 @@ def _categorias_do_arquivo(descricao_ia: str) -> list[str]:
     return cats
 
 
+@app.route("/api/files/validos", methods=["POST"])
+def api_files_validos():
+    """
+    Dos ids enviados, quais ainda existem e são deste usuário.
+
+    Serve para a seleção restaurada ao recarregar a aba: entre um
+    carregamento e outro o usuário pode ter removido uma pasta do índice, e a
+    seleção guardada apontaria para arquivos que não existem mais. Contá-los
+    faria a barra dizer "12 imagens selecionadas" e a coleção receber 9.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    data = request.get_json(force=True) or {}
+    brutos = data.get("ids")
+    if not isinstance(brutos, list):
+        return jsonify({"error": "ids deve ser uma lista."}), 400
+
+    ids = []
+    for i in brutos[:5000]:
+        try:
+            ids.append(int(i))
+        except (TypeError, ValueError):
+            continue
+
+    if not ids:
+        return jsonify({"ids": []})
+
+    conn = get_db()
+    try:
+        linhas = conn.execute(
+            "SELECT id FROM files WHERE id = ANY(%s) AND user_id = %s",
+            (ids, uid),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return jsonify({"ids": [r["id"] for r in linhas]})
+
+
 @app.route("/api/gallery")
 def api_gallery():
     """

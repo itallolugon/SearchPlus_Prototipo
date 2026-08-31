@@ -503,6 +503,9 @@ window.onload = async () => {
     // Sem await: o preparo da busca não pode atrasar a tela de login.
     acompanharPreparoDaBusca();
 
+    // A seleção de trabalho volta depois de um F5 acidental.
+    restaurarSelecao();
+
     try {
         const res = await fetch(`${API_BASE_URL}/api/check_session`);
         if (res.ok) {
@@ -2265,6 +2268,7 @@ function alternarSelecionarTodosFavoritos() {
 
     sincronizarCardsDeFavoritos();
     atualizarAcoesFavoritos();
+    _salvarSelecao();
     atualizarBarraSelecao();
 }
 
@@ -3280,6 +3284,7 @@ function alternarSelecaoDaCategoria(categoria) {
 
     sincronizarCardsDaGaleria();
     atualizarBotoesDeCategoria();
+    _salvarSelecao();
     atualizarBarraSelecao();
 }
 
@@ -3733,6 +3738,53 @@ document.addEventListener('keydown', (e) => {
 
 let _selecionados = new Set();   // file_id dos itens marcados
 
+// ── A seleção sobrevive ao recarregamento, mas não ao fechar a aba ──────────
+//
+// Ela continua sendo um passo de trabalho, e não um estado guardado: por isso
+// `sessionStorage` e não `localStorage`. Fechar a aba encerra o trabalho e
+// limpa; um F5 acidental, ou o servidor reiniciando no meio, não.
+//
+// Quem montou uma seleção de 40 imagens e recarregou por engano perdia tudo e
+// tinha de refazer clique a clique.
+const _CHAVE_SELECAO = 'searchplus_selecao';
+
+function _salvarSelecao() {
+    try {
+        sessionStorage.setItem(_CHAVE_SELECAO, JSON.stringify([..._selecionados]));
+    } catch (e) { /* aba anônima ou storage cheio: a seleção só não persiste */ }
+}
+
+async function restaurarSelecao() {
+    let guardados = [];
+    try {
+        guardados = JSON.parse(sessionStorage.getItem(_CHAVE_SELECAO) || '[]');
+    } catch (e) { return; }
+    if (!Array.isArray(guardados) || !guardados.length) return;
+
+    // Entre um carregamento e outro o usuário pode ter removido uma pasta do
+    // índice. Restaurar sem conferir faria a barra dizer "12 imagens
+    // selecionadas" e a coleção receber 9 — e ninguém entenderia a diferença.
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/files/validos`, {
+            method: 'POST', headers: fetchOptions.headers,
+            body: JSON.stringify({ ids: guardados }),
+        });
+        if (!r.ok) return;
+        const vivos = (await r.json()).ids || [];
+
+        _selecionados = new Set(vivos);
+        _salvarSelecao();
+
+        if (vivos.length < guardados.length) {
+            const sumiram = guardados.length - vivos.length;
+            toastInfo(`${sumiram} ${sumiram === 1 ? 'imagem que estava' : 'imagens que estavam'} ` +
+                      `selecionada${sumiram === 1 ? '' : 's'} não ${sumiram === 1 ? 'está' : 'estão'} ` +
+                      `mais na biblioteca.`);
+        }
+        atualizarBarraSelecao();
+    } catch (e) { /* servidor fora do ar tem aviso próprio */ }
+}
+
 function alternarSelecao(event, fileId, btn) {
     event.stopPropagation();     // não abre o painel lateral
     // `.card` nos resultados de busca, `.recent-card` na galeria da home.
@@ -3755,6 +3807,7 @@ function alternarSelecao(event, fileId, btn) {
     if (typeof sincronizarCardsDaGaleria === 'function') sincronizarCardsDaGaleria();
     if (typeof atualizarBotoesDeCategoria === 'function') atualizarBotoesDeCategoria();
     if (typeof atualizarAcoesFavoritos === 'function') atualizarAcoesFavoritos();
+    _salvarSelecao();
     atualizarBarraSelecao();
 }
 
@@ -3784,6 +3837,7 @@ function limparSelecao() {
     document.querySelectorAll('.card-selecionado').forEach(c => c.classList.remove('card-selecionado'));
     if (typeof atualizarBotoesDeCategoria === 'function') atualizarBotoesDeCategoria();
     if (typeof atualizarAcoesFavoritos === 'function') atualizarAcoesFavoritos();
+    _salvarSelecao();
     atualizarBarraSelecao();
 }
 
@@ -3810,6 +3864,7 @@ function alternarSelecionarTodos() {
     }
 
     sincronizarCardsComSelecao();
+    _salvarSelecao();
     atualizarBarraSelecao();
 }
 

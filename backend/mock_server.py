@@ -645,6 +645,25 @@ def _pasta_do_arquivo(arq):
     return None
 
 
+@app.route("/api/files/validos", methods=["POST"])
+def files_validos():
+    if not _logado():
+        return _nao_autenticado()
+    data = request.get_json(force=True, silent=True) or {}
+    brutos = data.get("ids")
+    if not isinstance(brutos, list):
+        return jsonify({"error": "ids deve ser uma lista."}), 400
+    validos = []
+    for i in brutos[:5000]:
+        try:
+            n = int(i)
+        except (TypeError, ValueError):
+            continue
+        if _por_id(n):
+            validos.append(n)
+    return jsonify({"ids": validos})
+
+
 @app.route("/api/gallery")
 def gallery():
     if not _logado():

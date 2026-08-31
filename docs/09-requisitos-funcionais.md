@@ -431,6 +431,20 @@ cabeça: dá tempo de almoçar?
 | **RF-207** | Com a fila drenando e o ritmo constante, o texto **nunca volta atrás**. Estimativa que sobe sozinha destrói a confiança na barra. | Implementado |
 | **RF-208** | Um único arquivo lento não pode deslocar a estimativa; uma mudança real e sustentada de ritmo, sim. | Implementado |
 
+### A seleção sobrevive ao recarregamento
+
+Quem montou uma seleção de 40 imagens e recarregou por engano — ou teve o
+servidor reiniciando no meio — perdia tudo e refazia clique a clique.
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-278** | A seleção é espelhada no armazenamento **da aba** e restaurada ao recarregar. | Implementado |
+| **RF-279** | Fechar a aba **limpa** a seleção. Ela continua sendo passo de trabalho, não estado guardado — daí `sessionStorage` e não `localStorage`. | Implementado |
+| **RF-280** | Ao restaurar, ids que não existem mais são descartados. Sem isso a barra diria "12 selecionadas" e a coleção receberia 9. | Implementado |
+| **RF-281** | O usuário é avisado de quantas saíram, para não estranhar o número menor. | Implementado |
+| **RF-282** | A checagem de existência só devolve arquivos do próprio dono — senão viraria um jeito de descobrir ids da conta alheia. | Implementado |
+| **RF-283** | Falha ao gravar (aba anônima, armazenamento cheio) não pode quebrar a seleção; ela só deixa de persistir. | Implementado |
+
 ### Ordem e capa das coleções
 
 A lista vinha sempre da mais recente para a mais antiga, e a capa era sempre o

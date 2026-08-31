@@ -577,6 +577,22 @@ Busca por similaridade visual. Envie **um** dos dois:
 ```
 `por_categoria` já vem ordenado (maior primeiro) e omite categorias zeradas.
 
+#### `POST /api/files/validos`
+Dos ids enviados, quais ainda existem e são deste usuário.
+
+```json
+{ "ids": [12, 45, 78] }
+```
+→ `{ "ids": [12, 78] }`
+
+Serve para a seleção restaurada ao recarregar a aba. Entre um carregamento e
+outro o usuário pode ter removido uma pasta do índice, e a seleção guardada
+apontaria para arquivos que não existem mais — a barra diria "12 imagens
+selecionadas" e a coleção receberia 9, sem ninguém entender a diferença.
+
+Ids não numéricos são descartados; o limite é de 5.000 por chamada. `400` se
+`ids` não for uma lista.
+
 #### `GET /api/gallery?pastas=1,2`
 ```json
 {
