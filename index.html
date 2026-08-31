@@ -528,6 +528,9 @@
                 <button type="button" onclick="abrirResumoIndexacao()" class="action-btn" style="width: 100%; margin: 0 0 8px 0;">
                     Última indexação — o que entrou e o que não entrou
                 </button>
+                <button type="button" onclick="abrirHistoricoExport()" class="action-btn" style="width: 100%; margin: 0 0 8px 0;">
+                    Exportações — o que você já mandou para fora
+                </button>
                 <button type="button" onclick="abrirLixeira()" class="action-btn" style="width: 100%; margin: 0;">
                     Lixeira — o que você excluiu
                 </button>
@@ -734,6 +737,15 @@
         </div>
     </div>
     <div id="sidebarOverlay" class="sidebar-overlay" onclick="fecharSidebarConfig()"></div>
+
+    <!-- Histórico das exportações: o que foi, quando, para onde e o que falhou. -->
+    <div id="historicoExportModal" class="modal">
+        <div class="modal-content" style="max-width: 640px;">
+            <button class="close-btn" onclick="fecharHistoricoExport()" aria-label="Fechar">&times;</button>
+            <h2 style="margin-top: 0; color: var(--text-primary);">Exportações</h2>
+            <div id="historicoExportCorpo" style="margin-top: 14px;"></div>
+        </div>
+    </div>
 
     <!-- Resumo da última indexação: o que entrou, o que foi ignorado, o que falhou. -->
     <div id="resumoModal" class="modal">

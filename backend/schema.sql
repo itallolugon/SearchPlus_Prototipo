@@ -161,6 +161,33 @@ CREATE TABLE IF NOT EXISTS resumos_indexacao (
 CREATE INDEX IF NOT EXISTS resumos_indexacao_user_idx
     ON resumos_indexacao (user_id, fim DESC);
 
+-- Histórico das exportações.
+--
+-- O resultado de uma exportação sumia junto com o modal: quem exportou 200
+-- fotos, viu "8 falharam" e fechou a janela ficava sem saber quais eram, para
+-- onde tinha exportado, nem se aquilo era de hoje ou da semana passada.
+--
+-- `falhas` guarda nome e motivo de cada uma — é o que permite "tentar de novo
+-- só as que falharam" sem refazer a exportação inteira.
+CREATE TABLE IF NOT EXISTS exportacoes (
+    id            SERIAL PRIMARY KEY,
+    user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    collection_id INTEGER REFERENCES collections(id) ON DELETE SET NULL,
+    colecao       TEXT NOT NULL,
+    pasta         TEXT NOT NULL,
+    total         INTEGER NOT NULL DEFAULT 0,
+    copiados      INTEGER NOT NULL DEFAULT 0,
+    falhas        JSONB NOT NULL DEFAULT '[]'::jsonb,
+    estado        TEXT NOT NULL DEFAULT 'concluido',
+    quando        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS exportacoes_user_idx ON exportacoes (user_id, quando DESC);
+
+-- O nome da coleção fica gravado no registro, e não só o id: a coleção pode
+-- ser excluída depois, e o histórico precisa continuar dizendo o que foi
+-- exportado. Por isso a FK é ON DELETE SET NULL, não CASCADE.
+
 -- Lixeira: o que foi excluído e ainda dá para trazer de volta.
 --
 -- Guarda um RETRATO do que foi apagado, não uma marca de "apagado" na linha

@@ -431,6 +431,25 @@ cabeça: dá tempo de almoçar?
 | **RF-207** | Com a fila drenando e o ritmo constante, o texto **nunca volta atrás**. Estimativa que sobe sozinha destrói a confiança na barra. | Implementado |
 | **RF-208** | Um único arquivo lento não pode deslocar a estimativa; uma mudança real e sustentada de ritmo, sim. | Implementado |
 
+### Histórico das exportações e ação corretiva
+
+O resultado sumia junto com o modal. Quem exportou 200 fotos, viu "8 falharam" e
+fechou a janela ficava sem saber quais eram, para onde tinha exportado, nem se
+aquilo era de hoje ou da semana passada.
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-297** | Cada exportação é registrada: o que foi, quando, para onde e o que falhou. | Implementado |
+| **RF-298** | O nome da coleção fica **gravado no registro**, não só o id: a coleção pode ser excluída depois e o histórico precisa continuar dizendo o que foi exportado. | Implementado |
+| **RF-299** | O histórico informa se a pasta **ainda existe**. Um botão "abrir pasta" que não abre nada é pior que nenhum botão. | Implementado |
+| **RF-300** | Abrir a pasta reusa a validação de caminho já existente. | Implementado |
+| **RF-301** | Falha ao registrar não pode derrubar o worker — aconteceria **depois** de copiar tudo, com o trabalho feito e a barra parada para sempre. | Implementado |
+| **RF-302** | "Tentar de novo" repete **só os que falharam**, na mesma pasta. | Implementado |
+| **RF-303** | Arquivo que sumiu do disco fica **fora** da repetição: tentar de novo daria a mesma falha. | Implementado |
+| **RF-304** | "Tirar da coleção os que sumiram" remove os arquivos que não estão mais no disco. | Implementado |
+| **RF-305** | A existência é conferida **na hora**, e não pelo que a exportação registrou. O disco externo pode ter sido reconectado, e remover um arquivo que voltou seria destruir trabalho. | Implementado |
+| **RF-306** | A remoção passa pela **lixeira**, como qualquer outra. | Implementado |
+
 ### Exportação seletiva
 
 Exportava-se a coleção inteira, com os nomes originais, tamanho original e tudo

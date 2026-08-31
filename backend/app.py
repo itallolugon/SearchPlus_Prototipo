@@ -4345,6 +4345,265 @@ def _worker_exportacao(job_id: str, itens, destino_pasta: str, opcoes=None):
         job = _export_jobs.get(job_id)
         if job and job["estado"] == "executando":
             job["estado"] = "cancelado" if job["cancelar"] else "concluido"
+        registro = dict(job) if job else None
+
+    # O histórico é gravado aqui, no fim do trabalho, e não no endpoint: só
+    # neste ponto se sabe quantos foram copiados e o que falhou.
+    if registro:
+        _registrar_exportacao(registro)
+
+
+def _registrar_exportacao(job: dict) -> None:
+    """
+    Guarda o resultado da exportação. Falhar aqui não pode derrubar o worker.
+
+    O resultado sumia junto com o modal: quem exportou 200 fotos, viu "8
+    falharam" e fechou a janela ficava sem saber quais eram nem para onde tinha
+    exportado.
+    """
+    conn = get_db()
+    try:
+        conn.execute(
+            "INSERT INTO exportacoes "
+            "(user_id, collection_id, colecao, pasta, total, copiados, falhas, estado) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            (job["user_id"], job["collection_id"], job["colecao"], job["pasta"],
+             job["total"], job["copiados"], json.dumps(job["falhas"]),
+             job["estado"]),
+        )
+        conn.commit()
+    except Exception as exc:
+        print(f"[EXPORT] não foi possível registrar no histórico: {exc}")
+        conn.rollback()
+    finally:
+        conn.close()
+
+
+@app.route("/api/exportacoes")
+def api_exportacoes():
+    """
+    As últimas exportações: o que foi, quando, para onde e o que falhou.
+
+    Limite de 30: o histórico existe para responder "o que aconteceu naquela
+    vez", não para ser um livro-caixa. Passado disso ninguém rola.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    conn = get_db()
+    try:
+        linhas = conn.execute(
+            "SELECT id, collection_id, colecao, pasta, total, copiados, falhas, "
+            "estado, quando FROM exportacoes "
+            "WHERE user_id = %s ORDER BY quando DESC LIMIT 30",
+            (uid,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    saida = []
+    for r in linhas:
+        falhas = r["falhas"]
+        if isinstance(falhas, str):
+            falhas = _safe_json_loads(falhas, []) or []
+        saida.append({
+            "id": r["id"],
+            "collection_id": r["collection_id"],
+            "colecao": r["colecao"],
+            "pasta": r["pasta"],
+            "total": r["total"],
+            "copiados": r["copiados"],
+            "falhas": falhas,
+            "estado": r["estado"],
+            "quando": r["quando"].isoformat() if r["quando"] else "",
+            # A pasta pode ter sido movida ou apagada depois. Dizer isso agora
+            # evita um botão "abrir pasta" que não abre nada.
+            "pasta_existe": os.path.isdir(r["pasta"]) if r["pasta"] else False,
+        })
+
+    return jsonify({"exportacoes": saida})
+
+
+@app.route("/api/exportacoes/<int:export_id>/repetir", methods=["POST"])
+def api_exportacao_repetir(export_id):
+    """
+    Tenta de novo só os arquivos que falharam, na mesma pasta.
+
+    O resumo já dizia o que falhou e por quê, mas agir sobre isso significava
+    refazer a exportação inteira — copiando de novo as 192 que já tinham dado
+    certo, para alcançar as 8 que não.
+
+    Só faz sentido para falhas que o tempo pode ter resolvido: arquivo em uso
+    por outro programa, disco de rede fora do ar. Arquivo que não existe mais
+    não vai reaparecer, e insistir nele só produziria a mesma falha.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    conn = get_db()
+    try:
+        reg = conn.execute(
+            "SELECT id, collection_id, colecao, pasta, falhas FROM exportacoes "
+            "WHERE id = %s AND user_id = %s",
+            (export_id, uid),
+        ).fetchone()
+        if not reg:
+            conn.close()
+            return jsonify({"error": "Exportação não encontrada."}), 404
+
+        falhas = reg["falhas"]
+        if isinstance(falhas, str):
+            falhas = _safe_json_loads(falhas, []) or []
+
+        # `nao_encontrado` fica de fora: o arquivo sumiu do disco e tentar de
+        # novo daria exatamente a mesma coisa. Para esse caso existe a outra
+        # ação, de limpar a coleção.
+        nomes = [f["nome"] for f in falhas
+                 if f.get("motivo") != "nao_encontrado"]
+        if not nomes:
+            conn.close()
+            return jsonify({
+                "error": "Não há o que tentar de novo. Os arquivos que faltaram "
+                         "não estão mais no computador."
+            }), 400
+
+        if not os.path.isdir(reg["pasta"]):
+            conn.close()
+            return jsonify({
+                "error": "A pasta desta exportação não existe mais."
+            }), 400
+
+        arquivos = conn.execute(
+            """
+            SELECT f.nome, f.caminho, f.tipo, f.data_adicionado
+            FROM collection_files cf
+            JOIN files f ON f.id = cf.file_id
+            WHERE cf.collection_id = %s AND f.user_id = %s AND f.nome = ANY(%s)
+            """,
+            (reg["collection_id"], uid, nomes),
+        ).fetchall()
+
+        pastas = [r["path"] for r in conn.execute(
+            "SELECT path FROM folders WHERE user_id = %s", (uid,)
+        ).fetchall()]
+    finally:
+        conn.close()
+
+    if not arquivos:
+        return jsonify({
+            "error": "Esses arquivos não estão mais na coleção."
+        }), 400
+
+    itens = [
+        {"nome": a["nome"], "caminho": a["caminho"], "tipo": a["tipo"],
+         "data": a["data_adicionado"], "nome_saida": a["nome"],
+         "autorizado": _dentro_das_pastas(a["caminho"], pastas)}
+        for a in arquivos
+    ]
+
+    import uuid
+    job_id = uuid.uuid4().hex
+    with _export_lock:
+        _export_jobs[job_id] = {
+            "user_id": uid, "collection_id": reg["collection_id"],
+            "colecao": reg["colecao"], "pasta": reg["pasta"],
+            "total": len(itens), "copiados": 0, "falhas": [],
+            "estado": "executando", "cancelar": False, "erro": None,
+            "criado_em": time.time(),
+        }
+
+    threading.Thread(target=_worker_exportacao,
+                     args=(job_id, itens, reg["pasta"], {}), daemon=True).start()
+
+    return jsonify({"status": "ok", "job_id": job_id, "total": len(itens),
+                    "pasta": reg["pasta"]})
+
+
+@app.route("/api/exportacoes/<int:export_id>/limpar_sumidos", methods=["POST"])
+def api_exportacao_limpar_sumidos(export_id):
+    """
+    Tira da coleção os arquivos que não estão mais no disco.
+
+    Arquivo apagado depois de entrar na coleção continua contando no total,
+    aparecendo na busca e falhando em toda exportação — sem nunca dizer que já
+    não existe. Aqui a exportação que descobriu o problema oferece a limpeza.
+
+    A remoção passa pela lixeira, como qualquer outra: se o arquivo estiver
+    num disco desconectado e não apagado, dá para desfazer.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    conn = get_db()
+    try:
+        reg = conn.execute(
+            "SELECT id, collection_id, colecao, falhas FROM exportacoes "
+            "WHERE id = %s AND user_id = %s",
+            (export_id, uid),
+        ).fetchone()
+        if not reg:
+            return jsonify({"error": "Exportação não encontrada."}), 404
+        if not reg["collection_id"]:
+            return jsonify({"error": "Esta coleção não existe mais."}), 400
+
+        falhas = reg["falhas"]
+        if isinstance(falhas, str):
+            falhas = _safe_json_loads(falhas, []) or []
+
+        nomes = [f["nome"] for f in falhas if f.get("motivo") == "nao_encontrado"]
+        if not nomes:
+            return jsonify({
+                "error": "Nenhum arquivo desta exportação sumiu do computador."
+            }), 400
+
+        candidatos = conn.execute(
+            """
+            SELECT f.id, f.nome, f.caminho, cf.adicionado_em
+            FROM collection_files cf
+            JOIN files f ON f.id = cf.file_id
+            WHERE cf.collection_id = %s AND f.user_id = %s AND f.nome = ANY(%s)
+            """,
+            (reg["collection_id"], uid, nomes),
+        ).fetchall()
+
+        # Confere no disco AGORA, e não confia no que a exportação registrou:
+        # entre uma coisa e outra o HD externo pode ter sido reconectado, e
+        # tirar da coleção um arquivo que voltou seria destruir trabalho.
+        sumidos = [c for c in candidatos if not os.path.isfile(c["caminho"])]
+        if not sumidos:
+            return jsonify({
+                "status": "ok", "removidos": 0,
+                "mensagem": "Os arquivos voltaram a aparecer. Nada foi removido.",
+            })
+
+        ids = [c["id"] for c in sumidos]
+        rotulo = (f"{len(ids)} imagem de \u201c{reg['colecao']}\u201d" if len(ids) == 1
+                  else f"{len(ids)} imagens de \u201c{reg['colecao']}\u201d")
+        lixeira_id = _guardar_na_lixeira(conn, uid, "itens", rotulo, {
+            "collection_id": reg["collection_id"],
+            "colecao": reg["colecao"],
+            "arquivos": [{"file_id": c["id"],
+                          "adicionado_em": c["adicionado_em"].isoformat()
+                          if c["adicionado_em"] else None} for c in sumidos],
+        })
+
+        conn.execute(
+            "DELETE FROM collection_files WHERE collection_id = %s AND file_id = ANY(%s)",
+            (reg["collection_id"], ids),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({
+        "status": "ok",
+        "removidos": len(ids),
+        "nomes": [c["nome"] for c in sumidos],
+        "lixeira_id": lixeira_id,
+    })
 
 
 @app.route("/api/collections/<int:col_id>/export", methods=["POST"])

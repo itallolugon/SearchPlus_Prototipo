@@ -865,6 +865,67 @@ que realmente entrou — é o que se manda para `/sync`.
 No `DELETE` em lote a resposta traz `"removidos": N`. O formato singular
 continua válido — as duas chaves são aceitas.
 
+#### `GET /api/exportacoes`
+As últimas 30 exportações: o que foi, quando, para onde e o que falhou.
+
+```json
+{
+  "exportacoes": [
+    { "id": 1, "collection_id": 3, "colecao": "Viagem",
+      "pasta": "D:\\Fotos\\Viagem", "total": 12, "copiados": 9,
+      "falhas": [ { "nome": "foto.jpg", "motivo": "nao_encontrado" } ],
+      "estado": "concluido", "quando": "2026-08-31T18:00:00+00:00",
+      "pasta_existe": true }
+  ]
+}
+```
+
+O resultado sumia junto com o modal: quem exportou 200 fotos, viu "8 falharam"
+e fechou a janela ficava sem saber quais eram, para onde tinha exportado, nem
+se aquilo era de hoje ou da semana passada.
+
+`pasta_existe` é conferido na hora — a pasta pode ter sido movida ou apagada
+depois, e um botão "abrir pasta" que não abre nada é pior que nenhum botão.
+
+O nome da coleção fica **gravado no registro**, não só o id: a coleção pode ser
+excluída depois, e o histórico precisa continuar dizendo o que foi exportado.
+
+Limite de 30: o histórico existe para responder "o que aconteceu naquela vez",
+não para ser um livro-caixa.
+
+#### `POST /api/exportacoes/<id>/repetir`
+Tenta de novo **só os arquivos que falharam**, na mesma pasta. Devolve um
+`job_id` que se acompanha por `GET /api/collections/export/<job_id>`, como
+qualquer exportação.
+
+Falhas do tipo `nao_encontrado` ficam de fora: o arquivo sumiu do disco e
+tentar de novo daria exatamente a mesma coisa. Para esse caso existe a ação
+abaixo.
+
+- `400` — nada a repetir, ou a pasta da exportação não existe mais
+- `404` — exportação de outra pessoa, ou inexistente
+
+#### `POST /api/exportacoes/<id>/limpar_sumidos`
+Tira da coleção os arquivos que não estão mais no disco.
+
+```json
+{ "status": "ok", "removidos": 2, "nomes": ["a.jpg"], "lixeira_id": 7 }
+```
+
+Arquivo apagado depois de entrar na coleção continua contando no total,
+aparecendo na busca e falhando em toda exportação — sem nunca dizer que já não
+existe.
+
+A existência é conferida **na hora**, e não pelo que a exportação registrou:
+entre uma coisa e outra o disco externo pode ter sido reconectado, e tirar da
+coleção um arquivo que voltou seria destruir trabalho. Nesse caso a resposta é
+`removidos: 0` com a explicação.
+
+A remoção passa pela **lixeira**, como qualquer outra — daí o `lixeira_id`.
+
+- `400` — nenhum arquivo sumido nesta exportação, ou a coleção já não existe
+- `404` — exportação de outra pessoa, ou inexistente
+
 #### `POST /api/collections/<id>/export`
 
 **Opções de exportação.** Todas são opcionais — sem nenhuma, o comportamento é

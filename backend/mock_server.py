@@ -1203,6 +1203,97 @@ def collection_sync(col_id):
 _EXPORTS = {}
 
 
+# Historico das exportacoes. Comeca com um registro PARCIAL, com falhas dos
+# dois tipos -- e o unico estado em que as acoes corretivas fazem sentido, e
+# sem ele o front nao teria como exercita-las.
+_HISTORICO_EXPORT = [{
+    "id": 1, "collection_id": 1, "colecao": "Favoritos do mês",
+    "pasta": _BASE + "\\Favoritos do mês",
+    "total": 12, "copiados": 9,
+    # Os nomes sao de arquivos que ESTAO na colecao 1 ([1, 5, 9]). Inventar
+    # nomes soltos faria "tirar da colecao os que sumiram" remover zero, e o
+    # front nunca exercitaria o caminho que a acao existe para percorrer.
+    "falhas": [
+        {"nome": "praia-por-do-sol.jpg", "motivo": "sem_permissao"},
+        {"nome": "desenho-dragao.png", "motivo": "nao_encontrado"},
+        {"nome": "montanha-neve.jpg", "motivo": "nao_encontrado"},
+    ],
+    "estado": "concluido",
+    "quando": (_HOJE - timedelta(hours=3)).isoformat(),
+    "pasta_existe": True,
+}]
+
+
+@app.route("/api/exportacoes")
+def exportacoes():
+    if not _logado():
+        return _nao_autenticado()
+    return jsonify({"exportacoes": _HISTORICO_EXPORT})
+
+
+@app.route("/api/exportacoes/<int:export_id>/repetir", methods=["POST"])
+def exportacao_repetir(export_id):
+    if not _logado():
+        return _nao_autenticado()
+
+    reg = next((e for e in _HISTORICO_EXPORT if e["id"] == export_id), None)
+    if not reg:
+        return jsonify({"error": "Exportação não encontrada."}), 404
+
+    # Mesma regra do backend real: `nao_encontrado` fica de fora, porque o
+    # arquivo sumiu e tentar de novo daria a mesma coisa.
+    nomes = [f["nome"] for f in reg["falhas"] if f["motivo"] != "nao_encontrado"]
+    if not nomes:
+        return jsonify({
+            "error": "Não há o que tentar de novo. Os arquivos que faltaram "
+                     "não estão mais no computador."
+        }), 400
+
+    job_id = uuid.uuid4().hex
+    _EXPORTS[job_id] = {
+        "collection_id": reg["collection_id"], "colecao": reg["colecao"],
+        "pasta": reg["pasta"], "total": len(nomes), "inicio": time.time(),
+        "cancelado": False, "cancelado_em": 0,
+    }
+    return jsonify({"status": "ok", "job_id": job_id,
+                    "total": len(nomes), "pasta": reg["pasta"]})
+
+
+@app.route("/api/exportacoes/<int:export_id>/limpar_sumidos", methods=["POST"])
+def exportacao_limpar_sumidos(export_id):
+    if not _logado():
+        return _nao_autenticado()
+
+    reg = next((e for e in _HISTORICO_EXPORT if e["id"] == export_id), None)
+    if not reg:
+        return jsonify({"error": "Exportação não encontrada."}), 404
+
+    nomes = [f["nome"] for f in reg["falhas"] if f["motivo"] == "nao_encontrado"]
+    if not nomes:
+        return jsonify({
+            "error": "Nenhum arquivo desta exportação sumiu do computador."
+        }), 400
+
+    col = next((c for c in _COLECOES if c["id"] == reg["collection_id"]), None)
+    if not col:
+        return jsonify({"error": "Esta coleção não existe mais."}), 400
+
+    alvo = [a for a in (_por_id(i) for i in col["files"])
+            if a and a["nome"] in nomes]
+    lixeira_id = _para_lixeira("itens", f'{len(alvo)} imagens de “{col["nome"]}”', {
+        "collection_id": col["id"], "colecao": col["nome"],
+        "arquivos": [{"file_id": a["id"], "adicionado_em": None} for a in alvo],
+    }) if alvo else None
+
+    for a in alvo:
+        col["files"].remove(a["id"])
+    # A acao so vale uma vez: depois de limpar, essas falhas nao existem mais.
+    reg["falhas"] = [f for f in reg["falhas"] if f["motivo"] != "nao_encontrado"]
+
+    return jsonify({"status": "ok", "removidos": len(alvo),
+                    "nomes": [a["nome"] for a in alvo], "lixeira_id": lixeira_id})
+
+
 @app.route("/api/collections/<int:col_id>/export", methods=["POST"])
 def collection_export(col_id):
     if not _logado():

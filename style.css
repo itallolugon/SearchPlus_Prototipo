@@ -508,6 +508,7 @@ body {
 .btn-verificar-pasta,
 .btn-sel-categoria,
 .colecoes-ordem label,
+.export-hist-falhas summary,
 .opcao-export label,
 .colecao-item-capa,
 .btn-sel-fav,
@@ -1479,7 +1480,7 @@ body {
    z-index base de .modal (1000) ela ficaria escondida atrás justamente da
    tela que a chamou. Fica ABAIXO de confirmModal (10100), porque o
    "descartar de vez" pede confirmação e esse diálogo precisa vencer. */
-#lixeiraModal, #resumoModal { z-index: 10050; }
+#lixeiraModal, #resumoModal, #historicoExportModal { z-index: 10050; }
 
 /* Lixeira */
 .lixeira-item {
@@ -1713,3 +1714,27 @@ body {
     margin: 0; font-weight: 500; cursor: pointer;
 }
 .opcao-export-linha input { cursor: pointer; }
+
+
+/* Historico das exportacoes */
+.export-hist {
+    padding: 14px; margin-bottom: 10px;
+    border: 1px solid var(--border-light); border-radius: 12px;
+    background: rgba(255, 255, 255, 0.03);
+}
+.export-hist-titulo { color: var(--text-primary); font-weight: 600; font-size: 0.95rem; }
+.export-hist-meta { color: var(--text-secondary); font-size: 0.78rem; margin-top: 3px; }
+/* O caminho fica selecionavel: e o que a pessoa copia para chegar na pasta. */
+.export-hist-caminho {
+    color: var(--text-secondary); font-size: 0.74rem; margin-top: 6px;
+    word-break: break-all;
+}
+.export-hist-acoes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.export-hist-acoes .action-btn { margin: 0; font-size: 0.75rem; padding: 6px 12px; }
+.export-hist-sumiu { color: var(--text-secondary); font-size: 0.75rem; align-self: center; }
+.export-hist-falhas { margin-top: 10px; }
+.export-hist-falhas summary { cursor: pointer; color: var(--accent-primary); font-size: 0.78rem; }
+.export-hist-falhas ul {
+    margin: 8px 0 0 0; padding-left: 18px;
+    color: var(--text-secondary); font-size: 0.76rem; line-height: 1.6;
+}

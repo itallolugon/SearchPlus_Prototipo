@@ -160,6 +160,186 @@ async function desfazerExclusao(lixeiraId, aoTerminar) {
 }
 
 // ==========================================
+// HISTÓRICO DAS EXPORTAÇÕES
+// ==========================================
+// O resultado de uma exportação sumia junto com o modal: quem exportou 200
+// fotos, viu "8 falharam" e fechou a janela ficava sem saber quais eram, para
+// onde tinha exportado, nem se aquilo era de hoje ou da semana passada.
+const _MOTIVO_FALHA = {
+    nao_encontrado: 'não está mais no computador',
+    sem_permissao: 'o Windows não deixou copiar',
+    fora_das_pastas: 'está fora das pastas monitoradas',
+    erro_leitura: 'não foi possível ler o arquivo',
+};
+
+async function abrirHistoricoExport() {
+    const modal = document.getElementById('historicoExportModal');
+    const corpo = document.getElementById('historicoExportCorpo');
+    modal.style.display = 'flex';
+    corpo.innerHTML = '<p style="color:var(--text-secondary);">Carregando...</p>';
+
+    let d;
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/exportacoes`);
+        if (!r.ok) {
+            corpo.innerHTML = '<p style="color:var(--text-secondary);">Não foi possível abrir o histórico.</p>';
+            return;
+        }
+        d = await r.json();
+    } catch (e) {
+        corpo.innerHTML = '<p style="color:var(--text-secondary);">Não foi possível abrir o histórico. O servidor respondeu?</p>';
+        return;
+    }
+
+    const itens = d.exportacoes || [];
+    if (!itens.length) {
+        corpo.innerHTML = '<p style="color:var(--text-secondary);">' +
+            'Você ainda não exportou nenhuma coleção.</p>';
+        return;
+    }
+
+    corpo.innerHTML = '';
+    itens.forEach(e => corpo.appendChild(_linhaDeExportacao(e)));
+}
+
+function _linhaDeExportacao(e) {
+    const bloco = document.createElement('div');
+    bloco.className = 'export-hist';
+
+    const quando = e.quando
+        ? new Date(e.quando).toLocaleString('pt-BR',
+            { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+        : '';
+
+    const titulo = document.createElement('div');
+    titulo.className = 'export-hist-titulo';
+    titulo.textContent = e.colecao;
+    bloco.appendChild(titulo);
+
+    const meta = document.createElement('div');
+    meta.className = 'export-hist-meta';
+    const falhas = (e.falhas || []).length;
+    meta.textContent = `${e.copiados} de ${e.total} ${e.total === 1 ? 'arquivo' : 'arquivos'}` +
+        `${falhas ? `, ${falhas} ${falhas === 1 ? 'falhou' : 'falharam'}` : ''} · ${quando}`;
+    bloco.appendChild(meta);
+
+    const caminho = document.createElement('div');
+    caminho.className = 'export-hist-caminho';
+    caminho.textContent = e.pasta;
+    bloco.appendChild(caminho);
+
+    const acoes = document.createElement('div');
+    acoes.className = 'export-hist-acoes';
+
+    // O botão só aparece se a pasta ainda existir: um "abrir pasta" que não
+    // abre nada é pior que nenhum botão.
+    if (e.pasta_existe) {
+        const abrir = document.createElement('button');
+        abrir.type = 'button';
+        abrir.className = 'action-btn';
+        abrir.textContent = 'Abrir a pasta';
+        abrir.onclick = () => abrirPastaExportada(e.pasta);
+        acoes.appendChild(abrir);
+    } else {
+        const sumiu = document.createElement('span');
+        sumiu.className = 'export-hist-sumiu';
+        sumiu.textContent = 'A pasta não está mais aí.';
+        acoes.appendChild(sumiu);
+    }
+
+    const podeRepetir = (e.falhas || []).some(f => f.motivo !== 'nao_encontrado');
+    const temSumidos = (e.falhas || []).some(f => f.motivo === 'nao_encontrado');
+
+    if (podeRepetir && e.pasta_existe) {
+        const repetir = document.createElement('button');
+        repetir.type = 'button';
+        repetir.className = 'action-btn';
+        repetir.textContent = 'Tentar de novo os que falharam';
+        repetir.onclick = () => repetirExportacao(e.id);
+        acoes.appendChild(repetir);
+    }
+    if (temSumidos) {
+        const limpar = document.createElement('button');
+        limpar.type = 'button';
+        limpar.className = 'action-btn';
+        limpar.textContent = 'Tirar da coleção os que sumiram';
+        limpar.onclick = () => limparSumidos(e.id);
+        acoes.appendChild(limpar);
+    }
+    bloco.appendChild(acoes);
+
+    if (falhas) {
+        const det = document.createElement('details');
+        det.className = 'export-hist-falhas';
+        const sum = document.createElement('summary');
+        sum.textContent = `Ver ${falhas === 1 ? 'o arquivo' : `os ${falhas} arquivos`} que ${falhas === 1 ? 'falhou' : 'falharam'}`;
+        det.appendChild(sum);
+        const ul = document.createElement('ul');
+        e.falhas.forEach(f => {
+            const li = document.createElement('li');
+            li.textContent = `${f.nome} — ${_MOTIVO_FALHA[f.motivo] || f.motivo}`;
+            ul.appendChild(li);
+        });
+        det.appendChild(ul);
+        bloco.appendChild(det);
+    }
+
+    return bloco;
+}
+
+async function repetirExportacao(exportId) {
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/exportacoes/${exportId}/repetir`,
+                              { method: 'POST', headers: fetchOptions.headers });
+        if (!r.ok) {
+            toastErro(await _erroDaResposta(r, 'Não foi possível tentar de novo'));
+            return;
+        }
+        const d = await r.json();
+        fecharHistoricoExport();
+        _exportJobId = d.job_id;
+        abrirModalExportacao(d.total);
+        _exportTimer = setInterval(consultarExportacao, 400);
+    } catch (e) {
+        toastErro('Não foi possível tentar de novo. O servidor respondeu?');
+    }
+}
+
+async function limparSumidos(exportId) {
+    const ok = await confirmarAcao(
+        'Tirar da coleção',
+        'Os arquivos que não estão mais no computador saem da coleção. ' +
+        'Dá para desfazer pela lixeira.',
+        'Tirar da coleção');
+    if (!ok) return;
+
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/exportacoes/${exportId}/limpar_sumidos`,
+                              { method: 'POST', headers: fetchOptions.headers });
+        if (!r.ok) {
+            toastErro(await _erroDaResposta(r, 'Não foi possível limpar a coleção'));
+            return;
+        }
+        const d = await r.json();
+
+        if (!d.removidos) {
+            toastOk(d.mensagem || 'Nada foi removido.');
+        } else if (d.lixeira_id) {
+            toastComDesfazer(
+                `${d.removidos} ${d.removidos === 1 ? 'arquivo saiu' : 'arquivos saíram'} da coleção.`,
+                () => desfazerExclusao(d.lixeira_id, abrirHistoricoExport));
+        }
+        abrirHistoricoExport();
+    } catch (e) {
+        toastErro('Não foi possível limpar a coleção. O servidor respondeu?');
+    }
+}
+
+function fecharHistoricoExport() {
+    document.getElementById('historicoExportModal').style.display = 'none';
+}
+
+// ==========================================
 // RESUMO DA INDEXAÇÃO
 // ==========================================
 // Antes, ao terminar, aparecia "Indexação concluída!" e mais nada. Quem
