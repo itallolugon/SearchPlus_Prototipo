@@ -1220,6 +1220,36 @@ def collection_export(col_id):
         return jsonify({"error": "Esta coleção está vazia. "
                                  "Adicione imagens antes de exportar."}), 400
 
+    # Mesmas validacoes e o mesmo filtro do backend real -- o front precisa
+    # receber os MESMOS erros aqui, senao acerta contra um servidor e erra
+    # contra o outro.
+    tipos = (data.get("tipos") or "tudo").strip().lower()
+    if tipos not in {"tudo", "imagens", "documentos"}:
+        return jsonify({"error": "Tipo de arquivo desconhecido."}), 400
+
+    largura = data.get("largura_max")
+    if largura not in (None, ""):
+        try:
+            largura = int(largura)
+        except (TypeError, ValueError):
+            return jsonify({"error": "A largura precisa ser um número."}), 400
+        if not (100 <= largura <= 10000):
+            return jsonify({
+                "error": "A largura precisa ficar entre 100 e 10000 pixels."
+            }), 400
+
+    arquivos = [a for a in (_por_id(i) for i in col["files"]) if a]
+    if tipos == "imagens":
+        arquivos = [a for a in arquivos if a["tipo"] in _EXT_IMG]
+    elif tipos == "documentos":
+        arquivos = [a for a in arquivos
+                    if a["tipo"] not in _EXT_IMG | _EXT_VID | _EXT_AUD]
+    if not arquivos:
+        rotulo = "Nenhuma imagem" if tipos == "imagens" else "Nenhum documento"
+        return jsonify({
+            "error": f"{rotulo} nesta coleção. Escolha outro tipo de arquivo."
+        }), 400
+
     for j in _EXPORTS.values():
         if j["collection_id"] == col_id and _estado_simulado(j) == "executando":
             return jsonify({"error": "Esta coleção já está sendo exportada."}), 409
@@ -1237,7 +1267,9 @@ def collection_export(col_id):
     pasta = os.path.join(destino, base)
     _EXPORTS[job_id] = {
         "collection_id": col_id, "colecao": col["nome"], "pasta": pasta,
-        "total": len(col["files"]), "inicio": time.time(),
+        # O total reflete o FILTRO por tipo, como no backend real: dizer
+        # "12 arquivos" e copiar 5 faria a barra de progresso mentir.
+        "total": len(arquivos), "inicio": time.time(),
         "cancelado": False, "cancelado_em": 0,
     }
 
@@ -1263,7 +1295,7 @@ def collection_export(col_id):
         col["modo_sync"] = "perguntar"
 
     return jsonify({"status": "ok", "job_id": job_id,
-                    "total": len(col["files"]), "pasta": pasta})
+                    "total": len(arquivos), "pasta": pasta})
 
 
 def _progresso_simulado(job):

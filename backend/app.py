@@ -4124,8 +4124,166 @@ def _dentro_das_pastas(caminho: str, pastas_monitoradas) -> bool:
     return False
 
 
-def _worker_exportacao(job_id: str, itens, destino_pasta: str):
+# ──────────────────────────────────────────────────────────────────────────────
+# Opções de exportação
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# Exportava-se a coleção inteira, com os nomes originais, tamanho original e
+# tudo numa pasta só. Serve para levar as fotos para um pendrive; não serve
+# para entregar um trabalho, mandar por e-mail ou organizar um arquivo.
+
+# Um nome de arquivo em disco não pode crescer sem limite, e o Windows ainda
+# tem o teto de 260 caracteres para o caminho inteiro.
+LIMITE_NOME_EXPORTADO = 120
+
+# Menor que isto a imagem deixa de servir para qualquer coisa; maior que o
+# original não faz sentido reamostrar para cima.
+LARGURA_MIN_EXPORT = 100
+LARGURA_MAX_EXPORT = 10000
+
+
+def _filtrar_por_tipo(arquivos, modo: str):
+    """
+    Só imagens, só documentos, ou tudo.
+
+    Uma coleção mista — as fotos e o PDF do orçamento — vira duas entregas
+    diferentes conforme quem vai receber.
+    """
+    if modo == "imagens":
+        return [a for a in arquivos if (a["tipo"] or "").lower() in _EXT_IMG]
+    if modo == "documentos":
+        return [a for a in arquivos
+                if (a["tipo"] or "").lower() not in (_EXT_IMG | _EXT_VID | _EXT_AUD)]
+    return list(arquivos)
+
+
+def _nome_exportado(padrao: str, nome_original: str, posicao: int,
+                    nome_colecao: str, data) -> str:
+    """
+    Aplica o padrão de renomeação em lote.
+
+    Padrão vazio mantém o nome original, que é o comportamento de sempre.
+
+    Marcadores aceitos, e o porquê de cada um:
+      {nome}    nome original sem extensão — para prefixar sem perder o que era
+      {n}       posição, com zeros à esquerda — mantém a ordem no Explorer
+      {colecao} nome da coleção
+      {data}    data de adição, AAAA-MM-DD
+
+    A extensão NUNCA vem do padrão: trocá-la não converte o arquivo, só faz o
+    sistema abrir com o programa errado.
+    """
+    base, extensao = os.path.splitext(nome_original)
+    if not padrao:
+        return nome_original
+
+    quando = ""
+    if data is not None:
+        try:
+            quando = data.strftime("%Y-%m-%d")
+        except AttributeError:
+            quando = str(data)[:10]
+
+    novo = (padrao
+            .replace("{nome}", base)
+            .replace("{n}", f"{posicao:03d}")
+            .replace("{colecao}", nome_colecao or "")
+            .replace("{data}", quando))
+
+    novo = _sanitizar_nome(novo, padrao=base or "arquivo",
+                           limite=LIMITE_NOME_EXPORTADO)
+    return novo + extensao
+
+
+def _subpasta_por_data(data) -> str:
+    """
+    Em que subpasta o arquivo cai quando a organização por data está ligada.
+
+    Ano/mês, e não o dia: uma pasta por dia produz centenas de pastas com uma
+    foto dentro, que é pior que não organizar. Arquivo sem data conhecida vai
+    para "sem-data" em vez de ficar solto na raiz, misturado com as pastas.
+    """
+    if data is None:
+        return "sem-data"
+    try:
+        return data.strftime("%Y-%m")
+    except AttributeError:
+        texto = str(data)
+        return texto[:7] if len(texto) >= 7 else "sem-data"
+
+
+def _copiar_redimensionando(origem: str, alvo: str, largura_max: int) -> bool:
+    """
+    Copia a imagem reduzida a `largura_max` de largura. Devolve se reduziu.
+
+    Imagem menor que o limite é copiada intacta: reprocessar recomprime o JPEG
+    e piora a qualidade sem economizar nada.
+
+    Só a largura é pedida — a altura acompanha para não distorcer.
+    """
+    try:
+        with _PILImage.open(origem) as img:
+            if img.width <= largura_max:
+                shutil.copy2(origem, alvo)
+                return False
+
+            altura = max(1, round(img.height * largura_max / img.width))
+            reduzida = img.resize((largura_max, altura), _PILImage.LANCZOS)
+
+            # RGBA em JPEG estoura; converter mantém o formato pedido pelo
+            # nome do arquivo, que é o que o usuário vai receber.
+            if alvo.lower().endswith((".jpg", ".jpeg")) and reduzida.mode != "RGB":
+                reduzida = reduzida.convert("RGB")
+
+            reduzida.save(alvo)
+            return True
+    except Exception as exc:
+        # Não engole: sem o fallback, uma imagem que o leitor não abre sairia
+        # da exportação em silêncio.
+        print(f"[EXPORT] não deu para redimensionar '{origem}': "
+              f"{type(exc).__name__}: {exc}")
+        shutil.copy2(origem, alvo)
+        return False
+
+
+def _validar_opcoes_export(data: dict) -> tuple[dict, str | None]:
+    """Lê e confere as opções. Devolve (opcoes, erro)."""
+    opcoes = {
+        "tipos": (data.get("tipos") or "tudo").strip().lower(),
+        "padrao_nome": (data.get("padrao_nome") or "").strip(),
+        "largura_max": data.get("largura_max"),
+        "subpastas_por_data": bool(data.get("subpastas_por_data")),
+    }
+
+    if opcoes["tipos"] not in {"tudo", "imagens", "documentos"}:
+        return opcoes, "Tipo de arquivo desconhecido."
+
+    if opcoes["largura_max"] not in (None, ""):
+        try:
+            largura = int(opcoes["largura_max"])
+        except (TypeError, ValueError):
+            return opcoes, "A largura precisa ser um número."
+        if not (LARGURA_MIN_EXPORT <= largura <= LARGURA_MAX_EXPORT):
+            return opcoes, (f"A largura precisa ficar entre {LARGURA_MIN_EXPORT} "
+                            f"e {LARGURA_MAX_EXPORT} pixels.")
+        if not PIL_OK:
+            # Avisar agora é melhor que exportar em tamanho original e deixar
+            # o usuário descobrir depois que nada foi reduzido.
+            return opcoes, ("Não é possível redimensionar neste computador. "
+                            "Exporte sem reduzir o tamanho.")
+        opcoes["largura_max"] = largura
+    else:
+        opcoes["largura_max"] = None
+
+    return opcoes, None
+
+
+def _worker_exportacao(job_id: str, itens, destino_pasta: str, opcoes=None):
     """Copia os arquivos da coleção, um a um, atualizando o progresso."""
+
+    opcoes = opcoes or {}
+    largura_max = opcoes.get("largura_max")
+    por_data = opcoes.get("subpastas_por_data")
 
     for item in itens:
         with _export_lock:
@@ -4141,8 +4299,24 @@ def _worker_exportacao(job_id: str, itens, destino_pasta: str):
             elif not os.path.isfile(origem):
                 motivo = "nao_encontrado"
             else:
-                alvo = os.path.join(destino_pasta, _nome_disponivel(destino_pasta, item["nome"]))
-                shutil.copy2(origem, alvo)      # copy2 preserva timestamps (RF-046)
+                # A subpasta é criada na hora do primeiro arquivo que cai nela:
+                # criar todas de antemão deixaria pastas vazias para os meses
+                # cujos arquivos falharem.
+                pasta_do_item = destino_pasta
+                if por_data:
+                    pasta_do_item = os.path.join(destino_pasta,
+                                                 _subpasta_por_data(item.get("data")))
+                    os.makedirs(pasta_do_item, exist_ok=True)
+
+                nome_saida = item.get("nome_saida") or item["nome"]
+                alvo = os.path.join(pasta_do_item,
+                                    _nome_disponivel(pasta_do_item, nome_saida))
+
+                eh_imagem = (item.get("tipo") or "").lower() in _EXT_IMG
+                if largura_max and eh_imagem:
+                    _copiar_redimensionando(origem, alvo, largura_max)
+                else:
+                    shutil.copy2(origem, alvo)   # copy2 preserva timestamps (RF-046)
         except PermissionError:
             motivo = "sem_permissao"
         except OSError as exc:
@@ -4199,7 +4373,7 @@ def api_collection_export(col_id):
 
         arquivos = conn.execute(
             """
-            SELECT f.nome, f.caminho
+            SELECT f.nome, f.caminho, f.tipo, f.data_adicionado
             FROM collection_files cf
             JOIN files f ON f.id = cf.file_id
             WHERE cf.collection_id = %s AND f.user_id = %s
@@ -4217,6 +4391,21 @@ def api_collection_export(col_id):
     if not arquivos:
         return jsonify({"error": "Esta coleção está vazia. "
                                  "Adicione imagens antes de exportar."}), 400
+
+    opcoes, erro_opcoes = _validar_opcoes_export(data)
+    if erro_opcoes:
+        return jsonify({"error": erro_opcoes}), 400
+
+    arquivos = _filtrar_por_tipo(arquivos, opcoes["tipos"])
+    if not arquivos:
+        # A coleção tem conteúdo, mas nada do tipo pedido. Dizer "coleção
+        # vazia" aqui seria mentira e mandaria o usuário procurar o problema
+        # no lugar errado.
+        rotulo = ("Nenhuma imagem" if opcoes["tipos"] == "imagens"
+                  else "Nenhum documento")
+        return jsonify({
+            "error": f"{rotulo} nesta coleção. Escolha outro tipo de arquivo."
+        }), 400
 
     # Uma exportação por coleção de cada vez (RF-057)
     with _export_lock:
@@ -4274,9 +4463,15 @@ def api_collection_export(col_id):
         conn.close()
 
     itens = [
-        {"nome": a["nome"], "caminho": a["caminho"],
+        {"nome": a["nome"], "caminho": a["caminho"], "tipo": a["tipo"],
+         "data": a["data_adicionado"],
+         # O nome de saída é resolvido AQUI, não no worker: a numeração
+         # ({n}) precisa da posição na lista já filtrada, e o worker vê um
+         # item de cada vez.
+         "nome_saida": _nome_exportado(opcoes["padrao_nome"], a["nome"], i,
+                                       col["nome"], a["data_adicionado"]),
          "autorizado": _dentro_das_pastas(a["caminho"], pastas)}
-        for a in arquivos
+        for i, a in enumerate(arquivos, start=1)
     ]
 
     import uuid
@@ -4290,7 +4485,8 @@ def api_collection_export(col_id):
         }
 
     threading.Thread(
-        target=_worker_exportacao, args=(job_id, itens, pasta_final), daemon=True
+        target=_worker_exportacao, args=(job_id, itens, pasta_final, opcoes),
+        daemon=True
     ).start()
 
     return jsonify({"status": "ok", "job_id": job_id,

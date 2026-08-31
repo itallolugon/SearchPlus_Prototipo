@@ -1005,6 +1005,57 @@
     </div>
 
     <!-- Modal de escolha de coleção (substitui o prompt() "digite o número") -->
+    <!-- Opções da exportação. Todas opcionais: quem só quer as fotos numa
+         pasta clica em "Exportar" e ignora o resto. -->
+    <div id="opcoesExportModal" class="modal" style="z-index: 10002;">
+        <div class="modal-content" style="max-width: 520px;">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
+                <h3 class="gradient-text" style="margin:0; font-size:1.5rem; font-family:'Inter',sans-serif;">Como exportar</h3>
+                <span class="close-btn" onclick="fecharOpcoesExport()" style="position:static; cursor:pointer;">&times;</span>
+            </div>
+
+            <div class="opcao-export">
+                <label for="expTipos">O que levar</label>
+                <select id="expTipos">
+                    <option value="tudo">Tudo o que está na coleção</option>
+                    <option value="imagens">Só as imagens</option>
+                    <option value="documentos">Só os documentos</option>
+                </select>
+            </div>
+
+            <div class="opcao-export">
+                <label for="expPadrao">Renomear os arquivos</label>
+                <input type="text" id="expPadrao" placeholder="Deixe em branco para manter os nomes">
+                <p class="opcao-export-ajuda">
+                    Use <code>{n}</code> para numerar, <code>{nome}</code> para o nome atual,
+                    <code>{colecao}</code> e <code>{data}</code>.
+                    Exemplo: <code>{colecao}_{n}</code> vira <code>Viagem_001.jpg</code>.
+                </p>
+            </div>
+
+            <div class="opcao-export">
+                <label for="expLargura">Reduzir as imagens</label>
+                <select id="expLargura">
+                    <option value="">Manter o tamanho original</option>
+                    <option value="1920">Grande — 1920 px de largura</option>
+                    <option value="1280">Média — 1280 px</option>
+                    <option value="800">Pequena — 800 px (bom para e-mail)</option>
+                </select>
+                <p class="opcao-export-ajuda">Só afeta imagens. A altura acompanha, sem distorcer.</p>
+            </div>
+
+            <div class="opcao-export opcao-export-linha">
+                <input type="checkbox" id="expSubpastas">
+                <label for="expSubpastas">Separar em subpastas por mês</label>
+            </div>
+
+            <div style="display:flex; gap:10px; margin-top:18px;">
+                <button class="action-btn" onclick="fecharOpcoesExport()" style="flex:1; margin:0;">Cancelar</button>
+                <button class="action-btn gradient-btn" onclick="confirmarOpcoesExport()" style="flex:2; margin:0;">Escolher a pasta e exportar</button>
+            </div>
+        </div>
+    </div>
+
     <div id="escolherColecaoModal" class="modal" style="z-index: 10002;">
         <div class="modal-content" style="max-width: 460px;">
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">

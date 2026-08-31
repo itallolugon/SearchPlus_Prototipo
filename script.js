@@ -5269,8 +5269,45 @@ async function configurarPastaDaColecao(colId, nome) {
 let _exportJobId = null;
 let _exportTimer = null;
 
+// As opções da exportação, perguntadas antes de escolher a pasta.
+//
+// Vêm ANTES do seletor de pastas de propósito: o diálogo do Windows é modal e
+// bloqueia a tela, e voltar dele para responder um formulário faria a pessoa
+// perder o fio do que estava fazendo.
+let _resolverOpcoesExport = null;
+
+function perguntarOpcoesDeExportacao() {
+    return new Promise((resolve) => {
+        _resolverOpcoesExport = resolve;
+        document.getElementById('opcoesExportModal').style.display = 'flex';
+    });
+}
+
+function fecharOpcoesExport() {
+    document.getElementById('opcoesExportModal').style.display = 'none';
+    const resolver = _resolverOpcoesExport;
+    _resolverOpcoesExport = null;
+    if (resolver) resolver(null);          // fechar cancela a exportação
+}
+
+function confirmarOpcoesExport() {
+    const opcoes = {
+        tipos: document.getElementById('expTipos').value,
+        padrao_nome: document.getElementById('expPadrao').value.trim(),
+        largura_max: document.getElementById('expLargura').value || null,
+        subpastas_por_data: document.getElementById('expSubpastas').checked,
+    };
+    document.getElementById('opcoesExportModal').style.display = 'none';
+    const resolver = _resolverOpcoesExport;
+    _resolverOpcoesExport = null;
+    if (resolver) resolver(opcoes);
+}
+
 async function exportarColecao() {
     if (!_colecaoAtual.id) return;
+
+    const opcoes = await perguntarOpcoesDeExportacao();
+    if (!opcoes) return;                   // desistiu
 
     // Já exportada antes? Então esta é uma SEGUNDA pasta, e há duas decisões
     // que só o usuário pode tomar: como chamar a nova, e qual das pastas passa
@@ -5305,7 +5342,7 @@ async function exportarColecao() {
     // atual — a troca é perguntada depois, quando a pasta já existe.
     let pastaNova;
     try {
-        const corpo = { destino };
+        const corpo = { destino, ...opcoes };
         if (existentes.length > 0) { corpo.sufixo = sufixo; corpo.vincular = false; }
         const r = await fetch(`${API_BASE_URL}/api/collections/${_colecaoAtual.id}/export`, {
             method: 'POST', headers: fetchOptions.headers,

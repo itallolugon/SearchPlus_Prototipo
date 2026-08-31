@@ -867,6 +867,46 @@ continua válido — as duas chaves são aceitas.
 
 #### `POST /api/collections/<id>/export`
 
+**Opções de exportação.** Todas são opcionais — sem nenhuma, o comportamento é
+o de sempre: a coleção inteira, com os nomes e o tamanho originais, numa pasta
+só.
+
+| Campo | Valores | O que faz |
+|---|---|---|
+| `tipos` | `tudo` (padrão), `imagens`, `documentos` | uma coleção mista vira duas entregas diferentes conforme quem recebe |
+| `padrao_nome` | texto com marcadores | renomeia em lote; vazio mantém os nomes |
+| `largura_max` | 100–10000 | reduz as imagens; a altura acompanha, sem distorcer |
+| `subpastas_por_data` | booleano | separa em subpastas `AAAA-MM` |
+
+Marcadores de `padrao_nome`: `{nome}` (nome atual sem extensão), `{n}` (posição
+com zeros à esquerda), `{colecao}`, `{data}` (AAAA-MM-DD). Exemplo:
+`{colecao}_{n}` produz `Viagem_001.jpg`.
+
+A **extensão nunca vem do padrão** — trocá-la não converte o arquivo, só faz o
+sistema abrir com o programa errado. Os zeros à esquerda em `{n}` existem porque
+sem eles o Explorer ordena 1, 10, 11, 2, e a numeração que existia para
+preservar a ordem faz o contrário.
+
+As subpastas são por **mês**, não por dia: uma pasta por dia produz centenas de
+pastas com uma foto dentro, que é pior que não organizar. Arquivo sem data
+conhecida vai para `sem-data`, em vez de ficar solto na raiz misturado com as
+pastas.
+
+Imagem menor que `largura_max` é copiada intacta — reprocessar recomprime o
+JPEG e piora a qualidade sem economizar nada.
+
+Erros, todos antes de criar qualquer pasta (recusar depois deixaria uma pasta
+vazia no destino a cada tentativa errada):
+
+- `400` — tipo desconhecido, largura fora da faixa ou não numérica
+- `400` — nenhum arquivo do tipo pedido na coleção; a mensagem diz isso, e não
+  "coleção vazia", que mandaria o usuário procurar o problema no lugar errado
+- `400` — redimensionamento pedido num computador sem leitor de imagem;
+  avisar agora é melhor que exportar em tamanho original e deixar a pessoa
+  descobrir depois
+
+
+
 Copia os arquivos da coleção para uma **pasta local**, criando dentro do
 destino uma subpasta com o nome da coleção. O `destino` deve vir de
 [`GET /api/choose_folder`](#pastas-monitoradas) — não digite caminho à mão.

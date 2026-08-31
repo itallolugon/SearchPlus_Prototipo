@@ -508,6 +508,7 @@ body {
 .btn-verificar-pasta,
 .btn-sel-categoria,
 .colecoes-ordem label,
+.opcao-export label,
 .colecao-item-capa,
 .btn-sel-fav,
 .favoritos-resumo,
@@ -1684,3 +1685,31 @@ body {
 .colecao-item-capa:focus-visible { opacity: 1; }
 .colecao-item-capa.e-capa { opacity: 1; color: var(--accent-secondary); }
 .colecao-item-capa:hover { color: var(--accent-secondary); }
+
+
+/* Opcoes da exportacao */
+.opcao-export { margin-bottom: 16px; }
+.opcao-export > label {
+    display: block; margin-bottom: 6px;
+    color: var(--text-primary); font-size: 0.86rem; font-weight: 600;
+}
+.opcao-export select,
+.opcao-export input[type="text"] {
+    width: 100%; box-sizing: border-box;
+    background: rgba(0,0,0,0.3); border: 1px solid var(--border-light);
+    color: var(--text-primary); border-radius: 8px;
+    padding: 10px 12px; font-size: 0.86rem;
+}
+.opcao-export-ajuda {
+    margin: 6px 0 0 0; color: var(--text-secondary); font-size: 0.74rem; line-height: 1.5;
+}
+.opcao-export-ajuda code {
+    background: rgba(255,255,255,0.07); border-radius: 4px;
+    padding: 1px 5px; font-size: 0.72rem;
+}
+/* A caixa e o rotulo na mesma linha, com o rotulo clicavel. */
+.opcao-export-linha { display: flex; align-items: center; gap: 10px; }
+.opcao-export-linha > label {
+    margin: 0; font-weight: 500; cursor: pointer;
+}
+.opcao-export-linha input { cursor: pointer; }

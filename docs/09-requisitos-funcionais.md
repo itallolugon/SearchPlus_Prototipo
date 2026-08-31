@@ -431,6 +431,28 @@ cabeça: dá tempo de almoçar?
 | **RF-207** | Com a fila drenando e o ritmo constante, o texto **nunca volta atrás**. Estimativa que sobe sozinha destrói a confiança na barra. | Implementado |
 | **RF-208** | Um único arquivo lento não pode deslocar a estimativa; uma mudança real e sustentada de ritmo, sim. | Implementado |
 
+### Exportação seletiva
+
+Exportava-se a coleção inteira, com os nomes originais, tamanho original e tudo
+numa pasta só. Serve para levar as fotos para um pendrive; não serve para
+entregar um trabalho, mandar por e-mail ou organizar um arquivo.
+
+| ID | Requisito | Situação |
+|---|---|---|
+| **RF-284** | A exportação pode levar **só imagens, só documentos ou tudo**. | Implementado |
+| **RF-285** | Os arquivos podem ser **renomeados em lote** com um padrão configurável. | Implementado |
+| **RF-286** | A numeração usa zeros à esquerda. Sem eles o Explorer ordena 1, 10, 11, 2 — e a numeração faz o contrário do que existia para fazer. | Implementado |
+| **RF-287** | A **extensão nunca vem do padrão**. Trocá-la não converte o arquivo, só faz o sistema abrir com o programa errado. | Implementado |
+| **RF-288** | Padrão que não sobrevive à sanitização cai no nome original, em vez de deixar o arquivo sem nome. | Implementado |
+| **RF-289** | As imagens podem ser **reduzidas** na saída, com a altura acompanhando. | Implementado |
+| **RF-290** | Imagem menor que o limite é copiada intacta — reprocessar recomprime e piora a qualidade sem economizar nada. | Implementado |
+| **RF-291** | Imagem que o leitor não abre é copiada como está. Sem esse recurso ela sairia da exportação em silêncio. | Implementado |
+| **RF-292** | A saída pode ser organizada em **subpastas por mês**. Por dia produziria centenas de pastas com uma foto dentro. | Implementado |
+| **RF-293** | Arquivo sem data conhecida vai para `sem-data`, não solto na raiz. | Implementado |
+| **RF-294** | Opção inválida é recusada **antes** de criar a pasta — senão cada tentativa errada deixaria uma pasta vazia no destino. | Implementado |
+| **RF-295** | Nenhum arquivo do tipo pedido produz mensagem própria, e não "coleção vazia". | Implementado |
+| **RF-296** | Redimensionar sem leitor de imagem no computador avisa **antes**, em vez de exportar em tamanho original em silêncio. | Implementado |
+
 ### A seleção sobrevive ao recarregamento
 
 Quem montou uma seleção de 40 imagens e recarregou por engano — ou teve o
