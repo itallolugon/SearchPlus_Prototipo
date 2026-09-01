@@ -4,8 +4,25 @@
     --border-light: rgba(255, 255, 255, 0.08); 
     --text-primary: #F8FAFC;
     --text-secondary: #94A3B8;
-    --accent-primary: #A855F7; 
-    --accent-secondary: #E879F9; 
+    /* Clareado 3% em relacao ao #A855F7 original: como TEXTO sobre a
+       superficie dos cards (#151A2A) o tom anterior media 4,38:1 e nao
+       passava. A diferenca e imperceptivel a olho; o numero, nao. */
+    --accent-primary: #AB5AF7;
+    --accent-secondary: #E879F9;
+    /* O destaque tem DOIS papéis, e o contraste que serve a um estraga o
+       outro: como TEXTO sobre o fundo escuro, ele precisa ser claro; como
+       FUNDO de botão com texto branco em cima, precisa ser escuro.
+       Medido no tema anterior, com um só valor para os dois:
+
+           branco sobre #A855F7 ....... 3,96:1   reprovado
+           branco sobre #E879F9 ....... 2,46:1   reprovado
+           #A855F7 sobre a superfície .. 4,38:1   reprovado
+
+       As variantes "-forte" existem só para as superfícies que carregam texto
+       branco. O tom original continua onde ele é lido COMO texto, que é onde a
+       identidade da cor aparece de fato. */
+    --accent-primary-forte: #9B4EE3;    /* branco em cima: 4,57:1 */
+    --accent-secondary-forte: #A757B3;  /* branco em cima: 4,51:1 */
     --btn-text-color: #FFFFFF; 
     --telemetry: #4FD1C5; 
 }
@@ -59,8 +76,13 @@ body {
 
 /* LOGO PRINCIPAL (GOOGLE STYLE) */
 .main-logo {
-    font-size: 6.5rem; 
+    font-size: 6.5rem;
     cursor: pointer;
+    /* O logo é um BOTÃO, não texto. Sem isto o navegador o trata como conteúdo
+       selecionável: mostra cursor de I-beam piscando e deixa copiar "SEARCH+"
+       ao arrastar — o clique parece uma seleção acidental em vez de uma ação. */
+    user-select: none;
+    -webkit-user-select: none;
     margin: 0 auto 30px auto;
     margin-top: 30px;
     transition: all 0.5s ease-in-out;
@@ -93,13 +115,13 @@ body {
 }
 
 /* TÍTULOS BRANCOS E CENTRALIZAÇÃO GLOBAL */
-.section-title-white { color: var(--text-primary); font-weight: 800; text-align: center;}
+.section-title-white { color: var(--text-primary); font-weight: 800; text-align: center; font-size: 1.5rem; letter-spacing: -0.5px; margin: 30px 0 10px; }
 .text-center { text-align: center !important; }
 .text-left { text-align: left !important; }
 
 /* BOTOES ARREDONDADOS (PÍLULA) */
 .gradient-btn {
-    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)) !important;
+    background: linear-gradient(135deg, var(--accent-primary-forte), var(--accent-secondary-forte)) !important;
     border: none !important; 
     color: var(--btn-text-color) !important; 
     transition: 0.3s;
@@ -315,16 +337,32 @@ body {
 /* FILTROS CENTRALIZADOS */
 .search-container { display: flex; flex-direction: column; align-items: center; padding: 0 20px 40px; text-align: center; width: 100%; box-sizing: border-box; transition: all 0.6s cubic-bezier(0.25, 1, 0.5, 1); }
 .search-box { display: flex; justify-content: center; width: 100%; max-width: 800px; margin: 0 auto; gap: 15px; }
-.search-box input { flex: 1; padding: 25px 30px; border-radius: 30px; border: 1px solid var(--border-light); background-color: rgba(21, 26, 42, 0.8); backdrop-filter: blur(10px); color: var(--text-primary); font-size: 1.3rem; transition: all 0.3s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.3);}
+/* Wrapper do campo: existe só para ancorar o botão de limpar (position:absolute)
+   dentro dos limites do input. O flex:1 mora aqui, não no input. */
+.search-input-wrap { position: relative; flex: 1; display: flex; }
+.search-box input { flex: 1; width: 100%; padding: 25px 60px 25px 30px; border-radius: 30px; border: 1px solid var(--border-light); background-color: rgba(21, 26, 42, 0.8); backdrop-filter: blur(10px); color: var(--text-primary); font-size: 1.3rem; transition: all 0.3s ease; box-shadow: 0 10px 30px rgba(0,0,0,0.3); box-sizing: border-box;}
 .search-box input:focus { border-color: var(--accent-primary); }
+
+/* Botão de limpar o campo de busca. Oculto por padrão: só aparece com texto. */
+.btn-limpar-busca {
+    display: none;
+    position: absolute; right: 14px; top: 50%; transform: translateY(-50%);
+    width: 34px; height: 34px; padding: 0;
+    border: none; border-radius: 50%; background: transparent;
+    color: var(--text-secondary); font-size: 1.5rem; line-height: 1;
+    cursor: pointer; transition: background 0.2s ease, color 0.2s ease;
+}
+.btn-limpar-busca.visivel { display: flex; align-items: center; justify-content: center; }
+.btn-limpar-busca:hover { background: rgba(255,255,255,0.1); color: var(--text-primary); }
+.btn-limpar-busca:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
 
 .filter-bar-container { display: flex; justify-content: center; width: 100%; margin-top: 30px;}
 .filter-bar { display: flex; justify-content: center; align-items: center; gap: 10px; flex-wrap: wrap;}
 .filter-tag { background-color: transparent; padding: 8px 20px; border-radius: 30px; font-size: 0.9rem; font-weight: 600; color: var(--text-secondary); cursor: pointer; border: 1px solid var(--border-light); transition: 0.3s; }
 .filter-tag.active { 
-    background-color: var(--accent-primary) !important; 
+    background-color: var(--accent-primary-forte) !important; 
     color: var(--btn-text-color) !important; 
-    border-color: var(--accent-primary) !important; 
+    border-color: var(--accent-primary-forte) !important; 
     background-clip: padding-box !important;
 }
 
@@ -339,11 +377,19 @@ body {
 .document-icon-wrapper { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background-color: var(--bg-deep); }
 .document-icon-wrapper svg { width: 70px; height: 70px; fill: var(--text-secondary); }
 .card-content { padding: 20px; flex: 1; display: flex; flex-direction: column; }
-.card-content h3 { margin: 0 0 15px; font-size: 1.05rem; color: var(--text-primary); font-weight: 600; word-break: break-all; }
-.tags { display: flex; gap: 8px; margin-bottom: 15px; }
-.badge { padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.5px; }
+.card-content h3 { margin: 0 0 12px; font-size: 1.05rem; color: var(--text-primary); font-weight: 600; word-break: break-word; line-height: 1.35; }
+.tags { display: flex; gap: 8px; margin-bottom: 12px; }
+.badge { padding: 3px 9px; border-radius: 6px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.5px; }
 .badge.type { background-color: var(--border-light); color: var(--text-secondary); }
-.badge.score { background-color: rgba(79, 209, 197, 0.1); color: var(--telemetry); border: 1px solid rgba(79, 209, 197, 0.3); }
+/* Por que o resultado apareceu. Discreta de propósito: é uma explicação, não
+   um alerta — não pode competir com o nome do arquivo nem com a imagem.
+   Minúscula porque é frase ("pela aparência"), não sigla como o tipo. */
+.badge.origem {
+    background: transparent; color: var(--text-secondary);
+    border: 1px solid var(--border-light);
+    font-weight: 500; letter-spacing: 0; text-transform: none;
+    font-size: 0.68rem; cursor: help;
+}
 .trecho-preview { font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 10px; flex: 1; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;}
 .highlight { background-color: rgba(234, 82, 247, 0.3); color: #fff; padding: 2px 4px; border-radius: 4px; }
 
@@ -424,7 +470,305 @@ body {
     cursor: pointer; transition: 0.3s; font-size: 1.1rem;
 }
 .btn-fav-abs:hover { background: var(--surface); border-color: var(--accent-secondary); transform: scale(1.1); }
-.btn-fav-abs.is-fav { color: var(--accent-secondary); border-color: var(--accent-secondary); }
+.btn-fav-abs:focus-visible { outline: 2px solid var(--accent-secondary); outline-offset: 2px; }
+/* Favoritado: coração cheio, cor de destaque e fundo tingido. A diferença não
+   pode ser só de cor — o coração passa de vazado a preenchido (ver iconeFav()
+   no script.js), e a forma muda junto para quem não distingue as cores. */
+.btn-fav-abs.is-fav {
+    color: var(--accent-secondary);
+    border-color: var(--accent-secondary);
+    background: rgba(232, 121, 249, 0.22);
+    font-size: 1.25rem;
+}
+
+/* Seleção para coleção. Diferente do favorito por FORMA (quadrado x círculo)
+   e por POSIÇÃO (esquerda x direita), não só por cor — cor sozinha exclui
+   quem tem daltonismo. */
+.btn-sel-abs {
+    position: absolute; top: 10px; left: 10px;
+    background: rgba(0,0,0,0.6); color: #fff; border: 1px solid rgba(255,255,255,0.35);
+    border-radius: 6px; width: 32px; height: 32px; z-index: 20; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer; transition: 0.2s; font-size: 1rem; font-weight: 700; line-height: 1;
+}
+.btn-sel-abs:hover { border-color: var(--accent-primary); transform: scale(1.1); }
+.btn-sel-abs.is-sel {
+    background: var(--accent-primary); border-color: var(--accent-primary); color: #fff;
+}
+.btn-sel-abs:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.card-selecionado { border-color: var(--accent-primary) !important; box-shadow: 0 0 0 2px rgba(168,85,247,0.45); }
+
+/* Barra flutuante das ações em lote */
+.barra-selecao {
+    display: none;
+    position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%);
+    align-items: center; gap: 20px; z-index: 950;
+    background: rgba(21, 26, 42, 0.96); backdrop-filter: blur(20px);
+    border: 1px solid var(--border-light); border-radius: 40px;
+    padding: 12px 22px; box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+}
+.barra-selecao.visivel { display: flex; }
+.barra-selecao #selecaoContador { color: var(--text-primary); font-weight: 600; white-space: nowrap; }
+.barra-selecao-acoes { display: flex; gap: 10px; }
+
+/* ==========================================
+   CONTROLES NÃO SÃO TEXTO
+   ==========================================
+   Botão, chip, card clicável e título de painel são ALVOS DE CLIQUE. Sem esta
+   regra o navegador os trata como conteúdo: cursor de I-beam piscando e
+   seleção acidental ao arrastar — o clique parece ter dado errado.
+
+   O que fica de FORA de propósito, porque copiar é uso legítimo: caminho de
+   pasta (.pasta-exp-caminho, .pasta-item-caminho), nome de arquivo,
+   descrição da IA (.trecho-preview) e o conteúdo do painel lateral. */
+.action-btn,
+.btn-renomear,
+.btn-verificar-pasta,
+.btn-sel-categoria,
+.colecoes-ordem label,
+.export-hist-falhas summary,
+.opcao-export label,
+.colecao-item-capa,
+.btn-sel-fav,
+.favoritos-resumo,
+.seletor-pastas-botao,
+.pasta-opcao,
+.faixa-preparando,
+.chip-refino,
+.resumo-numero,
+.resumo-erros summary,
+.lixeira-item-nome,
+.lixeira-item-meta,
+.toast-acao,
+.btn-fav-abs,
+.btn-fav-icon,
+.btn-sel-abs,
+.close-btn,
+.chip-foco,
+.filter-tag,
+.toggle-switch,
+.mini-profile,
+.recent-card,
+.colecao-card,
+.card,
+.vazio-chip,
+.vincular-opcao,
+.escolher-colecao-item,
+.pasta-exp-nome,
+.pasta-item-nome,
+.status-lista summary,
+.history-item,
+.colecao-card-nome,
+.colecao-card-meta,
+#colecoesTitulo,
+.section-title,
+.section-title-white {
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+/* Renomear coleção — edição no próprio cabeçalho */
+.btn-renomear {
+    background: transparent; border: 1px solid var(--border-light); border-radius: 8px;
+    color: var(--text-secondary); cursor: pointer; flex-shrink: 0;
+    width: 32px; height: 32px; font-size: 0.95rem; line-height: 1;
+    transition: border-color 0.2s ease, color 0.2s ease;
+}
+.btn-renomear:hover { border-color: var(--accent-primary); color: var(--text-primary); }
+.btn-renomear:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.colecao-nome-edit { font-size: 1.3rem; font-weight: 700; margin: 0; width: 100%; max-width: 420px; }
+
+/* Status da pasta: o que já foi copiado e o que falta */
+.status-pasta-bloco {
+    background: rgba(0,0,0,0.2); border: 1px solid var(--border-light);
+    border-radius: 12px; padding: 16px; margin-bottom: 12px;
+}
+.status-pasta-cabecalho { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.status-pasta-nome { color: var(--text-primary); font-weight: 700; font-size: 0.98rem; word-break: break-word; }
+.status-pasta-caminho { color: var(--text-secondary); font-size: 0.76rem; word-break: break-all; margin-top: 2px; }
+.status-barra-trilha {
+    width: 100%; height: 8px; background: rgba(0,0,0,0.35); border-radius: 6px;
+    overflow: hidden; border: 1px solid var(--border-light); margin: 12px 0 10px;
+}
+.status-barra-preenchida { height: 100%; border-radius: 6px; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); transition: width 0.3s ease; }
+.status-contagem { display: flex; gap: 16px; flex-wrap: wrap; font-size: 0.84rem; }
+.status-contagem b { color: var(--text-primary); }
+.status-lista { margin: 10px 0 0; }
+.status-lista summary { cursor: pointer; color: var(--text-secondary); font-size: 0.84rem; padding: 4px 0; }
+.status-lista summary:hover { color: var(--text-primary); }
+.status-nomes {
+    margin: 8px 0 0; padding: 10px 12px; list-style: none;
+    background: rgba(0,0,0,0.25); border-radius: 8px;
+    max-height: 160px; overflow-y: auto;
+}
+.status-nomes li { color: var(--text-secondary); font-size: 0.82rem; padding: 3px 0; word-break: break-all; }
+.status-ponto { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; vertical-align: middle; }
+.status-ponto-ok { background: #22c55e; }
+.status-ponto-falta { background: #f59e0b; }
+.status-ponto-extra { background: var(--text-secondary); }
+
+/* Estado vazio da busca — explica e oferece saída */
+.vazio-box {
+    grid-column: 1 / -1; max-width: 620px; margin: 20px auto 0;
+    text-align: center; padding: 32px 28px;
+    background: rgba(0,0,0,0.18); border: 1px solid var(--border-light); border-radius: 16px;
+}
+.vazio-titulo { margin: 0 0 10px; color: var(--text-primary); font-size: 1.25rem; font-weight: 700; word-break: break-word; }
+.vazio-motivo { margin: 0; color: var(--text-secondary); font-size: 0.95rem; line-height: 1.6; }
+.vazio-secao { margin-top: 24px; }
+.vazio-secao-titulo { margin: 0 0 10px; color: var(--text-primary); font-size: 0.88rem; font-weight: 600; }
+.vazio-chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.vazio-chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    padding: 8px 16px; border-radius: 30px; cursor: pointer;
+    background: transparent; border: 1px solid var(--border-light);
+    color: var(--text-primary); font-size: 0.88rem; font-weight: 600;
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+.vazio-chip:hover { border-color: var(--accent-primary); background: rgba(168,85,247,0.1); }
+.vazio-chip:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.vazio-chip-badge {
+    background: var(--border-light); color: var(--text-secondary);
+    border-radius: 20px; padding: 1px 8px; font-size: 0.72rem; font-weight: 700;
+}
+
+/* Configurações da coleção */
+.config-rodape {
+    color: var(--text-secondary); font-size: 0.83rem; line-height: 1.45;
+    margin: 16px 0 0; padding-top: 14px; border-top: 1px solid var(--border-light);
+}
+.vincular-opcao.is-atual {
+    border-color: var(--accent-primary);
+    background: rgba(168,85,247,0.12);
+}
+.vincular-opcao-atual-selo {
+    display: inline-block; margin-left: 8px; padding: 1px 8px; border-radius: 20px;
+    font-size: 0.68rem; font-weight: 700;
+    background: var(--accent-primary); color: var(--btn-text-color);
+}
+.pastas-exp-acoes-topo { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+
+/* Exportar de novo: nome da pasta e destino das próximas fotos */
+.exp-novo-rotulo { color: var(--text-primary); font-weight: 600; font-size: 0.92rem; margin: 0 0 10px; display: block; }
+.exp-novo-linha { display: flex; align-items: center; gap: 8px; }
+.exp-novo-prefixo {
+    color: var(--text-secondary); font-size: 0.9rem; white-space: nowrap;
+    background: rgba(0,0,0,0.3); border: 1px solid var(--border-light);
+    border-radius: 8px; padding: 10px 12px; max-width: 45%; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* Item clicável da lista de pastas exportadas */
+.pasta-exp {
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    padding: 12px 14px; background: rgba(0,0,0,0.2);
+    border: 1px solid var(--border-light); border-radius: 10px;
+}
+.pasta-exp-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.pasta-exp-nome { color: var(--text-primary); font-weight: 600; font-size: 0.93rem; word-break: break-word; }
+.pasta-exp-caminho { color: var(--text-secondary); font-size: 0.78rem; word-break: break-all; }
+.pasta-exp-acoes { display: flex; gap: 8px; flex-shrink: 0; }
+.pasta-exp-acoes .action-btn { margin: 0; padding: 7px 12px; font-size: 0.82rem; }
+.pasta-exp-ausente { opacity: 0.55; }
+
+/* Pastas geradas — diálogo de exclusão */
+.pastas-lista { display: flex; flex-direction: column; gap: 8px; max-height: 260px; overflow-y: auto; }
+.pasta-item {
+    display: flex; align-items: flex-start; gap: 10px; padding: 12px 14px;
+    background: rgba(0,0,0,0.2); border: 1px solid var(--border-light); border-radius: 10px;
+}
+.pasta-item input[type="checkbox"] { margin-top: 3px; width: 17px; height: 17px; cursor: pointer; flex-shrink: 0; }
+.pasta-item-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.pasta-item-nome { color: var(--text-primary); font-weight: 600; font-size: 0.93rem; word-break: break-word; }
+.pasta-item-caminho { color: var(--text-secondary); font-size: 0.78rem; word-break: break-all; }
+.pasta-item-meta { color: var(--text-secondary); font-size: 0.78rem; }
+.pasta-item-selo {
+    display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 20px;
+    font-size: 0.68rem; font-weight: 700; background: var(--accent-primary); color: var(--btn-text-color);
+}
+.pasta-item-ausente { opacity: 0.55; }
+.pastas-aviso {
+    background: rgba(239,68,68,0.12); border: 1px solid #ef4444; border-radius: 10px;
+    color: var(--text-primary); font-size: 0.88rem; line-height: 1.45; padding: 12px 14px; margin: 14px 0 0;
+}
+
+/* Modal de vínculo coleção → pasta */
+.vincular-ilustracao {
+    background: rgba(0,0,0,0.25); border: 1px solid var(--border-light);
+    border-radius: 12px; padding: 8px; margin-bottom: 20px;
+}
+.vincular-ilustracao svg { width: 100%; height: auto; display: block; }
+.vi-caixa { fill: none; stroke: var(--text-secondary); stroke-width: 2.5; stroke-linejoin: round; }
+.vi-rotulo { fill: var(--text-primary); font-size: 13px; font-weight: 600; text-anchor: middle; }
+.vi-trilha { stroke: var(--border-light); stroke-width: 2; stroke-dasharray: 5 5; }
+.vi-seta { fill: var(--text-secondary); }
+.vi-ponto { fill: var(--accent-primary); }
+
+/* Os pontos saem da coleção e entram na pasta, em cascata. É a única
+   animação decorativa do app — daí o respeito explícito a prefers-reduced-motion. */
+@keyframes vi-viajar {
+    0%        { cx: 96px;  opacity: 0; }
+    12%       { opacity: 1; }
+    78%       { opacity: 1; }
+    100%      { cx: 246px; opacity: 0; }
+}
+.vi-ponto-1 { animation: vi-viajar 2.4s linear infinite; }
+.vi-ponto-2 { animation: vi-viajar 2.4s linear infinite 0.5s; }
+.vi-ponto-3 { animation: vi-viajar 2.4s linear infinite 1s; }
+
+@media (prefers-reduced-motion: reduce) {
+    .vi-ponto-1, .vi-ponto-2, .vi-ponto-3 { animation: none; }
+    /* Sem movimento, os pontos viram três marcas fixas na trilha */
+    .vi-ponto-1 { cx: 120px; } .vi-ponto-2 { cx: 156px; } .vi-ponto-3 { cx: 192px; }
+}
+
+.vincular-opcoes { display: flex; flex-direction: column; gap: 10px; }
+.vincular-opcao {
+    display: flex; flex-direction: column; gap: 4px; text-align: left;
+    padding: 14px 16px; border-radius: 12px; cursor: pointer;
+    background: rgba(0,0,0,0.2); border: 1px solid var(--border-light);
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+.vincular-opcao:hover { border-color: var(--accent-primary); background: rgba(168,85,247,0.08); }
+.vincular-opcao:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+.vincular-opcao-titulo { color: var(--text-primary); font-weight: 600; font-size: 0.95rem; }
+.vincular-opcao-desc { color: var(--text-secondary); font-size: 0.83rem; line-height: 1.4; }
+
+/* Selo de pasta vinculada no card da coleção */
+.colecao-vinculo {
+    display: inline-flex; align-items: center; gap: 5px; margin-top: 4px;
+    font-size: 0.72rem; color: var(--text-secondary);
+}
+.colecao-vinculo-auto { color: var(--accent-primary); }
+
+/* Barra de ações acima do grid: contagem + selecionar tudo */
+.resultados-acoes {
+    display: flex; align-items: center; justify-content: center;
+    gap: 16px; flex-wrap: wrap;
+    max-width: 1400px; margin: 0 auto; padding: 0 40px 4px;
+}
+.resultados-resumo { color: var(--text-secondary); font-size: 0.95rem; white-space: nowrap; }
+.btn-selecionar-todos { padding: 8px 18px; font-size: 0.9rem; background: transparent; white-space: nowrap; }
+.btn-selecionar-todos.is-ativo {
+    background: var(--accent-primary); color: var(--btn-text-color); border-color: var(--accent-primary);
+}
+.btn-selecionar-todos:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 2px; }
+
+/* Progresso e resultado da exportação */
+.export-barra-trilha { width: 100%; height: 12px; background: rgba(0,0,0,0.35); border-radius: 8px; overflow: hidden; border: 1px solid var(--border-light); }
+.export-barra-preenchida { height: 100%; width: 0; border-radius: 8px; background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)); transition: width 0.3s ease; }
+.export-resumo { color: var(--text-primary); font-size: 1.05rem; margin: 0 0 16px; word-break: break-word; }
+.export-falhas-titulo { color: var(--text-secondary); font-size: 0.9rem; margin: 0 0 6px; }
+.export-falhas { margin: 0 0 18px; padding-left: 20px; color: var(--text-secondary); font-size: 0.88rem; max-height: 180px; overflow-y: auto; }
+.export-falhas li { margin-bottom: 4px; word-break: break-word; }
+.export-acoes { display: flex; gap: 10px; }
+
+@media (max-width: 640px) {
+    .barra-selecao { flex-direction: column; gap: 12px; border-radius: 20px; width: calc(100% - 32px); bottom: 70px; }
+    .barra-selecao-acoes { width: 100%; flex-direction: column; }
+    .barra-selecao-acoes .action-btn { width: 100%; }
+    .resultados-acoes { padding: 0 16px 4px; gap: 10px; }
+    .btn-selecionar-todos { min-height: 44px; }   /* alvo de toque */
+}
 
 /* ==========================================
    INDEXAÇÃO INTELIGENTE SELETIVA
@@ -515,6 +859,19 @@ body {
     transition: 0.3s; margin-left: 8px;
 }
 .btn-config-folder:hover { border-color: var(--accent-primary); color: var(--accent-primary); }
+
+/* Verificar alterações — mesma família visual do Config, sem margem à esquerda
+   porque é o primeiro botão da linha. Fica desativado durante a verificação:
+   o clique repetido dispararia duas varreduras da mesma pasta ao mesmo tempo. */
+.btn-verificar-pasta {
+    background: transparent; border: 1px solid var(--border-light); color: var(--text-secondary);
+    border-radius: 20px; padding: 5px 12px; font-size: 0.75rem; cursor: pointer;
+    transition: 0.3s;
+}
+.btn-verificar-pasta:hover:not(:disabled) {
+    border-color: var(--accent-primary); color: var(--accent-primary);
+}
+.btn-verificar-pasta:disabled { opacity: 0.55; cursor: default; }
 
 /* Seção de config dentro do modal */
 .indexacao-config-section {
@@ -750,6 +1107,11 @@ body {
     border: 1px solid var(--border-light);
     border-radius: 12px;
     font-size: 1.2rem;
+    /* O icone e desenhado em `currentColor`. Sem esta linha o botao
+       herdava o preto padrao e o desenho sumia no fundo escuro -- o
+       emoji que havia aqui antes trazia a propria cor e escondia a
+       falta. */
+    color: var(--text-secondary);
     cursor: pointer;
     padding: 0 14px;
     transition: background 0.15s, border-color 0.15s;
@@ -757,6 +1119,7 @@ body {
 .search-btn-img:hover {
     background: rgba(168,85,247,0.12);
     border-color: var(--accent-primary);
+    color: var(--text-primary);
 }
 .drop-zone {
     border: 2px dashed var(--border-light);
@@ -968,6 +1331,10 @@ body {
     border: none; border-radius: 50%;
     cursor: pointer; font-size: 0.95rem;
     opacity: 0; transition: opacity 0.2s, background 0.2s;
+    /* Fica por cima da capa da colecao, que e uma imagem qualquer --
+       a cor nao pode vir do tema. O circulo escuro atras garante o
+       contraste do branco. */
+    color: #fff;
 }
 .colecao-card:hover .colecao-del-flutuante { opacity: 1; }
 .colecao-del-flutuante:hover { background: rgba(239,68,68,0.8); }
@@ -1006,3 +1373,494 @@ body {
     border: 1px solid var(--border-light);
     border-radius: 12px;
 }
+
+/* Itens do modal de escolha de coleção (substitui o prompt nativo) */
+.escolher-colecao-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 14px 16px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border-light);
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+.escolher-colecao-item:hover {
+    background: rgba(168,85,247,0.14);
+    border-color: var(--accent-primary);
+}
+.escolher-colecao-count {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    font-weight: 400;
+}
+
+/* ============================================
+   RESPONSIVIDADE (mobile / tablet)
+   ============================================ */
+@media (max-width: 768px) {
+    /* Logo e busca menores */
+    .main-logo { font-size: 4rem; margin-top: 15px; }
+    .search-box { flex-direction: row; flex-wrap: wrap; gap: 8px; padding: 0 12px; }
+    .search-box input { font-size: 1rem; padding: 16px 46px 16px 18px; }
+    /* Alvo de toque maior no mobile (44px) */
+    .btn-limpar-busca { width: 44px; height: 44px; right: 6px; }
+    .search-btn { padding: 0 24px !important; font-size: 1.1rem !important; }
+
+    /* Top bar e menu */
+    .top-bar { padding: 12px 16px; }
+    .menu-lateral { width: 85vw; }
+
+    /* Grids de resultados e cards menores */
+    .results-grid, .recent-grid {
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 14px;
+    }
+    .recent-img { height: 130px; }
+
+    /* Modais ocupam quase a tela toda */
+    .modal-content {
+        max-width: 94vw !important;
+        width: 94vw;
+        max-height: 88vh;
+        overflow-y: auto;
+    }
+
+    /* Filtros avançados empilham */
+    .filtros-avancados { grid-template-columns: 1fr 1fr; }
+
+    /* Painel lateral de detalhe ocupa a tela */
+    .side-panel { width: 100% !important; max-width: 100%; }
+
+    /* Sidebar de personalização cabe na tela */
+    .sidebar-modal { width: 90vw !important; max-width: 90vw; }
+}
+
+@media (max-width: 480px) {
+    .main-logo { font-size: 3rem; }
+    .search-box { flex-direction: column; }
+    .search-box .search-input-wrap, .search-box input, .search-btn, .search-btn-img { width: 100%; }
+    .filter-bar { flex-wrap: wrap; gap: 6px; }
+    .filtros-avancados { grid-template-columns: 1fr; }
+    .results-grid, .recent-grid {
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+        gap: 10px;
+    }
+    /* Estatísticas do perfil empilham */
+    .toast { min-width: auto; max-width: 90vw; }
+}
+
+
+/* Faixa "preparando a busca" — aparece só na janela entre o servidor subir e
+   os modelos terminarem de carregar. Fica no rodapé e por cima de tudo,
+   inclusive da tela de login: é justamente durante o login que a espera
+   acontece. Não bloqueia clique nenhum. */
+.faixa-preparando {
+    position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+    z-index: 10200; pointer-events: none;
+    display: flex; align-items: center; gap: 10px;
+    max-width: min(560px, calc(100vw - 32px));
+    padding: 10px 16px; border-radius: 22px;
+    background: rgba(20, 16, 30, 0.92);
+    border: 1px solid var(--border-light);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    color: var(--text-secondary); font-size: 0.82rem; line-height: 1.4;
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+}
+.faixa-preparando-ponto {
+    flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--accent-primary);
+    animation: faixa-pulsa 1.4s ease-in-out infinite;
+}
+@keyframes faixa-pulsa {
+    0%, 100% { opacity: 0.35; }
+    50%      { opacity: 1; }
+}
+
+/* Quem prefere menos movimento não precisa de um ponto piscando no rodapé
+   durante meio minuto. */
+@media (prefers-reduced-motion: reduce) {
+    .faixa-preparando-ponto { animation: none; opacity: 0.9; }
+}
+
+
+/* Toast com ação — o botão "desfazer" precisa competir com o texto sem virar
+   a coisa mais chamativa da tela. */
+.toast-com-acao { align-items: center; }
+.toast-acao {
+    flex: 0 0 auto; margin-left: 10px;
+    background: transparent; border: 1px solid var(--accent-primary);
+    color: var(--accent-primary); border-radius: 16px;
+    padding: 4px 12px; font-size: 0.75rem; font-weight: 600;
+    cursor: pointer; transition: 0.2s;
+}
+.toast-acao:hover:not(:disabled) { background: var(--accent-primary); color: #fff; }
+.toast-acao:disabled { opacity: 0.55; cursor: default; }
+
+/* Lixeira.
+   Abre POR CIMA das Configurações Gerais, que é de onde ela é aberta — com o
+   z-index base de .modal (1000) ela ficaria escondida atrás justamente da
+   tela que a chamou. Fica ABAIXO de confirmModal (10100), porque o
+   "descartar de vez" pede confirmação e esse diálogo precisa vencer. */
+#lixeiraModal, #resumoModal, #historicoExportModal { z-index: 10050; }
+
+/* Lixeira */
+.lixeira-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px; margin-bottom: 8px;
+    border: 1px solid var(--border-light); border-radius: 12px;
+    background: rgba(255, 255, 255, 0.03);
+}
+.lixeira-item-nome { color: var(--text-primary); font-weight: 600; font-size: 0.92rem;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lixeira-item-meta { color: var(--text-secondary); font-size: 0.76rem; margin-top: 3px; }
+
+
+/* Resumo da indexação */
+.resumo-totais {
+    padding: 12px 14px; border-radius: 12px; margin-bottom: 14px;
+    background: rgba(168, 85, 247, 0.08);
+    border: 1px solid rgba(168, 85, 247, 0.22);
+}
+.resumo-linha-total { color: var(--text-primary); font-weight: 600; font-size: 0.95rem; }
+.resumo-quando { color: var(--text-secondary); font-size: 0.78rem; margin-top: 3px; }
+
+.resumo-pasta {
+    padding: 12px 14px; margin-bottom: 8px;
+    border: 1px solid var(--border-light); border-radius: 12px;
+    background: rgba(255, 255, 255, 0.03);
+}
+/* O caminho fica selecionável: é o que a pessoa copia para ir até a pasta. */
+.resumo-pasta-caminho {
+    color: var(--text-primary); font-size: 0.86rem; word-break: break-all;
+}
+.resumo-pasta-numeros { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.resumo-numero {
+    font-size: 0.74rem; padding: 3px 9px; border-radius: 20px;
+    border: 1px solid var(--border-light); color: var(--text-secondary);
+    cursor: help;
+}
+.resumo-erros { margin-top: 10px; }
+.resumo-erros summary {
+    cursor: pointer; color: var(--accent-primary); font-size: 0.8rem;
+}
+.resumo-erros ul {
+    margin: 8px 0 0 0; padding-left: 18px;
+    color: var(--text-secondary); font-size: 0.78rem; line-height: 1.6;
+}
+.resumo-nota { color: var(--text-secondary); font-size: 0.74rem; margin-top: 6px; }
+
+
+/* Trilha do refino: o que está filtrando a busca agora. */
+.trilha-refino {
+    display: flex; flex-wrap: wrap; gap: 8px; justify-content: center;
+    margin: 0 auto 16px; padding: 0 20px; max-width: 900px;
+}
+.chip-refino {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 6px 5px 12px; border-radius: 20px;
+    font-size: 0.78rem; border: 1px solid var(--border-light);
+    background: rgba(255, 255, 255, 0.04); color: var(--text-secondary);
+}
+/* A consulta é o assunto da busca, não um filtro — e não tem X para remover.
+   Sem padding à direita porque não há botão ocupando esse espaço. */
+.chip-refino-consulta {
+    padding-right: 12px; color: var(--text-primary); font-weight: 600;
+    border-color: rgba(168, 85, 247, 0.35);
+    background: rgba(168, 85, 247, 0.10);
+}
+.chip-refino-excluido { border-color: rgba(239, 68, 68, 0.3); }
+.chip-refino-escopo   { border-color: rgba(79, 209, 197, 0.3); }
+.chip-refino-x {
+    border: none; background: transparent; cursor: pointer;
+    color: var(--text-secondary); font-size: 1rem; line-height: 1;
+    padding: 0 6px; border-radius: 50%;
+}
+.chip-refino-x:hover { color: var(--text-primary); background: rgba(255,255,255,0.08); }
+
+
+/* Seletor de pastas da home. Alinhado à direita porque é controle de
+   exibição: informa e ajusta, sem disputar atenção com o conteúdo. */
+.seletor-pastas { position: relative; text-align: right; margin: 0 auto 10px; max-width: 1100px; padding: 0 20px; }
+.seletor-pastas-botao {
+    background: rgba(255,255,255,0.04); border: 1px solid var(--border-light);
+    color: var(--text-primary); border-radius: 22px;
+    padding: 10px 20px; font-size: 0.92rem; font-weight: 600;
+    cursor: pointer; transition: 0.3s;
+}
+.seletor-pastas-botao:hover { border-color: var(--accent-primary); color: var(--accent-primary); }
+.seletor-pastas-menu {
+    position: absolute; right: 20px; top: calc(100% + 6px); z-index: 950;
+    min-width: 260px; max-width: min(380px, calc(100vw - 40px));
+    max-height: 340px; overflow-y: auto; text-align: left;
+    background: var(--surface); border: 1px solid var(--border-light);
+    border-radius: 14px; padding: 8px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+}
+.pasta-opcao {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 10px; cursor: pointer;
+}
+.pasta-opcao:hover { background: rgba(255,255,255,0.05); }
+.pasta-opcao input { cursor: pointer; flex: 0 0 auto; }
+/* O nome da pasta pode ser longo; o caminho completo fica no title. */
+.pasta-opcao-nome {
+    flex: 1; min-width: 0; color: var(--text-primary); font-size: 0.84rem;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.pasta-opcao-qtd { flex: 0 0 auto; color: var(--text-secondary); font-size: 0.72rem; }
+.pasta-opcao-todas {
+    width: 100%; margin-top: 6px; padding: 8px; border-radius: 10px;
+    background: transparent; border: 1px solid var(--border-light);
+    color: var(--accent-primary); font-size: 0.78rem; cursor: pointer;
+}
+.pasta-opcao-todas:hover { background: rgba(168, 85, 247, 0.10); }
+
+
+/* Selecionar a categoria inteira, no titulo do grupo da home. */
+.btn-sel-categoria {
+    margin-left: 10px; padding: 4px 12px; border-radius: 20px;
+    font-size: 0.72rem; font-weight: 600; cursor: pointer; transition: 0.3s;
+    background: transparent; border: 1px solid var(--border-light);
+    color: var(--text-secondary);
+}
+.btn-sel-categoria:hover { border-color: var(--accent-primary); color: var(--accent-primary); }
+.btn-sel-categoria[aria-pressed="true"] {
+    border-color: var(--accent-primary); color: var(--accent-primary);
+    background: rgba(168, 85, 247, 0.12);
+}
+
+
+/* Favoritos como origem de colecao */
+.favoritos-acoes {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    margin-bottom: 16px; padding-bottom: 14px;
+    border-bottom: 1px solid var(--border-light);
+}
+.favoritos-resumo { flex: 1; min-width: 90px; color: var(--text-secondary); font-size: 0.8rem; }
+.favoritos-acoes .action-btn { font-size: 0.78rem; padding: 7px 14px; }
+.favoritos-acoes .action-btn:disabled { opacity: 0.45; cursor: default; }
+
+/* Caixa de selecao do card de favorito. Fica no fluxo (nao absoluta como a
+   dos cards de imagem) porque o card do favorito e uma linha horizontal. */
+.fav-card { position: relative; }
+.btn-sel-fav {
+    flex: 0 0 auto; width: 22px; height: 22px; margin-right: 4px;
+    border-radius: 6px; cursor: pointer; transition: 0.2s;
+    background: rgba(255,255,255,0.06); border: 1px solid var(--border-light);
+    color: #fff; font-size: 0.8rem; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+}
+.btn-sel-fav:hover { border-color: var(--accent-primary); }
+.btn-sel-fav.is-sel {
+    background: var(--accent-primary); border-color: var(--accent-primary);
+}
+.fav-card.card-selecionado { border-color: var(--accent-primary); }
+
+
+/* Controles sobre o card da HOME.
+   Os cards da home são bem menores que os de resultado de busca, e os mesmos
+   32px/35px que funcionam lá cobrem um pedaço grande da miniatura aqui. */
+.recent-card .btn-sel-abs {
+    top: 7px; left: 7px; width: 22px; height: 22px;
+    border-radius: 5px; font-size: 0.75rem;
+}
+.recent-card .btn-fav-abs {
+    top: 7px; right: 7px; width: 24px; height: 24px; font-size: 0.85rem;
+}
+/* Sem o hover ampliando: num grid denso, o botão crescendo sob o cursor
+   encosta no card vizinho. */
+.recent-card .btn-sel-abs:hover,
+.recent-card .btn-fav-abs:hover { transform: none; }
+
+
+/* Ordem da lista de colecoes */
+.colecoes-ordem {
+    display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+    margin-bottom: 14px;
+}
+.colecoes-ordem label { color: var(--text-secondary); font-size: 0.78rem; }
+.colecoes-ordem select {
+    background: rgba(0,0,0,0.3); border: 1px solid var(--border-light);
+    color: var(--text-primary); border-radius: 8px;
+    padding: 6px 10px; font-size: 0.8rem; cursor: pointer;
+}
+
+/* Capa escolhida a dedo: uma imagem so, ocupando o espaco do mosaico. */
+.colecao-capa-unica { display: block; }
+.colecao-capa-unica img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+
+/* Definir a capa: mesma familia visual do botao de remover, no canto oposto.
+   Aparece no hover, como ele -- os dois sao acoes sobre o item, nao
+   informacao, e nao podem poluir a grade em repouso. A estrela CHEIA e a
+   excecao: fica sempre visivel, porque ai ela informa qual imagem e a capa. */
+.colecao-item-capa {
+    position: absolute;
+    top: 6px; left: 6px;
+    width: 28px; height: 28px;
+    background: rgba(0,0,0,0.6);
+    border: none; border-radius: 50%;
+    color: #fff; font-size: 1rem; line-height: 1;
+    cursor: pointer; opacity: 0; transition: opacity 0.2s, color 0.2s;
+    display: flex; align-items: center; justify-content: center;
+}
+.recent-card:hover .colecao-item-capa,
+.colecao-item-capa:focus-visible { opacity: 1; }
+.colecao-item-capa.e-capa { opacity: 1; color: var(--accent-secondary); }
+.colecao-item-capa:hover { color: var(--accent-secondary); }
+
+
+/* Opcoes da exportacao */
+.opcao-export { margin-bottom: 16px; }
+.opcao-export > label {
+    display: block; margin-bottom: 6px;
+    color: var(--text-primary); font-size: 0.86rem; font-weight: 600;
+}
+.opcao-export select,
+.opcao-export input[type="text"] {
+    width: 100%; box-sizing: border-box;
+    background: rgba(0,0,0,0.3); border: 1px solid var(--border-light);
+    color: var(--text-primary); border-radius: 8px;
+    padding: 10px 12px; font-size: 0.86rem;
+}
+.opcao-export-ajuda {
+    margin: 6px 0 0 0; color: var(--text-secondary); font-size: 0.74rem; line-height: 1.5;
+}
+.opcao-export-ajuda code {
+    background: rgba(255,255,255,0.07); border-radius: 4px;
+    padding: 1px 5px; font-size: 0.72rem;
+}
+/* A caixa e o rotulo na mesma linha, com o rotulo clicavel. */
+.opcao-export-linha { display: flex; align-items: center; gap: 10px; }
+.opcao-export-linha > label {
+    margin: 0; font-weight: 500; cursor: pointer;
+}
+.opcao-export-linha input { cursor: pointer; }
+
+
+/* Historico das exportacoes */
+.export-hist {
+    padding: 14px; margin-bottom: 10px;
+    border: 1px solid var(--border-light); border-radius: 12px;
+    background: rgba(255, 255, 255, 0.03);
+}
+.export-hist-titulo { color: var(--text-primary); font-weight: 600; font-size: 0.95rem; }
+.export-hist-meta { color: var(--text-secondary); font-size: 0.78rem; margin-top: 3px; }
+/* O caminho fica selecionavel: e o que a pessoa copia para chegar na pasta. */
+.export-hist-caminho {
+    color: var(--text-secondary); font-size: 0.74rem; margin-top: 6px;
+    word-break: break-all;
+}
+.export-hist-acoes { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.export-hist-acoes .action-btn { margin: 0; font-size: 0.75rem; padding: 6px 12px; }
+.export-hist-sumiu { color: var(--text-secondary); font-size: 0.75rem; align-self: center; }
+.export-hist-falhas { margin-top: 10px; }
+.export-hist-falhas summary { cursor: pointer; color: var(--accent-primary); font-size: 0.78rem; }
+.export-hist-falhas ul {
+    margin: 8px 0 0 0; padding-left: 18px;
+    color: var(--text-secondary); font-size: 0.76rem; line-height: 1.6;
+}
+
+
+/* Aviso de contraste baixo, embaixo do seletor de cor. */
+.aviso-contraste {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+    margin-top: 6px; padding: 8px 10px; border-radius: 8px;
+    background: rgba(234, 179, 8, 0.12);
+    border: 1px solid rgba(234, 179, 8, 0.35);
+    color: var(--text-primary); font-size: 0.74rem; line-height: 1.5;
+}
+/* O botao MOSTRA a cor sugerida no proprio fundo -- e a maneira mais direta
+   de responder "que cor e essa?". O texto fica branco com sombra porque a
+   sugestao pode ser clara ou escura. */
+.aviso-contraste-usar {
+    border: 1px solid rgba(255,255,255,0.4); border-radius: 6px;
+    padding: 4px 10px; cursor: pointer; font-size: 0.72rem; font-weight: 600;
+    color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.7);
+}
+
+
+/* Home sem pasta escolhida, ou sem imagem nas escolhidas. */
+.galeria-vazia {
+    text-align: center; color: var(--text-secondary);
+    font-size: 0.88rem; padding: 24px 20px; margin: 0;
+}
+
+/* ==========================================================================
+   ICONES
+   ==========================================================================
+   Substituem os emoji que havia antes. O ganho nao e so de aparencia:
+
+   - emoji sao coloridos pela fonte do sistema, entao ignoravam o tema e a cor
+     de destaque escolhida pelo usuario, e nao havia como corrigir o contraste
+     deles como corrigimos o do texto;
+   - o desenho mudava de maquina para maquina (Windows, Android e navegador
+     desenham o mesmo codigo de formas diferentes), e alguns simplesmente nao
+     existiam em fontes mais antigas, virando um retangulo vazio.
+
+   Aqui o traco e `currentColor`: o icone e da cor do texto ao lado dele,
+   sempre, em qualquer tema. */
+
+.sprite-icones {
+    /* Guarda as definicoes fora de vista. `display:none` tambem esconderia,
+       mas alguns navegadores deixam de resolver o `<use>` nesse caso. */
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+}
+
+.ic {
+    width: 1.05em;
+    height: 1.05em;
+    flex: none;                 /* nunca encolhe dentro de um flex */
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    vertical-align: -0.15em;    /* alinha com a linha de base do texto */
+}
+
+/* Um icone antes de um rotulo precisa de respiro. Como `gap` so funciona em
+   flex, e boa parte dos botoes daqui nao e flex, a margem cobre os dois. */
+.ic + span,
+.ic + text { margin-left: .1em; }
+.tem-icone { display: inline-flex; align-items: center; gap: .42em; }
+
+/* Estado "ligado": favorito marcado, capa da colecao. O contorno vira solido
+   para que a diferenca nao seja so de cor -- quem nao distingue as duas cores
+   ainda ve a mudanca de forma. */
+.ic--cheio {
+    fill: currentColor;
+    stroke-width: 1.2;
+}
+
+.ic--g  { width: 1.35em; height: 1.35em; }
+.ic--gg { width: 2.6em;  height: 2.6em; stroke-width: 1.3; }
+
+/* Girando: usado no lugar da ampulheta enquanto algo processa. */
+.ic--girando { animation: ic-girar 1.4s linear infinite; transform-origin: 50% 50%; }
+@keyframes ic-girar { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+    .ic--girando { animation: none; }
+}
+
+/* Botao herda a cor do contexto, em vez do preto padrao do navegador.
+   ---------------------------------------------------------------------------
+   Enquanto os icones eram emoji isso nao aparecia: o emoji trazia a propria
+   cor e o `color` do botao nao importava. Um icone desenhado em
+   `currentColor` num botao sem `color` fica preto sobre fundo escuro, com
+   1:1 de contraste -- some por completo. Aconteceu em dois botoes antes desta
+   regra existir (a camera da busca por imagem e a lixeira da colecao).
+
+   `button` e seletor de tipo, entao qualquer regra de classe que ja defina
+   `color` continua ganhando, esteja onde estiver no arquivo. */
+button { color: inherit; }

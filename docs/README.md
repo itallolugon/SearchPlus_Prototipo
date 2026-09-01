@@ -15,6 +15,71 @@ Abordagem da equipe: **SQL (PostgreSQL/Supabase)**.
 | [`06-dossie-tecnico-sprints.md`](06-dossie-tecnico-sprints.md) | ✅ Dossiê Técnico de Sprint (1 e 2) |
 | [`../backend/schema.sql`](../backend/schema.sql) | DDL real do banco (base do DER) |
 
+## Guias de desenvolvimento
+
+| Arquivo | Conteúdo |
+|---|---|
+| [`API.md`](API.md) | Contrato da API: payload, resposta e erros de cada endpoint |
+| [`FRONTEND.md`](FRONTEND.md) | Guia para substituir a camada visual (inclui o servidor mock) |
+| [`TESTING.md`](TESTING.md) | Suíte de testes, testes de carga e CI |
+
+## Notas técnicas e especificações
+
+Documentos fora do escopo da N2, produzidos ao longo do desenvolvimento.
+
+| Arquivo | Conteúdo |
+|---|---|
+| [`07-git-fluxo.md`](07-git-fluxo.md) | Convenção de branches (`main` / `develop` / `feature/*`) |
+| [`08-correcoes-conexao-e-busca.md`](08-correcoes-conexao-e-busca.md) | Correções: pooler do Supabase e busca visual (CLIP) |
+| [`09-requisitos-funcionais.md`](09-requisitos-funcionais.md) | RF-001 … RF-335 e os critérios de aceite |
+| [`10-requisitos-nao-funcionais.md`](10-requisitos-nao-funcionais.md) | RNF-001 … RNF-090 + resultado da carga + débitos preexistentes |
+| [`features/11-limpar-busca.md`](features/11-limpar-busca.md) | Botão `×` para limpar o campo de busca |
+| [`features/12-colecoes-exportacao.md`](features/12-colecoes-exportacao.md) | Seleção, coleções e exportação para pasta local |
+| [`features/13-selecao-em-massa.md`](features/13-selecao-em-massa.md) | Selecionar tudo e exportação imediata da coleção |
+| [`features/14-pasta-vinculada.md`](features/14-pasta-vinculada.md) | Coleção espelhada numa pasta do computador |
+
+## Relatórios de entrega
+
+Relatório em Word, com capa, escrito em linguagem simples: o que foi feito e
+o que mudou para quem usa o app. Cada rodada gera um arquivo novo, com data no
+nome, para ficar o histórico do que já tinha sido entregue em cada momento.
+
+```bash
+py tools/gerar_relatorio.py
+```
+
+Sai nos dois formatos: o `.docx` para editar, o `.pdf` para enviar.
+
+**Relatório de implementação** — o que foi feito e o que mudou para quem usa.
+
+| Data | Word | PDF |
+|---|---|---|
+| 31/08/2026 | [`.docx`](SearchPlus_Implementacoes_2026-08-31.docx) | [`.pdf`](SearchPlus_Implementacoes_2026-08-31.pdf) |
+
+**Arquitetura da informação** — onde cada coisa mora, como se chama, por
+onde se chega. Diagnóstico e os ajustes propostos no caminho do usuário.
+
+```bash
+py tools/gerar_doc_arquitetura.py
+```
+
+| Data | Word | PDF |
+|---|---|---|
+| 31/08/2026 | [`.docx`](SearchPlus_ArquiteturaInformacao_2026-08-31.docx) | [`.pdf`](SearchPlus_ArquiteturaInformacao_2026-08-31.pdf) |
+
+O conteúdo do relatório vive em `tools/gerar_relatorio.py`, e não num .docx
+editado à mão: assim o texto entra em revisão de código como o resto, e a
+versão seguinte parte da anterior em vez de recomeçar.
+
+A forma — capa, estilos, tabelas e conversão para PDF — vem de
+`tools/docx_base.py`, compartilhada pelos dois. Quem escreve um documento
+novo cuida só do conteúdo; assim eles não vão divergindo de aparência sem
+ninguém decidir isso.
+
+O PDF sai do Word quando ele está instalado, e do LibreOffice quando não
+está. Sem nenhum dos dois, o `.docx` é gerado do mesmo jeito e o script
+avisa — a entrega não depende do conversor.
+
 ## Como visualizar os diagramas (.puml)
 
 Os diagramas estão em **PlantUML** (texto → imagem; versiona bem no Git). Para ver:

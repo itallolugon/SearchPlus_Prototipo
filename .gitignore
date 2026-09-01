@@ -1,6 +1,12 @@
 # Credenciais (Supabase, etc) - NUNCA COMMITAR
 .env
 backend/.env
+# Chave de sessao gerada no primeiro boot (assina o cookie de login)
+backend/.secret_key
+
+# Ferramentas de assistente (não versionar)
+.claude/
+CLAUDE.md
 
 .venv/
 __pycache__/
@@ -40,3 +46,12 @@ search_plus_backend.log
 # Exceção: incluir os arquivos do backend/
 !backend/app.py
 !backend/requirements.txt
+
+# Artefatos de teste e cobertura
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+relatorios/
+.mypy_cache/
+.ruff_cache/

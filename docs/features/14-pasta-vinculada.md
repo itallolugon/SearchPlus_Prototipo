@@ -1,0 +1,589 @@
+# Feature — Pasta vinculada à coleção
+
+**Data:** 29/08/2026
+**Branch:** `feature/selecionar-todas-e-exportacao-imediata`
+**Requisitos:** RF-080 … RF-146 · CA-032 … CA-055 ·
+[`../09-requisitos-funcionais.md`](../09-requisitos-funcionais.md)
+**Status:** implementado.
+
+Substitui o comportamento de "oferta de exportação a cada adição" descrito em
+[`13-selecao-em-massa.md`](13-selecao-em-massa.md) §4.
+
+---
+
+## 1. Problema
+
+A exportação imediata resolveu o problema certo pelo meio errado.
+
+Ela eliminava a navegação até Coleções — mas ao custo de **perguntar a cada
+adição**. Quem monta uma coleção aos poucos, que é o uso normal, respondia à
+mesma pergunta dezenas de vezes numa sessão. E a pergunta chegava sempre no
+pior momento: logo depois de adicionar, quando a pessoa quer voltar a pesquisar.
+
+O erro de design foi tratar como **evento** algo que é **preferência**. "Quero
+que esta coleção viva também numa pasta" é uma decisão sobre a coleção, tomada
+uma vez. Não é uma decisão sobre cada foto.
+
+```
+ANTES                              DEPOIS
+─────                              ──────
+adiciona 3 fotos                   cria a coleção
+  → "quer exportar?"                 → "quer uma pasta?" (uma vez)
+adiciona 2 fotos                   adiciona 3 fotos  → vão sozinhas
+  → "quer exportar?"               adiciona 2 fotos  → vão sozinhas
+adiciona 1 foto                    adiciona 1 foto   → vai sozinha
+  → "quer exportar?"
+```
+
+---
+
+## 2. Conceito: a coleção ganha um espelho
+
+Uma coleção passa a poder ter uma **pasta vinculada** — um diretório no
+computador que reflete seu conteúdo.
+
+| | Coleção | Pasta vinculada |
+|---|---|---|
+| Onde vive | Postgres (`collection_files`) | Disco do usuário |
+| O que guarda | Referências a `files.id` | Cópias dos arquivos |
+| Existe sem a outra | Sim | Sim (é só uma pasta) |
+
+O vínculo é **opcional** e **por coleção**. Uma coleção sem pasta se comporta
+exatamente como antes desta feature.
+
+### Os três modos
+
+Escolhidos uma vez, na criação, e alteráveis depois:
+
+| Modo | O que acontece ao adicionar imagens |
+|---|---|
+| `auto` | Copia para a pasta na hora, sem perguntar |
+| `perguntar` | Confirma a cada adição — para quem quer manter o controle |
+| `manual` | Nada automático; a exportação continua no botão (**padrão**) |
+
+`manual` é o padrão e é também o destino de todo caminho de desistência: fechar
+o modal, cancelar o seletor de pastas ou dar erro ao criar a pasta deixam a
+coleção em `manual`. Nunca se fica num estado meio configurado.
+
+---
+
+## 3. O momento da pergunta
+
+**Uma vez, ao criar a coleção.** É o único momento em que o app pergunta sobre
+pasta espontaneamente.
+
+A escolha é boa aqui porque criar uma coleção já é um ato de intenção — a
+pessoa está decidindo *"isto vai ser uma coisa"*. Perguntar se essa coisa
+também mora no disco é natural nesse instante, e intrusivo em qualquer outro.
+
+Os dois caminhos de criação passam pelo mesmo ponto:
+
+```
+criarColecao()            → configurarPastaDaColecao()
+criarColecaoEAdicionar()  → adicionarAColecao() → configurarPastaDaColecao()
+```
+
+No segundo, a pergunta vem **depois** de adicionar: assim a coleção já está
+povoada e o vínculo copia tudo de uma vez.
+
+### O modal
+
+```
+┌──────────────────────────────────────────────────┐
+│ Enviar esta coleção para uma pasta?              │
+│                                                  │
+│ A coleção "Arquitetura" pode ter uma pasta no    │
+│ seu computador. As imagens que você adicionar a  │
+│ ela são copiadas para lá — os originais          │
+│ continuam onde estão.                            │
+│                                                  │
+│   ┌────┐                          ┌──────┐       │
+│   │    │  ● ● ●  ──────────▶      │      │       │
+│   └────┘                          └──────┘       │
+│   Coleção                          Pasta         │
+│                                                  │
+│  ┌────────────────────────────────────────────┐  │
+│  │ Sim — enviar sempre, sem perguntar         │  │
+│  ├────────────────────────────────────────────┤  │
+│  │ Sim — mas perguntar antes de cada envio    │  │
+│  ├────────────────────────────────────────────┤  │
+│  │ Não — eu exporto quando quiser             │  │
+│  └────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────┘
+```
+
+A ilustração é SVG animado: três pontos saem da caixa "Coleção", percorrem a
+trilha e desaparecem ao entrar na "Pasta", em cascata. Mostra o que a frase
+descreve, para quem não vai ler a frase.
+
+Detalhes que importam:
+
+- **`aria-hidden="true"`** — é decorativa; o texto acima já diz tudo. Anunciar
+  um desenho a leitor de tela seria ruído.
+- **`prefers-reduced-motion`** — com a preferência ativa, os pontos viram três
+  marcas fixas na trilha. A ideia se mantém sem movimento.
+- Cada opção é um `<button type="button">` com título e descrição, não um
+  `<div>` clicável.
+
+---
+
+## 4. Como funciona por dentro
+
+### 4.1 Modelo de dados
+
+Duas colunas em `collections`, adicionadas via `ALTER TABLE ... IF NOT EXISTS`
+no `schema.sql` — que roda a cada boot e é idempotente. Nenhuma migração
+manual.
+
+```sql
+ALTER TABLE collections ADD COLUMN IF NOT EXISTS pasta_vinculada TEXT;
+ALTER TABLE collections ADD COLUMN IF NOT EXISTS modo_sync TEXT NOT NULL DEFAULT 'manual';
+```
+
+`DEFAULT 'manual'` faz toda coleção existente continuar se comportando como
+antes, sem intervenção.
+
+### 4.2 Endpoints
+
+| Rota | Papel |
+|---|---|
+| `PATCH /api/collections/<id>` | Renomeia, vincula pasta e define o modo. **Parcial**: só toca os campos presentes no corpo. |
+| `POST /api/collections/<id>/sync` | Copia para a pasta já vinculada. Aceita `file_ids` para copiar só o que entrou. |
+
+O `PATCH` aceita `criar_pasta_em` (pasta-mãe): o backend sanitiza o nome da
+coleção, cria a subpasta e grava o vínculo — tudo numa chamada. Reaproveita
+`_sanitizar_nome()` e `_pasta_disponivel()` da exportação, então a lógica de
+nome inválido e colisão é uma só.
+
+Como efeito colateral, o `PATCH` também resolve a lacuna de **renomear
+coleção**, que não existia em nenhum endpoint (não havia `PUT` nem `PATCH` no
+`app.py` inteiro).
+
+### 4.3 Sincronia ≠ exportação
+
+São operações parecidas com regras opostas num ponto decisivo:
+
+| | Exportação (`/export`) | Sincronia (`/sync`) |
+|---|---|---|
+| Pasta de destino | Cria nova; se existir, `Nome (1)` | Escreve na pasta vinculada |
+| Arquivo homônimo | Nunca sobrescreve: `foto_1.jpg` | **Pula** — conta em `ja_existiam` |
+| Escopo | Coleção inteira | Só os `file_ids` recebidos |
+| Execução | Job em thread + progresso | Síncrona (poucos arquivos) |
+
+A diferença do arquivo homônimo é o coração da feature. Exportar é tirar uma
+foto do estado atual — duas exportações são dois retratos, e nenhum apaga o
+outro. Sincronizar é manter um espelho — se `a.jpg` já está lá, criar `a_1.jpg`
+faria a pasta divergir da coleção a cada adição.
+
+### 4.4 Só o que é novo
+
+`POST /files` passou a devolver `ids_adicionados` — apenas o que o
+`ON CONFLICT DO NOTHING` de fato inseriu. É o que vai para `/sync`.
+
+Sem isso, adicionar 1 imagem a uma coleção de 300 recopiaria as 300 (RF-091).
+
+A mesma resposta traz `pasta_vinculada` e `modo_sync`, para o frontend decidir
+o que fazer **sem uma requisição extra a cada adição**.
+
+---
+
+## 5. Decisões
+
+### 5.1 A pasta nunca se desvincula sozinha
+
+Se a pasta sumiu do disco, `/sync` devolve **409** com uma frase que orienta —
+e o vínculo permanece. Desvincular automaticamente seria destruir configuração
+por causa de algo temporário: um HD externo desconectado, uma pasta de rede
+fora do ar. O usuário decide se aponta para outro lugar.
+
+### 5.2 Falha na sincronia não desfaz a adição
+
+Adicionar à coleção e copiar para a pasta são operações independentes
+(RF-093). A adição já foi confirmada pelo banco quando a sincronia começa; um
+erro de disco não pode reverter um vínculo que o usuário pediu.
+
+### 5.3 Sem barra de progresso na sincronia
+
+A exportação tem job em background e barra de progresso porque copia a coleção
+inteira. A sincronia copia o que acabou de ser adicionado — tipicamente de 1 a
+20 arquivos. Uma barra apareceria e sumiria antes de ser lida. O resultado vai
+num *toast*.
+
+### 5.4 Acesso tolerante às colunas novas
+
+`init_db()` **registra** falhas de DDL em vez de abortar. Se o `ALTER TABLE`
+falhar, o app sobe sem as colunas — e uma leitura direta derrubaria **toda**
+adição a coleção com HTTP 500.
+
+O código lê o vínculo via `dict(...).get(...)`, então uma migração falha
+desativa a sincronia em vez de quebrar o recurso inteiro.
+
+---
+
+## 6. Testes
+
+### Unitários — 26 novos (`tests/unit/test_pasta_vinculada.py`)
+
+| Área | Cobre |
+|---|---|
+| `PATCH` | Renomear, os três modos, corpo vazio, modo inválido, 401/404, desvincular |
+| Parcialidade | Mandar só `modo_sync` **não** apaga a pasta — inspeciona o SQL gerado |
+| Criar pasta | Nome sanitizado, colisão vira `Nome (1)`, pasta preexistente intocada |
+| Sincronia | Cópia real em disco, originais intactos, homônimo pulado, ausente vira falha, `fora_das_pastas`, pasta sumida → 409 |
+
+Os testes de sincronia tocam o disco de verdade (`tmp_path`): o valor está no
+efeito colateral.
+
+### Carga — 1 tarefa nova
+
+`colecao_com_pasta_vinculada` no `locustfile.py`: cria a coleção, vincula a
+pasta, adiciona em lote e sincroniza. Mede o par `POST /files` + `POST /sync`,
+que no modo `auto` passa a ser a dupla mais frequente do produto.
+
+### Resultado
+
+| | |
+|---|---|
+| Suíte | **395 passando**, 8 pulados |
+| Carga (smoke) | **373 requisições, 0 falhas**, todos os limites respeitados |
+| Paridade `app.py` / `mock_server.py` / `API.md` | ✅ |
+
+### Um bug encontrado pelos testes
+
+`/sync` usava `shutil.copy2` mas `shutil` só estava importado **dentro** de
+`_worker_exportacao`. A primeira sincronia real teria estourado `NameError`.
+O import subiu para o topo do módulo.
+
+---
+
+## 7. Arquivos alterados
+
+| Arquivo | Mudança |
+|---|---|
+| `backend/schema.sql` | Duas colunas em `collections` |
+| `backend/app.py` | `PATCH` da coleção, `POST /sync`, `shutil` no topo, vínculo nas respostas |
+| `backend/mock_server.py` | `PATCH` e `/sync` simulados — sem tocar disco |
+| `docs/API.md` | Contrato das duas rotas |
+| `index.html` | Modal de vínculo com a ilustração SVG |
+| `script.js` | `configurarPastaDaColecao()`, `sincronizarSePreciso()`, `enviarParaPastaVinculada()`; remove `oferecerExportacaoImediata()` |
+| `style.css` | Modal, animação, selo no card |
+| `tests/unit/test_pasta_vinculada.py` | Novo — 26 testes |
+| `tests/unit/test_endpoints_dados.py` | Mocks com as colunas novas |
+| `tests/load/locustfile.py` | Tarefa do fluxo vinculado |
+
+---
+
+## 7-A. Pastas geradas, abrir e excluir
+
+Adicionado depois, ao aparecer um caso concreto: uma coleção exportada, uma
+imagem adicionada em seguida — e a imagem não apareceu na pasta.
+
+### O bug
+
+`/export` criava a pasta e **não guardava o caminho em lugar nenhum**. A
+exportação era um retrato sem memória: as imagens adicionadas depois não
+tinham destino, e o usuário só descobria ao abrir a pasta e não achar as novas.
+
+**Correção:** exportar agora registra a pasta e passa a apontar para ela. Uma
+coleção sem vínculo prévio assume `perguntar`; uma já configurada mantém o
+modo que o usuário escolheu.
+
+### Tabela `collection_folders`
+
+Uma coleção pode ter **várias** pastas: exportar duas vezes cria `Natureza` e
+`Natureza (1)`. `collections.pasta_vinculada` aponta para a que recebe novas
+imagens; a tabela guarda o conjunto completo.
+
+Ela sustenta três coisas que antes eram impossíveis:
+
+1. **Abrir a pasta** — o app precisa saber onde ela está.
+2. **Autorizar a abertura** — `/api/open_folder` só aceita caminho registrado.
+3. **Excluir com escolha** — listar o que existe no disco.
+
+### Abrir pasta exportada
+
+Botão na tela da coleção. Só aparece quando há pasta de fato no disco: um botão
+que dá erro ao ser clicado é pior que nenhum botão. Com mais de uma pasta,
+abre a que recebe novas imagens e mostra a contagem no rótulo.
+
+### Excluir coleção → escolher o que fazer com as pastas
+
+```
+┌────────────────────────────────────────────────────┐
+│ Excluir também as pastas?                          │
+│                                                    │
+│ A coleção "animes03" gerou estas 2 pastas no seu   │
+│ computador. Marque o que quiser apagar — o que     │
+│ ficar desmarcado permanece no disco.               │
+│                                                    │
+│  ☐ animes03  [recebe novas]                        │
+│     D:\Fotosnimes03                              │
+│     3 arquivos                                     │
+│  ☑ animes03                                        │
+│     E:\Backupnimes03                             │
+│     3 arquivos                                     │
+│                                                    │
+│  [Cancelar]  [Manter as pastas]  [Apagar marcadas] │
+└────────────────────────────────────────────────────┘
+```
+
+**Duas etapas.** O primeiro acionamento de "Apagar" só mostra o aviso — quantas
+pastas, quantos arquivos, e que **não vão para a Lixeira**. O botão vira
+"Confirmar exclusão". Só o segundo executa.
+
+**Manter as pastas é opção de primeira classe**, não um cancelamento
+disfarçado: excluir a coleção e preservar os arquivos é uso legítimo — foi
+justamente o pedido.
+
+### Travas do backend
+
+`DELETE /folders` apaga arquivo sem lixeira. Três travas, todas obrigatórias:
+
+| Trava | Efeito |
+|---|---|
+| Lista fechada | Só apaga caminho registrado para **esta** coleção e **este** usuário. Caminho arbitrário existente no disco → `nao_autorizada` |
+| Escolha explícita | `caminhos` obrigatório; não existe "apagar todas" implícito |
+| Confirmação | `confirmar: true` obrigatório, e precisa ser booleano — a string `"true"` é recusada |
+
+Apagar a pasta vinculada desvincula a coleção e a devolve a `manual`, senão a
+próxima adição tentaria copiar para um caminho morto.
+
+Excluir pastas e excluir a coleção são **operações separadas**: uma acontece
+sem a outra, nos dois sentidos.
+
+### Várias pastas para a mesma coleção
+
+Exportar duas vezes cria duas pastas. Três decisões saem disso, e nenhuma podia
+ser tomada pelo sistema.
+
+**Como chamar a nova.** O nome da coleção é sempre o prefixo — é o que faz o
+usuário reconhecer a origem no Explorer:
+
+```
+Natureza            1ª exportação
+Natureza_2          2ª, numeração automática
+Natureza_backup     complemento escolhido
+Natureza_backup_2   complemento já em uso
+```
+
+O padrão anterior era `Natureza (1)`, estilo Windows. Mudou para `_2` a pedido:
+lê melhor como "a segunda pasta da Natureza" e não se confunde com cópia do
+sistema operacional.
+
+**Qual pasta recebe as fotos.** Uma re-exportação **não** troca o destino
+sozinha. Antes, `/export` sempre vinculava a pasta recém-criada — o usuário
+exportava para um backup e, sem perceber, as fotos seguintes paravam de ir para
+a pasta principal. Agora o backend aceita `vincular`:
+
+| Valor | Comportamento |
+|---|---|
+| ausente | Vincula só se ainda não houver pasta vinculada |
+| `true` | Passa a apontar para a nova |
+| `false` | Mantém o destino atual |
+
+O frontend manda `false` na re-exportação e pergunta depois, com a pasta já
+criada e todas as opções na tela.
+
+**Qual abrir.** "Abrir pasta exportada" lista todas, com caminho, contagem de
+arquivos e selo em quem recebe as fotos. Dá para abrir qualquer uma ou trocar o
+destino ali mesmo. Com uma pasta só, abre direto — um modal de item único para
+escolher entre uma opção é burocracia.
+
+### O fluxo de exportar de novo
+
+```
+[Exportar coleção]  numa coleção que já tem pasta
+         │
+         ▼
+ "Natureza já foi exportada para 3 pastas"
+         │
+    ┌────┴─────┐
+    ▼          ▼
+Numerar     Escolher
+ (_4)      complemento     →  Natureza_[____]
+    └────┬─────┘               prefixo fixo
+         ▼
+  seletor nativo de pasta
+         ▼
+     cópia + progresso
+         ▼
+ "Para qual pasta vão as próximas fotos?"
+   ○ Natureza_praia (a que você acabou de criar)
+   ○ Natureza (recebe hoje)
+   ○ Natureza_2
+```
+
+A pergunta do destino vem **depois** do resultado da cópia, não antes: competir
+com a barra de progresso na tela faria o usuário decidir no meio de uma
+operação em andamento.
+
+### O destino é um conjunto, não um valor
+
+A primeira versão tinha **uma** pasta vinculada. Organizar a mesma coleção em
+duas pastas — uma de trabalho e um backup, por exemplo — era impossível, e
+"parar de enviar" só existia desvinculando, o que apagava a configuração.
+
+Agora `collection_folders.recebe` marca quais pastas recebem. São três estados
+legítimos:
+
+| Marcadas | O que acontece |
+|---|---|
+| Várias | Cada imagem é copiada para todas — a coleção fica espelhada |
+| Uma | Comportamento anterior |
+| Nenhuma | Nada é enviado; as pastas continuam registradas e abríveis |
+
+O último é o que faltava: parar o envio sem perder o histórico das pastas.
+
+**Contagem.** `copiados` conta uma cópia por pasta: 2 arquivos em 2 pastas dão
+4. Já a falha do arquivo — ausente, ou fora das pastas monitoradas — é contada
+**uma vez**, porque é do arquivo e não do destino. Contá-la por pasta faria o
+resumo multiplicar o mesmo problema.
+
+**Pasta sumida.** Se uma das pastas foi apagada por fora, a cópia acontece nas
+que restaram. Só devolve 409 quando nenhuma sobrou. Perder um destino não pode
+bloquear os demais.
+
+**Migração.** O `schema.sql` marca `recebe = TRUE` na pasta que estava em
+`collections.pasta_vinculada`, uma vez. Coleções antigas continuam funcionando
+sem intervenção. O campo `pasta_vinculada` permanece como espelho do primeiro
+elemento do conjunto — as telas e mensagens antigas ainda o leem, e deixá-lo
+divergir criaria duas verdades sobre o mesmo assunto.
+
+### Depois de re-exportar
+
+O modal oferece três atalhos e a marcação livre:
+
+```
+Para qual pasta devem ir as próximas fotos?
+
+  [ Só "Fotos_backup" ]        só a pasta nova
+  [ Todas as pastas ]          espelha em todas
+  [ Nenhuma por enquanto ]     pastas salvas, nada enviado
+
+Ou escolha exatamente quais:
+  ☑ Fotos_backup  (a que você acabou de criar)
+  ☑ Fotos         (recebe hoje)
+  ☐ Fotos_2
+  [ Confirmar escolha ]
+```
+
+Os atalhos existem porque "só a nova" é o caso mais frequente e, sem eles,
+custaria desmarcar as outras uma a uma.
+
+### Aba de Configurações
+
+O modo era escolhido **uma vez**, na criação, e depois não havia como mudar —
+lacuna real: quem escolhesse "não enviar" no começo ficava preso a isso.
+
+A tela da coleção ganhou **⚙ Configurações**, com os mesmos três modos e a
+**mesma ilustração animada**. Ela é clonada do modal de vínculo, não duplicada:
+o SVG tem uma origem só. Reapresentá-la é deliberado — quem abre essa tela
+meses depois precisa reentender o conceito, não só ver três opções soltas.
+
+O modo em vigor aparece destacado com o selo "atual". O rodapé diz o destino e,
+quando não há pasta ou nenhuma está marcada, avisa que o envio automático não
+tem para onde ir — evita a configuração que não faz nada.
+
+```
+⚙ Configurações — TESTE
+
+  ┌────┐   ● ● ●  ───▶   ┌──────┐
+  └────┘                 └──────┘
+  Coleção                 Pasta
+
+Quando eu adicionar fotos a esta coleção:
+  [ Enviar sempre, sem perguntar            ]
+  [ Perguntar antes de cada envio    (atual) ]
+  [ Não enviar automaticamente              ]
+
+Destino: TESTE. Para mudar, use "Abrir pasta exportada".
+```
+
+### Marcar todas as pastas
+
+Com várias pastas, "todas" e "nenhuma" custariam N cliques. O controle no topo
+da lista alterna entre os dois, e some quando há uma pasta só — ali ele não
+significaria nada além do próprio item.
+
+### Espelho nos dois sentidos
+
+Adicionar copiava, remover não apagava — a pasta divergia da coleção para
+sempre. `DELETE /sync` fecha o ciclo, seguindo o mesmo modo:
+
+| Modo | Ao remover da coleção |
+|---|---|
+| `auto` | Apaga a cópia, sem perguntar |
+| `perguntar` | Confirma antes |
+| `manual` | Não toca na pasta |
+
+As descrições dos modos foram reescritas para dizer isso. "Enviar sempre, sem
+perguntar" virou **"Manter a pasta igual à coleção"** — quem escolhe precisa
+saber que remover também apaga, *antes* de escolher, não ao ver o arquivo
+sumir.
+
+**O que a remoção não faz.** Apaga arquivo do disco, então vale o mesmo rigor
+da exclusão de pastas — com uma diferença de gravidade: o alvo é uma **cópia**
+gerada pelo app, não um arquivo do usuário.
+
+| Trava | Efeito |
+|---|---|
+| Só dentro das pastas registradas | Nome reduzido a `basename` e sanitizado; `..\..lgo` não escapa |
+| Só a cópia | A árvore monitorada não entra no laço — o original nunca é tocado |
+| Nunca diretório | Nome que casar com subpasta é ignorado |
+
+Não exige `confirmar` no corpo, ao contrário do `DELETE /folders`: quem chama
+já confirmou ao remover da coleção.
+
+### Status da pasta
+
+O modo manual deixava uma pergunta em aberto: *quais* imagens já foram
+copiadas? A pasta mostrava "3 arquivos" e nada mais — sem saber onde parou, a
+cópia manual vira tentativa e erro.
+
+**🔍 Status da pasta** compara a coleção com cada pasta:
+
+```
+Status — Diff
+A coleção tem 4 imagens. Modo: envio manual.
+
+┌──────────────────────────────────────────────┐
+│ Diff        [recebe as fotos]                │
+│ D:\A\Diff                                    │
+│ ████████████████████░░░░░░░░░░               │
+│ ● 2 na pasta   ● 2 faltando                  │
+│ ▸ Já na pasta (2)                            │
+│ ▸ Faltando (2)                               │
+│ [ Copiar as 2 que faltam ]                   │
+└──────────────────────────────────────────────┘
+```
+
+Três listas, cada uma com os nomes:
+
+| Lista | Significa |
+|---|---|
+| **Já na pasta** | Está na coleção e na pasta |
+| **Faltando** | Está na coleção, não está na pasta |
+| **Fora da coleção** | Está na pasta, saiu da coleção — cópia órfã |
+
+A terceira é a que denuncia divergência: em modo manual é esperada; em `auto`,
+indica falha de remoção.
+
+A comparação usa o nome **sanitizado**, o mesmo que a cópia recebe no destino.
+Comparar com o nome cru marcaria como "faltando" todo arquivo cujo nome tenha
+caractere inválido no Windows.
+
+O botão "Copiar as N que faltam" existe porque é o motivo de abrir a tela no
+modo manual — descobrir o que falta e mandar.
+
+---
+
+## 8. Limitações
+
+| # | Limitação | Observação |
+|---|---|---|
+| **L-1** | O espelho responde a ações **no app**: adicionar e remover da coleção refletem na pasta. O caminho inverso não existe — mexer na pasta pelo Explorer não altera a coleção. | Vigiar o disco exigiria `watchdog`; ver a lacuna 2.1 do levantamento de jornada. O "Status da pasta" mostra a divergência quando ela ocorre. |
+| **L-2** | A remoção apaga sem lixeira. | O alvo é sempre uma cópia gerada pelo app; o original fica intacto. Em `perguntar`, a confirmação diz isso explicitamente. |
+| **L-3** | Renomear a coleção não renomeia a pasta. | O vínculo é pelo caminho absoluto, não pelo nome. |
+| **L-4** | Sem histórico do que foi sincronizado. | O *toast* informa e some. |
+| **L-5** | O modo é por coleção, sem padrão global. | Quem quiser `auto` em tudo escolhe a cada criação. Um padrão em `config_json` resolveria. |
+| **L-6** | Marcar uma pasta como destino não copia o que já está na coleção — só o que entrar dali em diante. | Para encher a pasta com o acervo atual, use "Exportar coleção". |
