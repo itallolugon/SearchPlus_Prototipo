@@ -50,13 +50,31 @@ py tools/gerar_relatorio.py
 
 Sai nos dois formatos: o `.docx` para editar, o `.pdf` para enviar.
 
+**Relatório de implementação** — o que foi feito e o que mudou para quem usa.
+
 | Data | Word | PDF |
 |---|---|---|
 | 31/08/2026 | [`.docx`](SearchPlus_Implementacoes_2026-08-31.docx) | [`.pdf`](SearchPlus_Implementacoes_2026-08-31.pdf) |
 
+**Arquitetura da informação** — onde cada coisa mora, como se chama, por
+onde se chega. Diagnóstico e os ajustes propostos no caminho do usuário.
+
+```bash
+py tools/gerar_doc_arquitetura.py
+```
+
+| Data | Word | PDF |
+|---|---|---|
+| 31/08/2026 | [`.docx`](SearchPlus_ArquiteturaInformacao_2026-08-31.docx) | [`.pdf`](SearchPlus_ArquiteturaInformacao_2026-08-31.pdf) |
+
 O conteúdo do relatório vive em `tools/gerar_relatorio.py`, e não num .docx
 editado à mão: assim o texto entra em revisão de código como o resto, e a
 versão seguinte parte da anterior em vez de recomeçar.
+
+A forma — capa, estilos, tabelas e conversão para PDF — vem de
+`tools/docx_base.py`, compartilhada pelos dois. Quem escreve um documento
+novo cuida só do conteúdo; assim eles não vão divergindo de aparência sem
+ninguém decidir isso.
 
 O PDF sai do Word quando ele está instalado, e do LibreOffice quando não
 está. Sem nenhum dos dois, o `.docx` é gerado do mesmo jeito e o script

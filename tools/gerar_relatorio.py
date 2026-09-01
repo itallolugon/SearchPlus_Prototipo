@@ -1,111 +1,39 @@
 # -*- coding: utf-8 -*-
 """
-Gera o relatorio de implementacao em .docx.
+Gera o relatorio de implementacao em .docx e .pdf.
 
     py tools/gerar_relatorio.py              # usa a data de hoje
     py tools/gerar_relatorio.py 2026-09-15   # usa a data informada
 
-Sai em docs/SearchPlus_Implementacoes_AAAA-MM-DD.docx e o .pdf ao lado.
-Cada rodada gera um
-arquivo novo, com data no nome, em vez de sobrescrever: a ideia e ter o
+Sai em docs/SearchPlus_Implementacoes_AAAA-MM-DD.{docx,pdf}. Cada rodada gera
+um arquivo novo, com data no nome, em vez de sobrescrever: a ideia e ter o
 historico do que foi entregue em cada momento, e nao so a foto de agora.
 
-Capa com as cores do app; miolo todo preto. As tabelas seguem sempre o mesmo
-formato -- o que mudou, como era, como e agora -- porque o documento existe
-para responder "o que o usuario ganhou", e nao para repetir a especificacao,
-que ja esta em docs/09-requisitos-funcionais.md.
+A forma -- capa, estilos, tabelas e conversao para PDF -- vem de docx_base.py.
+Aqui fica so o CONTEUDO.
 
-AO ACRESCENTAR UMA FEATURE: some um capitulo em CAPITULOS, atualize os
-numeros do Resumo e, se for o caso, a tabela de decisoes em aberto. O texto
-de cada linha deve caber na frase "antes o usuario fazia X, agora faz Y" --
-se nao couber, provavelmente e detalhe tecnico e o lugar dele e o markdown
-dos requisitos.
+AO ACRESCENTAR UMA FEATURE: some um capitulo em CAPITULOS, atualize os numeros
+do RESUMO e, se for o caso, DECISOES. O texto de cada linha deve caber na frase
+"antes o usuario fazia X, agora faz Y" -- se nao couber, provavelmente e
+detalhe tecnico, e o lugar dele e o markdown dos requisitos.
 """
-import datetime
-import io
 import os
-import re
-import subprocess
+import sys
 
-from docx import Document
-from docx.enum.section import WD_SECTION
-from docx.enum.table import WD_ALIGN_VERTICAL
-from docx.enum.text import WD_ALIGN_PARAGRAPH
-from docx.oxml.ns import qn
-from docx.oxml import OxmlElement
-from docx.shared import Cm, Pt, RGBColor
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from docx_base import (  # noqa: E402
+    abrir_miolo, capa, data_do_argumento, novo_documento, nota,
+    raiz_do_repositorio, salvar, tabela,
+)
 
-# --- cores (so a capa usa) -------------------------------------------------
-FUNDO = "0B0F19"
-ROXO = "AB5AF7"
-MAGENTA = "E879F9"
-BRANCO = RGBColor(0xFF, 0xFF, 0xFF)
-CINZA_CLARO = RGBColor(0x94, 0xA3, 0xB8)
-PRETO = RGBColor(0, 0, 0)
+RESUMO = [
+    ("Requisitos funcionais especificados", "338"),
+    ("Requisitos implementados ou corrigidos", "337"),
+    ("Requisitos fora de escopo, por decisão registrada", "1"),
+    ("Testes automatizados passando", "799"),
+    ("Áreas do produto afetadas", "12"),
+]
 
-HOJE = datetime.date.today()   # sobrescrito pelo argumento da linha de comando
-MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho",
-         "agosto", "setembro", "outubro", "novembro", "dezembro"]
-
-
-def sombrear(celula, hexcor):
-    shd = OxmlElement("w:shd")
-    shd.set(qn("w:val"), "clear")
-    shd.set(qn("w:color"), "auto")
-    shd.set(qn("w:fill"), hexcor)
-    celula._tc.get_or_add_tcPr().append(shd)
-
-
-def sem_margem_interna(tabela):
-    tblPr = tabela._tbl.tblPr
-    mar = OxmlElement("w:tblCellMar")
-    for lado in ("top", "left", "bottom", "right"):
-        el = OxmlElement("w:%s" % lado)
-        el.set(qn("w:w"), "0")
-        el.set(qn("w:type"), "dxa")
-        mar.append(el)
-    tblPr.append(mar)
-
-
-def sem_bordas(tabela):
-    tblPr = tabela._tbl.tblPr
-    b = OxmlElement("w:tblBorders")
-    for lado in ("top", "left", "bottom", "right", "insideH", "insideV"):
-        el = OxmlElement("w:%s" % lado)
-        el.set(qn("w:val"), "none")
-        el.set(qn("w:sz"), "0")
-        b.append(el)
-    tblPr.append(b)
-
-
-def nao_partir(linha):
-    """
-    Impede a linha de quebrar entre duas paginas. Sem isso, uma linha alta
-    parte no meio e a continuacao aparece com as duas primeiras colunas
-    vazias -- o leitor perde a referencia do que esta lendo.
-    """
-    trPr = linha._tr.get_or_add_trPr()
-    el = OxmlElement("w:cantSplit")
-    trPr.append(el)
-
-
-def repetir_cabecalho(linha):
-    trPr = linha._tr.get_or_add_trPr()
-    el = OxmlElement("w:tblHeader")
-    el.set(qn("w:val"), "true")
-    trPr.append(el)
-
-
-def interpolar(c1, c2, t):
-    a = [int(c1[i:i + 2], 16) for i in (0, 2, 4)]
-    b = [int(c2[i:i + 2], 16) for i in (0, 2, 4)]
-    return "".join("%02X" % round(a[i] + (b[i] - a[i]) * t) for i in range(3))
-
-
-# ===========================================================================
-# CONTEUDO
-# ===========================================================================
-# (titulo, paragrafo de contexto, [(o que, antes, agora)], "faixa de RFs")
 CAPITULOS = [
     ("1. Encontrar as coisas: a busca",
      "A busca é o coração do produto. As mudanças aqui foram menos sobre achar "
@@ -449,172 +377,54 @@ CAPITULOS = [
      "RF-045 · RF-100 · RF-107 a RF-108 · RF-138 a RF-139"),
 ]
 
+FORA_DE_ESCOPO = [
+        ("Coleções dentro de coleções",
+         "Fora de escopo por decisão registrada no planejamento (RF-277). Muda a "
+         "estrutura de dados e a navegação inteira; é uma frente própria."),
+        ("Remover arquivos duplicados na exportação",
+         "Dois itens diferentes da coleção que apontem para arquivos de conteúdo "
+         "idêntico são exportados os dois. Comparar conteúdo é uma decisão de produto "
+         "que ainda não foi tomada."),
+    ]
 
-def converter_para_pdf(caminho_docx):
-    """
-    Gera o PDF ao lado do .docx.
+DECISOES = [
+        ("A tecla Esc deveria limpar a busca?",
+         "Hoje Esc fecha janelas em todo o app, e usar a mesma tecla para duas "
+         "coisas confundiria. O × do campo limpa. Pode mudar depois sem retrabalho."),
+        ("Cor dos botões com degradê",
+         "Ficaram um tom mais escuros para o texto branco atingir o mínimo de "
+         "leitura. Se achar que descaracterizou a marca, dá para reverter — mas o "
+         "texto dos botões volta a ficar abaixo do mínimo. É decisão de produto."),
+        ("Suporte a outros sistemas",
+         "O app é de Windows: usa o Explorer e os seletores de pasta do sistema. "
+         "Abrir para Mac e Linux é possível, e fica mais caro quanto mais tarde."),
+        ("Testes automatizados da interface",
+         "Adicionaria uma ferramenta nova ao projeto, então não fiz por conta "
+         "própria. Hoje a interface é conferida manualmente e por checagens "
+         "automáticas rodadas no navegador."),
+    ]
 
-    Duas rotas, nesta ordem, porque nem toda maquina tem as duas:
-
-      1. Word, se estiver instalado. E o que produz o resultado fiel -- foi com
-         ele que a paginacao e a capa foram conferidas.
-      2. LibreOffice, como alternativa. Pagina de forma ligeiramente diferente
-         (a contagem de paginas pode variar), mas resolve numa maquina sem Word.
-
-    Sem nenhum dos dois, avisa e devolve None em vez de derrubar: o .docx, que
-    e a entrega, ja esta gravado a essa altura.
-    """
-    absoluto = os.path.abspath(caminho_docx)
-    destino = absoluto[:-5] + ".pdf"
-
-    # --- 1. Word ----------------------------------------------------------
-    try:
-        import win32com.client
-
-        word = win32com.client.Dispatch("Word.Application")
-        word.Visible = False
-        try:
-            # ReadOnly=True para nao mexer no arquivo que acabou de sair.
-            documento = word.Documents.Open(absoluto, False, True)
-            documento.SaveAs(destino, FileFormat=17)   # 17 = PDF
-            documento.Close(False)
-        finally:
-            word.Quit()
-        return destino
-    except Exception as erro:
-        print("  Word nao converteu (%s); tentando o LibreOffice." % erro)
-
-    # --- 2. LibreOffice ---------------------------------------------------
-    for candidato in (
-        r"C:\Program Files\LibreOffice\program\soffice.exe",
-        r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
-        "soffice",
-    ):
-        try:
-            subprocess.run(
-                [candidato, "--headless", "--convert-to", "pdf",
-                 "--outdir", os.path.dirname(absoluto), absoluto],
-                check=True, capture_output=True, timeout=180)
-            if os.path.exists(destino):
-                return destino
-        except (OSError, subprocess.SubprocessError):
-            continue
-
-    print("  Nenhum conversor disponivel; so o .docx foi gerado.")
-    return None
+REFERENCIAS = [
+        ("Especificação de cada requisito", "docs/09-requisitos-funcionais.md"),
+        ("Desempenho, segurança e limites", "docs/10-requisitos-nao-funcionais.md"),
+        ("Endereços que a interface usa", "docs/API.md"),
+        ("Como substituir ou mexer na interface", "docs/FRONTEND.md"),
+        ("Como rodar os testes", "docs/TESTING.md"),
+    ]
 
 
-def montar(hoje=None):
-    global HOJE
-    if hoje is not None:
-        HOJE = hoje
+def montar(data):
+    doc = novo_documento()
 
-    doc = Document()
+    capa(doc,
+         "RELATÓRIO DE IMPLEMENTAÇÃO",
+         ["Requisitos funcionais entregues", "e o que mudou para quem usa"],
+         None,
+         data,
+         ["338 requisitos · 799 testes automatizados",
+          "branch feature/colecoes-organizacao-e-pastas"])
 
-    # --- estilos globais: tudo preto -------------------------------------
-    normal = doc.styles["Normal"]
-    normal.font.name = "Calibri"
-    normal.font.size = Pt(10.5)
-    normal.font.color.rgb = PRETO
-    normal.paragraph_format.space_after = Pt(6)
-    normal.paragraph_format.line_spacing = 1.12
-
-    for nome, tam in (("Heading 1", 16), ("Heading 2", 12.5)):
-        est = doc.styles[nome]
-        est.font.name = "Calibri"
-        est.font.size = Pt(tam)
-        est.font.bold = True
-        est.font.color.rgb = PRETO
-        est.paragraph_format.space_before = Pt(18)
-        est.paragraph_format.space_after = Pt(6)
-
-    # =====================================================================
-    # CAPA
-    # =====================================================================
-    sec = doc.sections[0]
-    sec.page_width, sec.page_height = Cm(21), Cm(29.7)
-    for lado in ("top_margin", "bottom_margin", "left_margin", "right_margin"):
-        setattr(sec, lado, Cm(0))
-
-    capa = doc.add_table(rows=1, cols=1)
-    sem_bordas(capa)
-    sem_margem_interna(capa)
-    cel = capa.cell(0, 0)
-    cel.width = Cm(21)
-    capa.rows[0].height = Cm(29.4)
-    cel.vertical_alignment = WD_ALIGN_VERTICAL.CENTER
-    sombrear(cel, FUNDO)
-
-    def linha_capa(texto, tamanho, cor, espaco_antes=0, espaco_depois=0,
-                   negrito=False, maiuscula_espacada=False):
-        p = cel.add_paragraph()
-        p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        p.paragraph_format.space_before = Pt(espaco_antes)
-        p.paragraph_format.space_after = Pt(espaco_depois)
-        r = p.add_run(texto)
-        r.font.size = Pt(tamanho)
-        r.font.color.rgb = cor
-        r.font.bold = negrito
-        r.font.name = "Calibri"
-        if maiuscula_espacada:
-            rPr = r._element.get_or_add_rPr()
-            sp = OxmlElement("w:spacing")
-            sp.set(qn("w:val"), "60")
-            rPr.append(sp)
-        return p
-
-    # o paragrafo que a celula ja tem, vazio, serve de respiro no topo
-    cel.paragraphs[0].paragraph_format.space_after = Pt(0)
-
-    p = cel.paragraphs[0]
-    p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = p.add_run("SEARCH")
-    r.font.size, r.font.bold, r.font.name = Pt(46), True, "Calibri"
-    r.font.color.rgb = BRANCO
-    r2 = p.add_run("+")
-    r2.font.size, r2.font.bold, r2.font.name = Pt(46), True, "Calibri"
-    r2.font.color.rgb = RGBColor.from_string(ROXO)
-
-    # faixa com o degrade do tema
-    faixa_wrap = cel.add_paragraph()
-    faixa_wrap.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    faixa_wrap.paragraph_format.space_before = Pt(14)
-    faixa_wrap.paragraph_format.space_after = Pt(0)
-
-    faixa = cel.add_table(rows=1, cols=12)
-    sem_bordas(faixa)
-    sem_margem_interna(faixa)
-    faixa.rows[0].height = Cm(0.18)
-    faixa.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    for i in range(12):
-        c = faixa.cell(0, i)
-        c.width = Cm(9.0 / 12)
-        sombrear(c, interpolar(ROXO, MAGENTA, i / 11.0))
-        c.paragraphs[0].paragraph_format.space_after = Pt(0)
-        run = c.paragraphs[0].add_run(" ")
-        run.font.size = Pt(3)
-
-    linha_capa("RELATÓRIO DE IMPLEMENTAÇÃO", 11, RGBColor.from_string(MAGENTA),
-               espaco_antes=26, espaco_depois=4, negrito=True,
-               maiuscula_espacada=True)
-    linha_capa("Requisitos funcionais entregues", 20, BRANCO,
-               espaco_antes=6, espaco_depois=2)
-    linha_capa("e o que mudou para quem usa", 20, BRANCO, espaco_depois=0)
-
-    linha_capa("%d de %s de %d" % (HOJE.day, MESES[HOJE.month - 1], HOJE.year),
-               12, CINZA_CLARO, espaco_antes=40, espaco_depois=2)
-    linha_capa("338 requisitos · 799 testes automatizados",
-               10.5, CINZA_CLARO, espaco_depois=2)
-    linha_capa("branch feature/colecoes-organizacao-e-pastas",
-               9.5, CINZA_CLARO, espaco_depois=0)
-
-    # =====================================================================
-    # MIOLO
-    # =====================================================================
-    corpo = doc.add_section(WD_SECTION.NEW_PAGE)
-    corpo.page_width, corpo.page_height = Cm(21), Cm(29.7)
-    corpo.top_margin = corpo.bottom_margin = Cm(2.2)
-    corpo.left_margin = corpo.right_margin = Cm(2.5)
+    abrir_miolo(doc)
 
     doc.add_heading("Como ler este documento", level=1)
     for t in [
@@ -632,163 +442,34 @@ def montar(hoje=None):
         doc.add_paragraph(t)
 
     doc.add_heading("Resumo", level=1)
-    resumo = doc.add_table(rows=1, cols=2)
-    resumo.style = "Table Grid"
-    resumo.autofit = False
-    cab = resumo.rows[0]
-    repetir_cabecalho(cab)
-    for i, txt in enumerate(("Indicador", "Número")):
-        cab.cells[i].text = ""
-        run = cab.cells[i].paragraphs[0].add_run(txt)
-        run.bold = True
-    for rot, val in [
-        ("Requisitos funcionais especificados", "338"),
-        ("Requisitos implementados ou corrigidos", "337"),
-        ("Requisitos fora de escopo, por decisão registrada", "1"),
-        ("Testes automatizados passando", "799"),
-        ("Áreas do produto afetadas", "12"),
-    ]:
-        l = resumo.add_row()
-        nao_partir(l)
-        l.cells[0].text = rot
-        l.cells[1].text = val
-    for l in resumo.rows:
-        l.cells[0].width = Cm(11.5)
-        l.cells[1].width = Cm(4.5)
+    tabela(doc, ("Indicador", "Número"), RESUMO, (11.5, 4.5),
+           negrito_primeira=False)
 
-    # --- capitulos -------------------------------------------------------
     for titulo, contexto, linhas, rfs in CAPITULOS:
         doc.add_heading(titulo, level=1)
-        pc = doc.add_paragraph(contexto)
-        pc.paragraph_format.keep_with_next = True
+        doc.add_paragraph(contexto).paragraph_format.keep_with_next = True
+        tabela(doc, ("O que mudou", "Como era", "Como é agora"),
+               linhas, (3.6, 6.2, 6.2))
+        nota(doc, "Requisitos: " + rfs)
 
-        tab = doc.add_table(rows=1, cols=3)
-        tab.style = "Table Grid"
-        tab.autofit = False
-        cab = tab.rows[0]
-        repetir_cabecalho(cab)
-        for i, txt in enumerate(("O que mudou", "Como era", "Como é agora")):
-            cab.cells[i].text = ""
-            run = cab.cells[i].paragraphs[0].add_run(txt)
-            run.bold = True
-
-        for oque, antes, agora in linhas:
-            l = tab.add_row()
-            nao_partir(l)
-            l.cells[0].paragraphs[0].add_run(oque).bold = True
-            l.cells[1].text = antes
-            l.cells[2].text = agora
-
-        for l in tab.rows:
-            l.cells[0].width = Cm(3.6)
-            l.cells[1].width = Cm(6.2)
-            l.cells[2].width = Cm(6.2)
-
-        p = doc.add_paragraph()
-        p.paragraph_format.space_before = Pt(4)
-        r = p.add_run("Requisitos: " + rfs)
-        r.font.size = Pt(8.5)
-        r.italic = True
-
-    # --- fora de escopo --------------------------------------------------
     doc.add_heading("O que ficou de fora, e por quê", level=1)
-    fora = doc.add_table(rows=1, cols=2)
-    fora.style = "Table Grid"
-    fora.autofit = False
-    cab = fora.rows[0]
-    repetir_cabecalho(cab)
-    for i, txt in enumerate(("Item", "Motivo")):
-        cab.cells[i].text = ""
-        cab.cells[i].paragraphs[0].add_run(txt).bold = True
-    for item, motivo in [
-        ("Coleções dentro de coleções",
-         "Fora de escopo por decisão registrada no planejamento (RF-277). Muda a "
-         "estrutura de dados e a navegação inteira; é uma frente própria."),
-        ("Remover arquivos duplicados na exportação",
-         "Dois itens diferentes da coleção que apontem para arquivos de conteúdo "
-         "idêntico são exportados os dois. Comparar conteúdo é uma decisão de produto "
-         "que ainda não foi tomada."),
-    ]:
-        l = fora.add_row()
-        nao_partir(l)
-        l.cells[0].paragraphs[0].add_run(item).bold = True
-        l.cells[1].text = motivo
-    for l in fora.rows:
-        l.cells[0].width = Cm(4.6)
-        l.cells[1].width = Cm(11.4)
+    tabela(doc, ("Item", "Motivo"), FORA_DE_ESCOPO, (4.6, 11.4))
 
     doc.add_heading("Decisões que ainda dependem de você", level=1)
     doc.add_paragraph(
         "Pontos em aberto por escolha, não por esquecimento. Nenhum bloqueia o "
         "uso do app; todos mudam alguma coisa se você decidir diferente.")
-    dec = doc.add_table(rows=1, cols=2)
-    dec.style = "Table Grid"
-    dec.autofit = False
-    cab = dec.rows[0]
-    repetir_cabecalho(cab)
-    for i, txt in enumerate(("Questão", "Situação hoje")):
-        cab.cells[i].text = ""
-        cab.cells[i].paragraphs[0].add_run(txt).bold = True
-    for q, sit in [
-        ("A tecla Esc deveria limpar a busca?",
-         "Hoje Esc fecha janelas em todo o app, e usar a mesma tecla para duas "
-         "coisas confundiria. O × do campo limpa. Pode mudar depois sem retrabalho."),
-        ("Cor dos botões com degradê",
-         "Ficaram um tom mais escuros para o texto branco atingir o mínimo de "
-         "leitura. Se achar que descaracterizou a marca, dá para reverter — mas o "
-         "texto dos botões volta a ficar abaixo do mínimo. É decisão de produto."),
-        ("Suporte a outros sistemas",
-         "O app é de Windows: usa o Explorer e os seletores de pasta do sistema. "
-         "Abrir para Mac e Linux é possível, e fica mais caro quanto mais tarde."),
-        ("Testes automatizados da interface",
-         "Adicionaria uma ferramenta nova ao projeto, então não fiz por conta "
-         "própria. Hoje a interface é conferida manualmente e por checagens "
-         "automáticas rodadas no navegador."),
-    ]:
-        l = dec.add_row()
-        nao_partir(l)
-        l.cells[0].paragraphs[0].add_run(q).bold = True
-        l.cells[1].text = sit
-    for l in dec.rows:
-        l.cells[0].width = Cm(5.0)
-        l.cells[1].width = Cm(11.0)
+    tabela(doc, ("Questão", "Situação hoje"), DECISOES, (5.0, 11.0))
 
     doc.add_heading("Onde encontrar o detalhe", level=1)
-    ref = doc.add_table(rows=1, cols=2)
-    ref.style = "Table Grid"
-    ref.autofit = False
-    cab = ref.rows[0]
-    repetir_cabecalho(cab)
-    for i, txt in enumerate(("Assunto", "Arquivo no repositório")):
-        cab.cells[i].text = ""
-        cab.cells[i].paragraphs[0].add_run(txt).bold = True
-    for a, b in [
-        ("Especificação de cada requisito", "docs/09-requisitos-funcionais.md"),
-        ("Desempenho, segurança e limites", "docs/10-requisitos-nao-funcionais.md"),
-        ("Endereços que a interface usa", "docs/API.md"),
-        ("Como substituir ou mexer na interface", "docs/FRONTEND.md"),
-        ("Como rodar os testes", "docs/TESTING.md"),
-    ]:
-        l = ref.add_row()
-        nao_partir(l)
-        l.cells[0].text = a
-        l.cells[1].text = b
-    for l in ref.rows:
-        l.cells[0].width = Cm(7.0)
-        l.cells[1].width = Cm(9.0)
+    tabela(doc, ("Assunto", "Arquivo no repositório"), REFERENCIAS, (7.0, 9.0),
+           negrito_primeira=False)
 
-    nome = "docs/SearchPlus_Implementacoes_%s.docx" % HOJE.isoformat()
-    doc.save(nome)
-    return nome, converter_para_pdf(nome)
+    return salvar(doc, "SearchPlus_Implementacoes", data)
 
 
 if __name__ == "__main__":
-    import sys
-
-    # Roda a partir da raiz do repositorio, nao de onde o usuario chamou.
-    os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-    data = datetime.date.fromisoformat(sys.argv[1]) if len(sys.argv) > 1 else None
-    for caminho in montar(data):
+    raiz_do_repositorio()
+    for caminho in montar(data_do_argumento(sys.argv)):
         if caminho:
             print(os.path.relpath(caminho).replace("\\", "/"))
