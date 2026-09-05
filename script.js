@@ -3452,6 +3452,56 @@ async function salvarPastasVisiveis() {
 // só na cabeça de quem clicou.
 let _pastasVisiveis = null;
 
+// A home tem QUATRO motivos para estar vazia, e cada um pede uma frase e um
+// botão diferentes. A versão anterior cobria dois, e — pior — condicionava a
+// mensagem a `_pastasVisiveis` ser lista: quem nunca escolheu pasta nenhuma
+// (`null`) caía fora de todos os casos e via a tela em branco, sem uma palavra.
+//
+// Isso acertava justamente quem acabou de instalar. A tela inicial é a
+// primeira coisa que aparece depois do login, e não havia segunda chance de
+// explicar o que o programa faz.
+//
+//   sem pasta importada    → nunca vai encher sozinha; oferece o caminho
+//   pastas, mas nada pronto → a análise ainda está rodando; é só esperar
+//   escolheu nenhuma        → escolha da pessoa; a home limpa é o que ela pediu
+//   as escolhidas vazias    → filtrou demais; o seletor é o caminho de volta
+function desenharHomeVazia(container, pastas) {
+    const vazio = document.createElement('div');
+    vazio.className = 'galeria-vazia';
+
+    const frase = document.createElement('p');
+    frase.className = 'galeria-vazia-frase';
+
+    if (pastas.length === 0) {
+        frase.textContent = 'O Search+ ainda não conhece suas imagens. '
+            + 'Escolha uma pasta do computador para ele começar a analisar.';
+        vazio.appendChild(frase);
+        // O botão é metade do recado: sem ele, a frase diz o que fazer mas não
+        // onde. É o único estado dos quatro em que a pessoa precisa agir.
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'action-btn gradient-btn galeria-vazia-acao';
+        rotularCom(btn, 'pasta', 'Adicionar pasta');
+        btn.onclick = () => {
+            if (typeof abrirModalPastas === 'function') abrirModalPastas();
+        };
+        vazio.appendChild(btn);
+    } else if (!Array.isArray(_pastasVisiveis)) {
+        frase.textContent = 'Suas imagens estão sendo analisadas. '
+            + 'As categorias aparecem aqui conforme ficam prontas.';
+        vazio.appendChild(frase);
+    } else if (_pastasVisiveis.length === 0) {
+        frase.textContent = 'A home está limpa. Use a busca acima, '
+            + 'ou escolha uma pasta para ver as categorias.';
+        vazio.appendChild(frase);
+    } else {
+        frase.textContent = 'Nenhuma imagem nas pastas escolhidas.';
+        vazio.appendChild(frase);
+    }
+
+    container.appendChild(vazio);
+}
+
 async function carregarGaleria() {
     const container = document.getElementById('galeriaCategorias');
     if (!container) return;
@@ -3471,17 +3521,7 @@ async function carregarGaleria() {
 
         container.innerHTML = '';
         if (grupos.length === 0) {
-            // Sem esta mensagem a home fica vazia e parece que a indexação
-            // sumiu. E os dois motivos de estar vazia pedem textos diferentes:
-            // num deles a pessoa escolheu isso, no outro não.
-            if (Array.isArray(_pastasVisiveis)) {
-                const vazio = document.createElement('p');
-                vazio.className = 'galeria-vazia';
-                vazio.textContent = _pastasVisiveis.length
-                    ? 'Nenhuma imagem nas pastas escolhidas.'
-                    : 'A home está limpa. Use a busca acima, ou escolha uma pasta para ver as categorias.';
-                container.appendChild(vazio);
-            }
+            desenharHomeVazia(container, d.pastas || []);
             return;
         }
 

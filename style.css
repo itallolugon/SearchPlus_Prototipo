@@ -1864,3 +1864,30 @@ body {
    `button` e seletor de tipo, entao qualquer regra de classe que ja defina
    `color` continua ganhando, esteja onde estiver no arquivo. */
 button { color: inherit; }
+
+/* Estado vazio da home.
+   ---------------------------------------------------------------------------
+   Quatro motivos possiveis, um texto para cada -- ver desenharHomeVazia() no
+   script.js. O caso "nenhuma pasta importada" ganha botao, porque e o unico em
+   que a pessoa precisa fazer alguma coisa; nos outros tres a espera ou a
+   escolha dela ja resolvem. */
+.galeria-vazia {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+    padding: 48px 20px;
+    text-align: center;
+}
+
+.galeria-vazia-frase {
+    margin: 0;
+    max-width: 46ch;        /* linha longa demais cansa antes de informar */
+    color: var(--text-secondary);
+    line-height: 1.55;
+}
+
+.galeria-vazia-acao {
+    margin: 0;
+    padding: 11px 22px;
+}
