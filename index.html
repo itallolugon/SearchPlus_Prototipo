@@ -114,8 +114,21 @@
             <button class="menu-item" onclick="fecharMenuLateral(); abrirFavoritos()">Favoritos</button>
             <div class="menu-lateral-divider"></div>
             <span class="menu-lateral-secao">Biblioteca</span>
-            <button class="menu-item" onclick="fecharMenuLateral(); abrirModalPastas()">Gerenciar Pastas</button>
-            <button class="menu-item" onclick="fecharMenuLateral(); reAnalizarArquivos()">Re-analisar arquivos</button>
+            <button class="menu-item" onclick="fecharMenuLateral(); abrirModalPastas()">Pastas do computador</button>
+            <button class="menu-item" onclick="fecharMenuLateral(); reAnalizarArquivos()">Analisar de novo</button>
+            <!-- Resultado da ultima analise: e sobre a biblioteca, e nao
+                 registro de atividade, entao fica aqui e nao em Historico. -->
+            <button class="menu-item" onclick="fecharMenuLateral(); abrirResumoIndexacao()">Última análise</button>
+            <div class="menu-lateral-divider"></div>
+
+            <!-- Estas duas estavam dentro de Configuracoes, na aba
+                 "Desempenho". Sao CONTEUDO do usuario, nao preferencia:
+                 configuracao guarda escolha, conteudo mora onde se navega.
+                 Ninguem procura a lixeira embaixo de "Modo de Uso de
+                 Hardware". -->
+            <span class="menu-lateral-secao">Histórico</span>
+            <button class="menu-item" onclick="fecharMenuLateral(); abrirHistoricoExport()">Exportações</button>
+            <button class="menu-item" onclick="fecharMenuLateral(); abrirLixeira()">Lixeira</button>
             <div class="menu-lateral-divider"></div>
             <button class="menu-item" onclick="fecharMenuLateral(); abrirAjuda()">Ajuda</button>
         </div>
@@ -574,18 +587,6 @@
                 </div>
             </div>
             
-            <div style="margin-top: 20px; border-top: 1px solid var(--border-light); padding-top: 15px;">
-                <button type="button" onclick="abrirResumoIndexacao()" class="action-btn" style="width: 100%; margin: 0 0 8px 0;">
-                    Última indexação — o que entrou e o que não entrou
-                </button>
-                <button type="button" onclick="abrirHistoricoExport()" class="action-btn" style="width: 100%; margin: 0 0 8px 0;">
-                    Exportações — o que você já mandou para fora
-                </button>
-                <button type="button" onclick="abrirLixeira()" class="action-btn" style="width: 100%; margin: 0;">
-                    Lixeira — o que você excluiu
-                </button>
-            </div>
-
             <div style="display: flex; gap: 10px; margin-top: 12px;">
                 <button onclick="fecharModalConfigGerais()" class="action-btn" style="flex: 1; margin: 0;">Cancelar</button>
                 <button onclick="salvarConfigGerais()" class="action-btn gradient-btn" style="flex: 2; margin: 0; padding: 15px;">Salvar Configurações</button>

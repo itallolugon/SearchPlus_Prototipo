@@ -1503,11 +1503,12 @@ body {
 .toast-acao:hover:not(:disabled) { background: var(--accent-primary); color: #fff; }
 .toast-acao:disabled { opacity: 0.55; cursor: default; }
 
-/* Lixeira.
-   Abre POR CIMA das Configurações Gerais, que é de onde ela é aberta — com o
-   z-index base de .modal (1000) ela ficaria escondida atrás justamente da
-   tela que a chamou. Fica ABAIXO de confirmModal (10100), porque o
-   "descartar de vez" pede confirmação e esse diálogo precisa vencer. */
+/* Estas tres janelas sao destinos do menu lateral, e nao janelas de dentro
+   de outra. O z-index alto vem de quando eram abertas de dentro das
+   Configuracoes: com o valor base de .modal (1000) ficavam escondidas atras
+   justamente da tela que as chamou. Continuam acima de tudo por serem
+   destino, e ABAIXO de confirmModal (10100), porque o "descartar de vez"
+   pede confirmacao e esse dialogo precisa vencer. */
 #lixeiraModal, #resumoModal, #historicoExportModal { z-index: 10050; }
 
 /* Lixeira */
