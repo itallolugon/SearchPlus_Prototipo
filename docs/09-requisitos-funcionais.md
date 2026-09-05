@@ -750,6 +750,27 @@ e em fonte antiga alguns nem existem, virando um retângulo vazio.
 
 ---
 
+### Arquitetura da informação: os três ajustes críticos
+
+Levantados no diagnóstico de arquitetura da informação
+(`SearchPlus_ArquiteturaInformacao_2026-08-31.pdf`). O critério de "crítico" foi
+estreito: ou impede a pessoa de usar, ou faz ela acreditar que perdeu arquivo.
+
+| ID | Requisito | Status |
+|---|---|---|
+| **RF-336** | A tela inicial tem texto próprio para cada um dos **quatro** motivos de estar vazia: sem pasta adicionada, pastas adicionadas mas nada analisado, o usuário escolheu não mostrar nenhuma, e as pastas escolhidas não têm imagem. | Corrigido |
+| **RF-337** | Sem nenhuma pasta adicionada, a tela inicial oferece o botão que resolve. É o único dos quatro estados em que a pessoa precisa agir; nos outros a espera ou a escolha dela já resolvem. | Implementado |
+| **RF-338** | Nenhum dos quatro estados pode cair em tela branca. A versão anterior condicionava a mensagem a `Array.isArray(_pastasVisiveis)`, e quem nunca escolheu pasta tem `null` ali — exatamente quem acabou de instalar. | Corrigido |
+| **RF-339** | Lixeira, Exportações e Última análise ficam no menu lateral, não dentro de Configurações. Configuração guarda escolha; conteúdo mora onde se navega. | Corrigido |
+| **RF-340** | "Última análise" fica em Biblioteca, e não em Histórico: é resultado de operação sobre a biblioteca, não registro do que o usuário fez. | Implementado |
+| **RF-341** | As três abrem direto do menu, sem depender de outra janela aberta atrás. | Implementado |
+| **RF-342** | Um conceito, um nome: *pasta do computador* (a do usuário) e *pasta da coleção* (a que o app cria). "Monitorada", "importada", "vinculada", "exportada" e "gerada" saem de circulação. | Corrigido |
+| **RF-343** | Termo de sistema não vai para a tela: "indexar/indexação" viram "analisar/análise", pela mesma razão que nome de modelo de IA já não aparecia (RF-176). | Corrigido |
+| **RF-344** | A troca de vocabulário vale **só para texto de tela**. Nome de coluna, campo da API, id de elemento e nome de função ficam como estão — renomeá-los quebraria a paridade entre servidor, mock e documentação sem o usuário ganhar nada. | Implementado |
+| **RF-345** | Há teste reprovando o vocabulário aposentado em texto de tela. O risco que ele cobre não é errar uma frase: é aplicar a troca pela metade, e dois vocabulários convivendo é pior que o ruim de antes. | Implementado |
+
+---
+
 ## 5. Critérios de aceite
 
 Formato Dado/Quando/Então. Todos verificáveis manualmente com o app rodando.

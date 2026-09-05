@@ -183,6 +183,35 @@ erro, o botão só aparece vazio.
 
 ---
 
+## Vocabulário
+
+Um conceito, um nome. A palavra "pasta" já nomeou cinco coisas ao mesmo
+tempo, e o aviso "a pasta vinculada não está mais no lugar" fazia o usuário
+achar que as fotos dele tinham sumido.
+
+| Conceito | Na tela |
+|---|---|
+| A pasta do usuário, que o app lê | **pasta do computador** |
+| A pasta que o app cria para uma coleção | **pasta da coleção** |
+| Onde a pasta da coleção é criada | **onde salvar** |
+| Copiar a coleção para o computador | **Salvar no computador** |
+| Ler uma pasta pela primeira vez | **Adicionar pasta** |
+| O que a IA faz com os arquivos | **analisar** / **análise** |
+
+Aposentados: *monitorada*, *importada*, *vinculada*, *exportada*, *gerada*,
+*indexar*, *indexação*, *Gerenciar Pastas*.
+
+Isso vale **só para texto de tela**. `pasta_vinculada` (coluna),
+`pastas_ativas` (API), `pastasExportadasModal` (id) e `abrirPastaExportada`
+(função) continuam com o nome que têm: renomeá-los quebraria a paridade com
+o mock e a documentação, e o usuário nunca vê o nome de uma coluna.
+
+`tests/unit/test_vocabulario_do_front.py` reprova o vocabulário aposentado
+e fixa esse limite nos dois sentidos. Ele existe porque o risco não é errar
+uma frase — é aplicar a troca pela metade.
+
+---
+
 ## Detalhes que causam bug se ignorados
 
 **Descrição vazia é normal, não é erro.** Imagens são indexadas só com o vetor visual; a descrição em texto é gerada depois, sob demanda, quando alguma busca alcança aquela imagem. Uma imagem recém-indexada aparece com `descricao_ia: ""` e ganha texto mais tarde. Nunca exiba "falha ao processar" nesse caso.
@@ -213,6 +242,8 @@ const src = `${API_BASE_URL}/api/file/${encodeURIComponent(arquivo.caminho)}`;
 - [ ] Imagem sem descrição não é exibida como erro
 - [ ] Alternativa aos seletores nativos do Windows
 - [ ] Nenhum emoji na interface — ícones vêm do sprite
+- [ ] Vocabulário conforme a tabela acima, sem termo aposentado
+- [ ] A tela inicial diz alguma coisa nos quatro estados vazios
 - [ ] Botão só de ícone tem `aria-label`
 - [ ] Layout responsivo
 - [ ] Nada em `backend/` foi alterado
