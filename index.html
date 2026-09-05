@@ -174,7 +174,7 @@
                     <p style="color: var(--text-secondary); font-size: 0.9rem;">Nenhuma pasta selecionada ainda.</p>
                 </div>
                 
-                <button onclick="adicionarPastaOnboarding()" class="action-btn" style="width: 100%; margin: 15px 0 20px 0; padding: 15px; font-size: 1.1rem;">+ Importar Pasta do Windows</button>
+                <button onclick="adicionarPastaOnboarding()" class="action-btn" style="width: 100%; margin: 15px 0 20px 0; padding: 15px; font-size: 1.1rem;">+ Adicionar pasta do computador</button>
 
                 <!-- INDEXAÇÃO INTELIGENTE SELETIVA -->
                 <div class="indexacao-config-section" id="obIndexacaoSection">
@@ -802,7 +802,7 @@
     <div id="resumoModal" class="modal">
         <div class="modal-content" style="max-width: 640px;">
             <button class="close-btn" onclick="fecharResumoIndexacao()" aria-label="Fechar">&times;</button>
-            <h2 style="margin-top: 0; color: var(--text-primary);">Última indexação</h2>
+            <h2 style="margin-top: 0; color: var(--text-primary);">Última análise</h2>
             <div id="resumoCorpo" style="margin-top: 14px;"></div>
         </div>
     </div>
@@ -820,14 +820,14 @@
     <div id="foldersModal" class="modal">
         <div class="modal-content" style="max-width: 650px;">
             <span class="close-btn" onclick="fecharModalPastas()">&times;</span>
-            <h2 style="margin-top: 0; color: var(--text-primary);">Pastas Monitoradas</h2>
+            <h2 style="margin-top: 0; color: var(--text-primary);">Pastas do computador</h2>
             <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 20px;">O motor de IA analisará os arquivos dentro destas pastas.</p>
             
             <div id="foldersList" class="folder-list"></div>
 
             <!-- Config inline para pasta selecionada -->
             <div id="folderConfigInline" class="indexacao-config-section" style="display:none;">
-                <h4>Configurar Indexação: <span id="folderConfigName" style="color:var(--accent-primary);"></span></h4>
+                <h4>Configurar análise: <span id="folderConfigName" style="color:var(--accent-primary);"></span></h4>
 
                 <p>Foco da Análise</p>
                 <div class="chips-container" id="modalChipsFoco">
@@ -863,7 +863,7 @@
                 <button onclick="salvarConfigPasta()" class="action-btn gradient-btn" style="width:100%; margin-left:0; margin-top:15px; padding:12px;">Salvar Configuração</button>
             </div>
             
-            <button id="btnAdicionarPasta" onclick="adicionarPasta()" class="action-btn gradient-btn" style="width: 100%; margin-left: 0; margin-top: 20px; padding: 15px;">+ Importar Nova Pasta</button>
+            <button id="btnAdicionarPasta" onclick="adicionarPasta()" class="action-btn gradient-btn" style="width: 100%; margin-left: 0; margin-top: 20px; padding: 15px;">+ Adicionar pasta</button>
             <button id="btnAnalisarPastas" onclick="forcarAnalise()" class="action-btn" style="width: 100%; margin-left: 0; margin-top: 10px; padding: 15px; background: transparent;">Analisar Pastas Agora</button>
             <button id="btnReanalizar" onclick="reAnalizarArquivos()" class="action-btn" style="width: 100%; margin-left: 0; margin-top: 10px; padding: 15px; background: transparent; border-color: rgba(234,179,8,0.4); color: #EAB308;">Re-analisar Arquivos com Descrição Ruim</button>
         </div>
@@ -919,7 +919,7 @@
             <p class="exp-novo-rotulo">Nome da coleção</p>
             <button type="button" id="configRenomear" class="vincular-opcao" style="margin-bottom:20px;">
                 <span class="vincular-opcao-titulo tem-icone"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-lapis"></use></svg> Renomear coleção</span>
-                <span class="vincular-opcao-desc">O nome aparece no app e é usado nas pastas exportadas.</span>
+                <span class="vincular-opcao-desc">O nome aparece no app e dá nome às pastas da coleção.</span>
             </button>
 
             <p class="exp-novo-rotulo">Quando eu adicionar fotos a esta coleção:</p>
@@ -933,7 +933,7 @@
     <div id="pastasExportadasModal" class="modal" style="z-index: 10005;">
         <div class="modal-content" style="max-width: 580px;">
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-                <h3 style="margin:0; color:var(--text-primary); font-size:1.3rem;">Pastas exportadas</h3>
+                <h3 style="margin:0; color:var(--text-primary); font-size:1.3rem;">Pastas da coleção</h3>
                 <span class="close-btn" onclick="fecharPastasExportadas()" style="position:static;">&times;</span>
             </div>
             <p id="pastasExpTexto" style="color:var(--text-secondary); font-size:0.92rem; line-height:1.5; margin:0 0 12px 0;"></p>
@@ -949,7 +949,7 @@
     <div id="exportarDeNovoModal" class="modal" style="z-index: 10006;">
         <div class="modal-content" style="max-width: 560px;">
             <h3 style="margin:0 0 10px 0; color:var(--text-primary); font-size:1.3rem;">
-                Esta coleção já foi exportada
+                Esta coleção já foi salva numa pasta
             </h3>
             <p id="expNovoTexto" style="color:var(--text-secondary); font-size:0.95rem; line-height:1.5; margin:0 0 16px 0;"></p>
 
@@ -1210,8 +1210,8 @@
                                 title="Escolher quando as novas fotos vão para a pasta"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-engrenagem"></use></svg> Configurações</button>
                         <button id="btnAbrirPastaColecao" class="action-btn" onclick="abrirPastaDaColecao()"
                                 style="margin:0; padding:8px 14px; background:transparent; display:none;"
-                                title="Abrir no Explorer a pasta exportada desta coleção"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-pasta-aberta"></use></svg> Abrir pasta exportada</button>
-                        <button class="action-btn gradient-btn" onclick="exportarColecao()" style="margin:0; padding:8px 16px;" title="Salvar as imagens desta coleção numa pasta do computador"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-baixar"></use></svg> Exportar coleção</button>
+                                title="Abrir no Explorer a pasta desta coleção"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-pasta-aberta"></use></svg> Abrir pasta da coleção</button>
+                        <button class="action-btn gradient-btn" onclick="exportarColecao()" style="margin:0; padding:8px 16px;" title="Copiar as imagens desta coleção para uma pasta do computador"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-baixar"></use></svg> Salvar no computador</button>
                     </div>
                 </div>
                 <div id="colecaoItens" class="recent-grid"></div>
@@ -1259,7 +1259,7 @@
                 </div>
                 <div class="ajuda-item">
                     <h4 class="tem-icone"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-pasta"></use></svg> Adicionar pastas</h4>
-                    <p>Clique em "Gerenciar Pastas" e escolha pastas do seu computador. A IA vai analisar todas as imagens e documentos dentro delas.</p>
+                    <p>Abra o menu e escolha "Pastas do computador". O Search+ analisa todas as imagens e documentos que estiverem dentro delas.</p>
                 </div>
                 <div class="ajuda-item">
                     <h4 class="tem-icone"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-ampulheta"></use></svg> Primeira análise</h4>

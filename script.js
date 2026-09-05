@@ -253,7 +253,7 @@ async function desfazerExclusao(lixeiraId, aoTerminar) {
 const _MOTIVO_FALHA = {
     nao_encontrado: 'não está mais no computador',
     sem_permissao: 'o Windows não deixou copiar',
-    fora_das_pastas: 'está fora das pastas monitoradas',
+    fora_das_pastas: 'está fora das pastas do computador',
     erro_leitura: 'não foi possível ler o arquivo',
 };
 
@@ -454,7 +454,7 @@ async function abrirResumoIndexacao() {
 
     if (!d.resumo) {
         corpo.innerHTML = '<p style="color:var(--text-secondary);">' +
-            'Nenhuma indexação foi concluída ainda. Depois de analisar suas ' +
+            'Nenhuma análise foi concluída ainda. Depois de analisar suas ' +
             'pastas, o resultado aparece aqui.</p>';
         return;
     }
@@ -479,7 +479,7 @@ function _resumoCabecalho(resumo) {
         <div class="resumo-quando"></div>
     `;
     box.querySelector('.resumo-linha-total').textContent =
-        `${t.indexados || 0} ${t.indexados === 1 ? 'arquivo indexado' : 'arquivos indexados'}` +
+        `${t.indexados || 0} ${t.indexados === 1 ? 'arquivo analisado' : 'arquivos analisados'}` +
         `${t.ignorados ? `, ${t.ignorados} ignorados` : ''}` +
         `${t.erros ? `, ${t.erros} com erro` : ''}.`;
     box.querySelector('.resumo-quando').textContent =
@@ -509,7 +509,7 @@ function _resumoDaPasta(pasta) {
         el.title = ajuda;
         return el;
     };
-    linha.appendChild(parte(pasta.indexados || 0, 'indexados',
+    linha.appendChild(parte(pasta.indexados || 0, 'analisados',
         'Entraram na busca.'));
     linha.appendChild(parte(pasta.ignorados || 0, 'ignorados',
         'Tipos de arquivo que o Search+ não abre. Não é falha.'));
@@ -2333,7 +2333,7 @@ function atualizarListaModalPastas(pastas) {
     const list = document.getElementById('foldersList');
     _foldersData = pastas || [];
     if (!pastas || pastas.length === 0) {
-        list.innerHTML = '<p style="color:var(--text-secondary);">Nenhuma pasta monitorada.</p>';
+        list.innerHTML = '<p style="color:var(--text-secondary);">Nenhuma pasta do computador ainda.</p>';
         document.getElementById('folderConfigInline').style.display = 'none';
         return;
     }
@@ -2445,11 +2445,11 @@ async function adicionarPasta() {
         atualizarListaModalPastas(config.pastas);
         toastInfo("Pasta adicionada. Clique em \"Analisar Pastas\" quando quiser iniciar a IA.");
     }
-    btn.innerText = "+ Importar Nova Pasta";
+    btn.innerText = "+ Adicionar pasta";
 }
 
 async function removerPasta(p) {
-    if (!await confirmarAcao("Remover pasta", "Remover pasta monitorada? A IA não buscará mais nela.", "Remover")) return;
+    if (!await confirmarAcao("Remover pasta", "Remover esta pasta do computador? O Search+ não vai mais buscar nela.", "Remover")) return;
     const res = await fetch(`${API_BASE_URL}/api/folders`, { method: 'DELETE', headers: fetchOptions.headers, body: JSON.stringify({ pasta: p }) });
     const config = await res.json();
     atualizarListaModalPastas(config.pastas);
@@ -2903,11 +2903,11 @@ async function montarEstadoVazio(grid) {
     } catch (e) { console.error(e); }
 
     if (indexados === 0) {
-        titulo.textContent = 'Nenhum arquivo indexado ainda';
+        titulo.textContent = 'Nenhuma imagem analisada ainda';
         motivo.textContent =
             'O Search+ só encontra o que já analisou. Adicione uma pasta do seu ' +
-            'computador para ele começar a indexar as imagens e documentos.';
-        box.appendChild(_botaoVazio('Gerenciar pastas', () => {
+            'computador para ele começar a analisar as imagens e documentos.';
+        box.appendChild(_botaoVazio('Adicionar pasta', () => {
             if (typeof abrirModalPastas === 'function') abrirModalPastas();
         }));
         return;
@@ -2917,7 +2917,7 @@ async function montarEstadoVazio(grid) {
     // categorias com conteúdo levam a resultado garantido, ao contrário de um
     // "você quis dizer" adivinhado que também não acharia nada.
     motivo.textContent = indexados
-        ? `Há ${indexados} ${indexados === 1 ? 'arquivo indexado' : 'arquivos indexados'}, ` +
+        ? `Há ${indexados} ${indexados === 1 ? 'arquivo analisado' : 'arquivos analisados'}, ` +
           'mas nenhum corresponde a essa descrição. Tente palavras mais gerais — ' +
           'a busca entende o significado, não o nome do arquivo.'
         : 'Tente palavras mais gerais — a busca entende o significado da imagem, ' +
@@ -3953,7 +3953,7 @@ async function buscarStatus() {
             // Com o resumo a um clique: é o momento em que a pessoa está
             // olhando e a pergunta "entrou tudo?" está viva. Depois ela ainda
             // encontra o mesmo resumo nas Configurações.
-            toastComAcao('Indexação concluída! Os arquivos já podem ser buscados.',
+            toastComAcao('Análise concluída! Os arquivos já podem ser buscados.',
                          'Ver resumo', abrirResumoIndexacao);
         }
         _ultimaFila = pend;
@@ -3968,7 +3968,7 @@ async function buscarStatus() {
             // quando o servidor tem medição suficiente para arriscar um número.
             const resta = s.restante_texto ? ` · ${s.restante_texto}` : '';
             simbolo = 'lupa';
-            texto = `Indexando arquivos — ${pend} na fila${resta}`;
+            texto = `Analisando arquivos — ${pend} na fila${resta}`;
         } else if (s.status && s.status.startsWith('Aguardando janela')) {
             simbolo = 'relogio';
             texto = s.status;
@@ -4863,7 +4863,7 @@ async function confirmarExclusaoPastas(apagar) {
         aviso.textContent =
             `Isto apaga ${escolhidas.length === 1 ? 'a pasta' : `${escolhidas.length} pastas`} ` +
             `e ${total} ${total === 1 ? 'arquivo' : 'arquivos'} do seu computador, sem ir para a ` +
-            `Lixeira. Os originais nas pastas monitoradas não são tocados. ` +
+            `Lixeira. Os originais nas pastas do computador não são tocados. ` +
             `Clique novamente para confirmar.`;
         aviso.style.display = 'block';
         document.getElementById('pastasApagar').textContent = 'Confirmar exclusão';
@@ -4923,8 +4923,8 @@ async function atualizarBotaoAbrirPasta(colId) {
         const st = document.getElementById('btnStatusPasta');
         if (st) st.style.display = 'inline-block';
         rotularCom(btn, 'pasta-aberta', pastas.length > 1
-            ? `Abrir pasta exportada (${pastas.length})`
-            : 'Abrir pasta exportada');
+            ? `Abrir pasta da coleção (${pastas.length})`
+            : 'Abrir pasta da coleção');
         btn.title = `Abrir no Explorer: ${alvo.caminho}`;
     } catch (e) { console.error(e); }
 }
@@ -4942,7 +4942,7 @@ async function abrirPastaDaColecao() {
     } catch (e) { console.error(e); toastErro('Erro de conexão.'); return; }
 
     if (pastas.length === 0) {
-        toastAviso('Esta coleção ainda não tem pasta no computador. Use "Exportar coleção".');
+        toastAviso('Esta coleção ainda não tem pasta no computador. Use "Salvar no computador".');
         return;
     }
     if (pastas.length === 1) { await abrirPastaExportada(pastas[0].caminho); return; }
@@ -5135,7 +5135,7 @@ async function confirmarRenomearColecao() {
             toastAviso(
                 `${n === 1 ? 'Uma pasta manteve o nome' : `${n} pastas mantiveram o nome`} ` +
                 `(${ignoradas.join(', ')}): ${n === 1 ? 'ela não foi criada' : 'não foram criadas'} ` +
-                `com o nome anterior da coleção. Use o lápis em "Abrir pasta exportada" ` +
+                `com o nome anterior da coleção. Use o lápis em "Abrir pasta da coleção" ` +
                 `para renomear ${n === 1 ? 'essa pasta' : 'cada uma'}.`);
         }
         if (falhas.length) {
@@ -5180,7 +5180,7 @@ async function abrirStatusPasta() {
     if (pastas.length === 0) {
         const p = document.createElement('p');
         p.style.cssText = 'color:var(--text-secondary); font-size:0.92rem;';
-        p.textContent = 'Esta coleção ainda não tem pasta no computador. Use "Exportar coleção" para criar uma.';
+        p.textContent = 'Esta coleção ainda não tem pasta no computador. Use "Salvar no computador" para criar uma.';
         corpo.appendChild(p);
     } else {
         pastas.forEach(p => corpo.appendChild(_blocoStatusPasta(p, d.total_colecao)));
@@ -5312,7 +5312,7 @@ const _MODOS = [
     { id: 'perguntar', titulo: 'Perguntar antes de cada mudança',
       desc: 'Você confirma a cada adição e a cada remoção.' },
     { id: 'manual',    titulo: 'Não mexer na pasta automaticamente',
-      desc: 'Nada é copiado nem apagado sozinho. Use "Exportar coleção" e ' +
+      desc: 'Nada é copiado nem apagado sozinho. Use "Salvar no computador" e ' +
             '"Status da pasta" para controlar na mão.' },
 ];
 
@@ -5379,14 +5379,14 @@ async function abrirConfigColecao() {
     const rodape = document.getElementById('configColecaoRodape');
     if (pastas.length === 0) {
         rodape.textContent = 'Esta coleção ainda não tem pasta no computador. ' +
-            'Use "Exportar coleção" para criar uma — só então o envio automático tem destino.';
+            'Use "Salvar no computador" para criar uma — só então o envio automático tem destino.';
     } else {
         const recebendo = pastas.filter(p => p.recebe);
         rodape.textContent = recebendo.length === 0
             ? `${pastas.length} ${pastas.length === 1 ? 'pasta criada' : 'pastas criadas'}, mas nenhuma marcada para receber. ` +
-              'Escolha em "Abrir pasta exportada".'
+              'Escolha em "Abrir pasta da coleção".'
             : `Destino: ${recebendo.map(p => p.nome).join(', ')}. ` +
-              'Para mudar, use "Abrir pasta exportada".';
+              'Para mudar, use "Abrir pasta da coleção".';
     }
 
     document.getElementById('configColecaoModal').style.display = 'flex';
@@ -5858,7 +5858,7 @@ async function enviarParaPastaVinculada(colId, nome, ids) {
         if (r.status === 409) {
             // A pasta sumiu do disco. Não insiste nem desvincula sozinho —
             // o usuário decide se quer apontar para outro lugar.
-            toastErro(d.error || 'A pasta vinculada não está mais no lugar.');
+            toastErro(d.error || 'A pasta desta coleção não está mais no lugar.');
             return;
         }
         if (!r.ok) { toastErro(await _erroDaResposta(r, 'Não foi possível enviar para a pasta.')); return; }
@@ -5943,8 +5943,8 @@ async function configurarPastaDaColecao(colId, nome) {
     await enviarParaPastaVinculada(colId, nome, null);
 
     toastOk(modo === 'auto'
-        ? `"${nome}" está vinculada a "${_nomeDaPasta(pastaCriada)}". Novas imagens vão sozinhas.`
-        : `"${nome}" está vinculada a "${_nomeDaPasta(pastaCriada)}".`);
+        ? `"${nome}" vai salvar em "${_nomeDaPasta(pastaCriada)}". Novas imagens vão sozinhas.`
+        : `"${nome}" vai salvar em "${_nomeDaPasta(pastaCriada)}".`);
     return modo;
 }
 
@@ -6058,7 +6058,7 @@ function perguntarNomeDaNovaPasta(existentes) {
         _expNovoCtx = { resolve, base, existentes };
 
         document.getElementById('expNovoTexto').textContent =
-            `"${base}" já foi exportada para ${existentes.length === 1 ? 'uma pasta' : `${existentes.length} pastas`}. ` +
+            `"${base}" já foi salva em ${existentes.length === 1 ? 'uma pasta' : `${existentes.length} pastas`}. ` +
             `Uma nova pasta será criada — o nome da coleção é mantido no começo, ` +
             `para você reconhecer de onde ela veio.`;
 
@@ -6247,10 +6247,10 @@ function mostrarResultadoExportacao(d) {
         titulo.textContent = 'Exportação cancelada';
         h.textContent = `${d.copiados} de ${d.total} imagens foram copiadas antes do cancelamento e permanecem na pasta.`;
     } else if (d.falhas.length > 0) {
-        titulo.textContent = 'Coleção exportada — parcialmente';
+        titulo.textContent = 'Coleção salva — parcialmente';
         h.textContent = `${d.copiados} de ${d.total} imagens salvas em ${d.pasta}`;
     } else {
-        rotularCom(titulo, 'check-circulo', 'Coleção exportada');
+        rotularCom(titulo, 'check-circulo', 'Coleção salva');
         h.textContent = `${d.copiados} ${d.copiados === 1 ? 'imagem salva' : 'imagens salvas'} em ${d.pasta}`;
     }
     box.appendChild(h);
@@ -6261,7 +6261,7 @@ function mostrarResultadoExportacao(d) {
         const MOTIVOS = {
             nao_encontrado: 'não encontrada (movida ou apagada)',
             sem_permissao: 'sem permissão de leitura',
-            fora_das_pastas: 'fora das pastas monitoradas',
+            fora_das_pastas: 'fora das pastas do computador',
             erro_leitura: 'falha ao ler o arquivo',
         };
         const t = document.createElement('p');
