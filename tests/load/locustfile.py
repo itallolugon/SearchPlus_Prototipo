@@ -232,8 +232,9 @@ class UsuarioDoSearchPlus(HttpUser):
             if vinc.status_code != 200:
                 # Sem a pasta de destino no alvo, o resto da tarefa não se aplica.
                 vinc.success()
-                self.client.delete(f"/api/collections/{col_id}",
-                                   name="/api/collections/[id] (excluir)")
+                self.client.delete(
+                    f"/api/collections/{col_id}", name="/api/collections/[id] (excluir)"
+                )
                 return
             vinc.success()
 
@@ -241,15 +242,20 @@ class UsuarioDoSearchPlus(HttpUser):
         r = self.client.post(
             "/api/search", json={"query": consulta, "filtro": "all"}, name="/api/search"
         )
-        ids = ([item["id"] for item in (r.json() or {}).get("resultados", []) if item.get("id")]
-               if r.status_code == 200 else [])
+        ids = (
+            [item["id"] for item in (r.json() or {}).get("resultados", []) if item.get("id")]
+            if r.status_code == 200
+            else []
+        )
         if not ids:
-            self.client.delete(f"/api/collections/{col_id}",
-                               name="/api/collections/[id] (excluir)")
+            self.client.delete(f"/api/collections/{col_id}", name="/api/collections/[id] (excluir)")
             return
 
-        add = self.client.post(f"/api/collections/{col_id}/files", json={"file_ids": ids},
-                               name="/api/collections/[id]/files (lote)")
+        add = self.client.post(
+            f"/api/collections/{col_id}/files",
+            json={"file_ids": ids},
+            name="/api/collections/[id]/files (lote)",
+        )
         novos = (add.json() or {}).get("ids_adicionados", ids) if add.status_code == 200 else []
 
         if novos:
@@ -266,8 +272,7 @@ class UsuarioDoSearchPlus(HttpUser):
                 else:
                     sync.success()
 
-        self.client.delete(f"/api/collections/{col_id}",
-                           name="/api/collections/[id] (excluir)")
+        self.client.delete(f"/api/collections/{col_id}", name="/api/collections/[id] (excluir)")
 
     @task(4)
     def abrir_colecao_e_listar_pastas(self):
@@ -290,8 +295,9 @@ class UsuarioDoSearchPlus(HttpUser):
         # usuário virtual pode ter excluído a coleção. Marcar como erro faria a
         # taxa de falha medir a concorrência do próprio teste, não o produto.
         col = colecoes[UsuarioDoSearchPlus._contador % len(colecoes)]
-        with self.client.get(f"/api/collections/{col['id']}", catch_response=True,
-                             name="/api/collections/[id]") as det:
+        with self.client.get(
+            f"/api/collections/{col['id']}", catch_response=True, name="/api/collections/[id]"
+        ) as det:
             if det.status_code in (200, 404):
                 det.success()
             else:
@@ -303,7 +309,7 @@ class UsuarioDoSearchPlus(HttpUser):
             name="/api/collections/[id]/folders",
         ) as pf:
             if pf.status_code == 404:
-                pf.success()                       # coleção excluída no meio
+                pf.success()  # coleção excluída no meio
             elif pf.status_code != 200:
                 pf.failure(f"HTTP {pf.status_code}")
             elif "pastas" not in (pf.json() or {}):
@@ -339,11 +345,17 @@ class UsuarioDoSearchPlus(HttpUser):
         r = self.client.post(
             "/api/search", json={"query": consulta, "filtro": "all"}, name="/api/search"
         )
-        ids = ([i["id"] for i in (r.json() or {}).get("resultados", []) if i.get("id")]
-               if r.status_code == 200 else [])
+        ids = (
+            [i["id"] for i in (r.json() or {}).get("resultados", []) if i.get("id")]
+            if r.status_code == 200
+            else []
+        )
         if ids:
-            self.client.post(f"/api/collections/{col_id}/files", json={"file_ids": ids},
-                             name="/api/collections/[id]/files (lote)")
+            self.client.post(
+                f"/api/collections/{col_id}/files",
+                json={"file_ids": ids},
+                name="/api/collections/[id]/files (lote)",
+            )
 
         exp = self.client.post(
             f"/api/collections/{col_id}/export",
@@ -355,13 +367,15 @@ class UsuarioDoSearchPlus(HttpUser):
             if exp.status_code == 400:
                 # Coleção vazia ou destino ausente no alvo: não é falha do teste.
                 exp.success()
-                self.client.delete(f"/api/collections/{col_id}",
-                                   name="/api/collections/[id] (excluir)")
+                self.client.delete(
+                    f"/api/collections/{col_id}", name="/api/collections/[id] (excluir)"
+                )
                 return
             if exp.status_code != 200:
                 exp.failure(f"HTTP {exp.status_code}")
-                self.client.delete(f"/api/collections/{col_id}",
-                                   name="/api/collections/[id] (excluir)")
+                self.client.delete(
+                    f"/api/collections/{col_id}", name="/api/collections/[id] (excluir)"
+                )
                 return
             exp.success()
 
@@ -369,26 +383,30 @@ class UsuarioDoSearchPlus(HttpUser):
         # Acompanha até concluir, com teto: um job travado não pode prender o
         # usuário virtual para sempre.
         for _ in range(25):
-            st = self.client.get(f"/api/collections/export/{job}",
-                                 name="/api/collections/export/[job]")
+            st = self.client.get(
+                f"/api/collections/export/{job}", name="/api/collections/export/[job]"
+            )
             if st.status_code != 200:
                 break
             if (st.json() or {}).get("estado") != "executando":
                 break
             time.sleep(0.4)
 
-        pf = self.client.get(f"/api/collections/{col_id}/folders",
-                             name="/api/collections/[id]/folders")
-        caminhos = ([p["caminho"] for p in (pf.json() or {}).get("pastas", [])]
-                    if pf.status_code == 200 else [])
+        pf = self.client.get(
+            f"/api/collections/{col_id}/folders", name="/api/collections/[id]/folders"
+        )
+        caminhos = (
+            [p["caminho"] for p in (pf.json() or {}).get("pastas", [])]
+            if pf.status_code == 200
+            else []
+        )
         if caminhos:
             self.client.delete(
                 f"/api/collections/{col_id}/folders",
                 json={"caminhos": caminhos, "confirmar": True},
                 name="/api/collections/[id]/folders (apagar)",
             )
-        self.client.delete(f"/api/collections/{col_id}",
-                           name="/api/collections/[id] (excluir)")
+        self.client.delete(f"/api/collections/{col_id}", name="/api/collections/[id] (excluir)")
 
     @task(2)
     def readicionar_lote_ja_existente(self):
@@ -425,7 +443,9 @@ class UsuarioDoSearchPlus(HttpUser):
         rota = f"/api/collections/{col_id}/files"
         self.client.post(rota, json={"file_ids": ids}, name="/api/collections/[id]/files (lote)")
         with self.client.post(
-            rota, json={"file_ids": ids}, catch_response=True,
+            rota,
+            json={"file_ids": ids},
+            catch_response=True,
             name="/api/collections/[id]/files (lote repetido)",
         ) as dup:
             if dup.status_code != 200:

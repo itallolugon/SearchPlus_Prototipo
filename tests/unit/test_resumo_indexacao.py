@@ -54,7 +54,8 @@ class TestAcumulador:
         resumo_limpo._resumo_iniciar(UID)
         resumo_limpo._resumo_registrar_arquivo(UID, 1, "C:/Fotos", "ok.jpg")
         resumo_limpo._resumo_registrar_arquivo(
-            UID, 1, "C:/Fotos", "quebrada.jpg", motivo="não foi possível ler o conteúdo")
+            UID, 1, "C:/Fotos", "quebrada.jpg", motivo="não foi possível ler o conteúdo"
+        )
 
         resumo = resumo_limpo._resumo_fechar(UID)
         pasta = resumo["pastas"][0]
@@ -62,7 +63,8 @@ class TestAcumulador:
         assert pasta["indexados"] == 1
         assert pasta["erros"] == 1
         assert pasta["arquivos_com_erro"] == [
-            {"nome": "quebrada.jpg", "motivo": "não foi possível ler o conteúdo"}]
+            {"nome": "quebrada.jpg", "motivo": "não foi possível ler o conteúdo"}
+        ]
 
     def test_ignorado_nao_e_erro(self, resumo_limpo):
         """A distinção que dá sentido ao resumo."""
@@ -93,8 +95,7 @@ class TestAcumulador:
         """
         resumo_limpo._resumo_iniciar(UID)
         for i in range(resumo_limpo.LIMITE_ERROS_LISTADOS + 30):
-            resumo_limpo._resumo_registrar_arquivo(
-                UID, 1, "C:/Fotos", f"f{i}.jpg", motivo="falhou")
+            resumo_limpo._resumo_registrar_arquivo(UID, 1, "C:/Fotos", f"f{i}.jpg", motivo="falhou")
 
         pasta = resumo_limpo._resumo_fechar(UID)["pastas"][0]
 
@@ -163,7 +164,7 @@ class TestGravacao:
         resumo_limpo._resumo_iniciar(UID)
         resumo_limpo._resumo_registrar_arquivo(UID, 1, "C:/Fotos", "a.jpg")
 
-        resumo_limpo._gravar_resumo(UID)      # não pode levantar
+        resumo_limpo._gravar_resumo(UID)  # não pode levantar
 
         conexao.rollback.assert_called()
 
@@ -191,10 +192,19 @@ class TestVarreduraContaIgnorados:
 
 class TestEndpoint:
     def test_devolve_o_resumo_mais_recente(self, client_logado, db_roteado):
-        db_roteado({"FROM resumos_indexacao": {"fetchone": {
-            "conteudo": {"totais": {"indexados": 640, "ignorados": 29, "erros": 3},
-                         "pastas": []},
-            "fim": None}}})
+        db_roteado(
+            {
+                "FROM resumos_indexacao": {
+                    "fetchone": {
+                        "conteudo": {
+                            "totais": {"indexados": 640, "ignorados": 29, "erros": 3},
+                            "pastas": [],
+                        },
+                        "fim": None,
+                    }
+                }
+            }
+        )
         corpo = client_logado.get("/api/resumo_indexacao").get_json()
 
         assert corpo["resumo"]["totais"]["indexados"] == 640
@@ -210,8 +220,14 @@ class TestEndpoint:
     def test_aceita_conteudo_como_texto(self, client_logado, db_roteado):
         """JSONB pode chegar como dict ou como texto, dependendo da conexão."""
         import json
-        db_roteado({"FROM resumos_indexacao": {"fetchone": {
-            "conteudo": json.dumps({"totais": {"indexados": 7}}), "fim": None}}})
+
+        db_roteado(
+            {
+                "FROM resumos_indexacao": {
+                    "fetchone": {"conteudo": json.dumps({"totais": {"indexados": 7}}), "fim": None}
+                }
+            }
+        )
 
         corpo = client_logado.get("/api/resumo_indexacao").get_json()
         assert corpo["resumo"]["totais"]["indexados"] == 7
@@ -230,8 +246,7 @@ class TestEndpoint:
 
 
 class TestAnalisePreparaOResumo:
-    def test_disparar_analise_abre_um_resumo(self, client_logado, db_roteado,
-                                              resumo_limpo):
+    def test_disparar_analise_abre_um_resumo(self, client_logado, db_roteado, resumo_limpo):
         db_roteado({"SELECT path FROM folders": {"fetchall": []}})
         with mock.patch.object(resumo_limpo, "threading"):
             client_logado.post("/api/analyze_folders")

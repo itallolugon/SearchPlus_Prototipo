@@ -46,8 +46,9 @@ class TestRecusa:
 
         assert r.status_code == 403
 
-    def test_caminho_absoluto_fora_das_raizes(self, client_logado, db_roteado,
-                                              monitorada, tmp_path):
+    def test_caminho_absoluto_fora_das_raizes(
+        self, client_logado, db_roteado, monitorada, tmp_path
+    ):
         fora = tmp_path / "outra" / "arquivo.txt"
         fora.parent.mkdir()
         fora.write_text("x", encoding="utf-8")
@@ -58,8 +59,7 @@ class TestRecusa:
         assert r.status_code == 403
 
     @pytest.mark.skipif(os.name != "nt", reason="symlink exige privilégio no Windows")
-    def test_symlink_apontando_para_fora(self, client_logado, db_roteado,
-                                         monitorada, tmp_path):
+    def test_symlink_apontando_para_fora(self, client_logado, db_roteado, monitorada, tmp_path):
         """
         O caminho *escrito* fica dentro da pasta monitorada; o destino, não.
         Só `realpath` pega este — `normpath` deixaria passar.
@@ -78,8 +78,7 @@ class TestRecusa:
         assert r.status_code == 403
 
     @pytest.mark.skipif(os.name != "nt", reason="junction é específica do Windows")
-    def test_junction_apontando_para_fora(self, client_logado, db_roteado,
-                                          monitorada, tmp_path):
+    def test_junction_apontando_para_fora(self, client_logado, db_roteado, monitorada, tmp_path):
         """
         Mesma classe do symlink, mas *sem* exigir privilégio — junction de
         diretório qualquer usuário cria. É a prova que o teste de symlink não
@@ -98,8 +97,7 @@ class TestRecusa:
         # `/d` ignora o AutoRun do cmd: um script de perfil que falhe suja o
         # código de retorno mesmo quando o mklink funcionou. Confia-se no
         # resultado em disco, não no returncode.
-        sp.run(["cmd", "/d", "/c", "mklink", "/J", str(atalho), str(fora)],
-               capture_output=True)
+        sp.run(["cmd", "/d", "/c", "mklink", "/J", str(atalho), str(fora)], capture_output=True)
         if not (atalho / "chave.txt").exists():
             pytest.skip("não foi possível criar junction neste ambiente")
 
@@ -121,8 +119,7 @@ class TestRecusa:
 
         assert r.status_code == 403
 
-    def test_sem_pastas_monitoradas_nada_e_autorizado(self, client_logado,
-                                                      db_roteado, monitorada):
+    def test_sem_pastas_monitoradas_nada_e_autorizado(self, client_logado, db_roteado, monitorada):
         db_roteado(_rotas([]))
         r = client_logado.get(f"/api/open_location?path={monitorada / 'foto.jpg'}")
         assert r.status_code == 403
@@ -145,8 +142,9 @@ class TestRecusa:
 
 
 class TestAceita:
-    def test_arquivo_dentro_da_pasta_passa_pela_autorizacao(self, client_logado,
-                                                            db_roteado, monitorada):
+    def test_arquivo_dentro_da_pasta_passa_pela_autorizacao(
+        self, client_logado, db_roteado, monitorada
+    ):
         db_roteado(_rotas([monitorada]))
         r = client_logado.get(f"/api/open_location?path={monitorada / 'foto.jpg'}")
         # 200 no Windows; 501 em outro SO. O que importa é NÃO ser 403.

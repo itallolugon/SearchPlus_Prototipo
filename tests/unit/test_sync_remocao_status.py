@@ -67,8 +67,7 @@ class TestRemocaoRecusada:
         assert r.status_code == 400
         assert len(os.listdir(espelho)) == 2
 
-    def test_travessia_de_caminho_nao_escapa_da_pasta(self, client_logado,
-                                                      db_roteado, tmp_path):
+    def test_travessia_de_caminho_nao_escapa_da_pasta(self, client_logado, db_roteado, tmp_path):
         """`..\\..\\algo` não pode apagar fora da pasta espelho."""
         espelho = tmp_path / "Colecao"
         espelho.mkdir()
@@ -76,9 +75,9 @@ class TestRemocaoRecusada:
         vitima.write_text("nao apague", encoding="utf-8")
 
         db_roteado(_rotas(espelho))
-        client_logado.delete("/api/collections/1/sync",
-                             json={"nomes": ["../importante.txt",
-                                             r"..\importante.txt"]})
+        client_logado.delete(
+            "/api/collections/1/sync", json={"nomes": ["../importante.txt", r"..\importante.txt"]}
+        )
 
         assert vitima.read_text(encoding="utf-8") == "nao apague"
 
@@ -109,30 +108,30 @@ class TestRemocaoRecusada:
 class TestRemocaoExecutada:
     def test_apaga_a_copia_da_pasta(self, client_logado, db_roteado, espelho):
         db_roteado(_rotas(espelho))
-        corpo = client_logado.delete("/api/collections/1/sync",
-                                     json={"nomes": ["a.jpg"]}).get_json()
+        corpo = client_logado.delete(
+            "/api/collections/1/sync", json={"nomes": ["a.jpg"]}
+        ).get_json()
 
         assert corpo["apagados"] == 1
         assert os.listdir(espelho) == ["b.jpg"]
 
-    def test_apaga_em_todas_as_pastas_do_conjunto(self, client_logado,
-                                                  db_roteado, tmp_path):
+    def test_apaga_em_todas_as_pastas_do_conjunto(self, client_logado, db_roteado, tmp_path):
         d1, d2 = tmp_path / "E1", tmp_path / "E2"
         for d in (d1, d2):
             d.mkdir()
             (d / "a.jpg").write_text("a", encoding="utf-8")
 
         db_roteado(_rotas([d1, d2]))
-        corpo = client_logado.delete("/api/collections/1/sync",
-                                     json={"nomes": ["a.jpg"]}).get_json()
+        corpo = client_logado.delete(
+            "/api/collections/1/sync", json={"nomes": ["a.jpg"]}
+        ).get_json()
 
-        assert corpo["apagados"] == 2          # uma por pasta
+        assert corpo["apagados"] == 2  # uma por pasta
         assert os.listdir(d1) == [] and os.listdir(d2) == []
 
     def test_arquivo_ausente_nao_e_erro(self, client_logado, db_roteado, espelho):
         db_roteado(_rotas(espelho))
-        r = client_logado.delete("/api/collections/1/sync",
-                                 json={"nomes": ["nunca_existiu.jpg"]})
+        r = client_logado.delete("/api/collections/1/sync", json={"nomes": ["nunca_existiu.jpg"]})
         assert r.status_code == 200
         assert r.get_json()["apagados"] == 0
 
@@ -153,8 +152,9 @@ class TestRemocaoExecutada:
 
     def test_sem_pasta_recebendo_nao_faz_nada(self, client_logado, db_roteado):
         db_roteado(_rotas([]))
-        corpo = client_logado.delete("/api/collections/1/sync",
-                                     json={"nomes": ["a.jpg"]}).get_json()
+        corpo = client_logado.delete(
+            "/api/collections/1/sync", json={"nomes": ["a.jpg"]}
+        ).get_json()
         assert corpo["apagados"] == 0
 
 
@@ -176,8 +176,7 @@ class TestStatusDaPasta:
 
         assert p["extras"] == ["b.jpg"]
 
-    def test_compara_pelo_nome_sanitizado(self, client_logado, db_roteado,
-                                          app_module, tmp_path):
+    def test_compara_pelo_nome_sanitizado(self, client_logado, db_roteado, app_module, tmp_path):
         """
         O destino recebe o nome sanitizado. Comparar com o nome cru marcaria
         como "faltando" todo arquivo com caractere inválido no Windows.
@@ -194,8 +193,7 @@ class TestStatusDaPasta:
         assert [a["nome"] for a in p["na_pasta"]] == [bruto]
         assert p["faltando"] == []
 
-    def test_pasta_sumida_aparece_como_inexistente(self, client_logado,
-                                                   db_roteado, tmp_path):
+    def test_pasta_sumida_aparece_como_inexistente(self, client_logado, db_roteado, tmp_path):
         db_roteado(_rotas(tmp_path / "foi_embora", arquivos=("a.jpg",)))
         p = client_logado.get("/api/collections/1/sync_status").get_json()["pastas"][0]
 

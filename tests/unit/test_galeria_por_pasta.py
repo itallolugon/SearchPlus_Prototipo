@@ -34,9 +34,15 @@ def _rotas(arquivos=None, pastas=None):
 
 
 def _imagem(id_, descricao="pessoas na praia"):
-    return {"id": id_, "nome": f"f{id_}.jpg", "caminho": f"C:/x/f{id_}.jpg",
-            "tipo": "jpg", "descricao_ia": descricao,
-            "data_adicionado": None, "favorito": 0}
+    return {
+        "id": id_,
+        "nome": f"f{id_}.jpg",
+        "caminho": f"C:/x/f{id_}.jpg",
+        "tipo": "jpg",
+        "descricao_ia": descricao,
+        "data_adicionado": None,
+        "favorito": 0,
+    }
 
 
 def _pasta(id_, nome, imagens):
@@ -138,17 +144,14 @@ class TestNenhumaPasta:
         assert client_logado.get("/api/gallery").get_json()["mostrando"] == "todas"
 
         db_roteado(_rotas(arquivos=[_imagem(1)]))
-        assert client_logado.get(
-            "/api/gallery?pastas=nenhuma").get_json()["mostrando"] == "nenhuma"
+        assert client_logado.get("/api/gallery?pastas=nenhuma").get_json()["mostrando"] == "nenhuma"
 
         db_roteado(_rotas(arquivos=[_imagem(1)]))
-        assert client_logado.get(
-            "/api/gallery?pastas=3").get_json()["mostrando"] == "algumas"
+        assert client_logado.get("/api/gallery?pastas=3").get_json()["mostrando"] == "algumas"
 
     def test_nenhuma_ignora_caixa(self, client_logado, db_roteado):
         db_roteado(_rotas(arquivos=[_imagem(1)]))
-        assert client_logado.get(
-            "/api/gallery?pastas=NENHUMA").get_json()["total_imagens"] == 0
+        assert client_logado.get("/api/gallery?pastas=NENHUMA").get_json()["total_imagens"] == 0
 
     def test_uma_pasta_chamada_nenhuma_nao_confunde(self, client_logado, db_roteado):
         """
@@ -168,9 +171,11 @@ class TestPastasDisponiveis:
         Nomes E números vão junto da galeria de propósito: o seletor precisa
         dos dois, e uma segunda chamada faria a tela montar em dois tempos.
         """
-        db_roteado(_rotas(
-            arquivos=[_imagem(1)],
-            pastas=[_pasta(1, "Fotos", 612), _pasta(2, "Trabalho", 28)]))
+        db_roteado(
+            _rotas(
+                arquivos=[_imagem(1)], pastas=[_pasta(1, "Fotos", 612), _pasta(2, "Trabalho", 28)]
+            )
+        )
 
         corpo = client_logado.get("/api/gallery").get_json()
 
@@ -185,12 +190,10 @@ class TestPastasDisponiveis:
         db_roteado(_rotas(arquivos=[], pastas=[_pasta(9, "Nova", 0)]))
         corpo = client_logado.get("/api/gallery").get_json()
 
-        assert corpo["pastas"] == [
-            {"id": 9, "nome": "Nova", "caminho": "C:/Nova", "imagens": 0}]
+        assert corpo["pastas"] == [{"id": 9, "nome": "Nova", "caminho": "C:/Nova", "imagens": 0}]
 
     def test_pasta_sem_nome_cai_para_o_caminho(self, client_logado, db_roteado):
-        db_roteado(_rotas(pastas=[{"id": 1, "path": "D:/Sem", "name": None,
-                                   "imagens": 3}]))
+        db_roteado(_rotas(pastas=[{"id": 1, "path": "D:/Sem", "name": None, "imagens": 3}]))
         corpo = client_logado.get("/api/gallery").get_json()
 
         assert corpo["pastas"][0]["nome"] == "D:/Sem"

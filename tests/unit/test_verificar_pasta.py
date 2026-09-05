@@ -29,6 +29,7 @@ UID_DA_SESSAO = 4242
 # Assinatura do arquivo no disco
 # ──────────────────────────────────────────────────────────────────────────
 
+
 class TestAssinaturaNoDisco:
     def test_le_data_e_tamanho(self, app_module, tmp_path):
         arq = tmp_path / "foto.jpg"
@@ -47,8 +48,7 @@ class TestAssinaturaNoDisco:
         "o arquivo encolheu para zero byte", chamaria isso de alteração e
         mandaria o arquivo de volta para a fila da IA sem motivo.
         """
-        assert app_module._assinatura_no_disco(
-            str(tmp_path / "nao_existe.jpg")) == (None, None)
+        assert app_module._assinatura_no_disco(str(tmp_path / "nao_existe.jpg")) == (None, None)
 
     def test_erro_de_permissao_nao_derruba(self, app_module, tmp_path):
         arq = tmp_path / "travado.jpg"
@@ -97,6 +97,7 @@ class TestDecisaoDeMudanca:
 # Varredura compartilhada
 # ──────────────────────────────────────────────────────────────────────────
 
+
 class TestPercorrerArquivos:
     def test_encontra_arquivos_indexaveis_em_subpastas(self, app_module, tmp_path):
         (tmp_path / "sub").mkdir()
@@ -130,6 +131,7 @@ class TestPercorrerArquivos:
         propósito — e o contador nunca zeraria.
         """
         import inspect
+
         fonte_scan = inspect.getsource(app_module._scan_folder)
         fonte_verif = inspect.getsource(app_module._verificar_pasta)
         assert "_percorrer_arquivos" in fonte_scan
@@ -147,8 +149,7 @@ class TestBlacklist:
         assert app_module._blacklist_do_usuario("{}") == []
 
     def test_aceita_varias_separadas_por_virgula(self, app_module):
-        bl = app_module._blacklist_do_usuario(
-            '{"pastas_ignoradas": "C:\\\\Temp, D:\\\\Cache"}')
+        bl = app_module._blacklist_do_usuario('{"pastas_ignoradas": "C:\\\\Temp, D:\\\\Cache"}')
         assert len(bl) == 2
 
 
@@ -156,14 +157,23 @@ class TestBlacklist:
 # A conciliação
 # ──────────────────────────────────────────────────────────────────────────
 
+
 def _indexado(id_, caminho, mtime=1000.0, tamanho=8, ausente_em=None):
-    return {"id": id_, "caminho": str(caminho), "nome": os.path.basename(str(caminho)),
-            "mtime": mtime, "tamanho": tamanho, "ausente_em": ausente_em}
+    return {
+        "id": id_,
+        "caminho": str(caminho),
+        "nome": os.path.basename(str(caminho)),
+        "mtime": mtime,
+        "tamanho": tamanho,
+        "ausente_em": ausente_em,
+    }
 
 
 def _rotas(indexados):
-    return {"SELECT config_json": {"fetchone": {"config_json": None}},
-            "FROM files WHERE user_id": {"fetchall": indexados}}
+    return {
+        "SELECT config_json": {"fetchone": {"config_json": None}},
+        "FROM files WHERE user_id": {"fetchall": indexados},
+    }
 
 
 class TestConciliacao:
@@ -176,8 +186,7 @@ class TestConciliacao:
         assert [n["nome"] for n in achados["novos"]] == ["nova.jpg"]
         assert achados["ausentes"] == []
 
-    def test_arquivo_intocado_nao_aparece_em_lista_nenhuma(self, app_module,
-                                                            db_roteado, tmp_path):
+    def test_arquivo_intocado_nao_aparece_em_lista_nenhuma(self, app_module, db_roteado, tmp_path):
         arq = tmp_path / "estavel.jpg"
         arq.write_text("conteudo", encoding="utf-8")
         st = arq.stat()
@@ -206,8 +215,9 @@ class TestConciliacao:
 
     def test_ausente_nao_e_reacusado_toda_vez(self, app_module, db_roteado, tmp_path):
         """Já marcado, fica quieto — senão o contador nunca zera."""
-        db_roteado(_rotas([_indexado(7, tmp_path / "sumida.jpg",
-                                     ausente_em="2026-01-01T00:00:00Z")]))
+        db_roteado(
+            _rotas([_indexado(7, tmp_path / "sumida.jpg", ausente_em="2026-01-01T00:00:00Z")])
+        )
 
         achados = app_module._verificar_pasta(1, 1, str(tmp_path))
 
@@ -218,8 +228,9 @@ class TestConciliacao:
         arq = tmp_path / "voltou.jpg"
         arq.write_text("conteudo", encoding="utf-8")
         st = arq.stat()
-        db_roteado(_rotas([_indexado(3, arq, st.st_mtime, st.st_size,
-                                     ausente_em="2026-01-01T00:00:00Z")]))
+        db_roteado(
+            _rotas([_indexado(3, arq, st.st_mtime, st.st_size, ausente_em="2026-01-01T00:00:00Z")])
+        )
 
         achados = app_module._verificar_pasta(1, 1, str(tmp_path))
 
@@ -242,8 +253,9 @@ class TestConciliacao:
         assert achados["novos"] == []
         assert achados["ausentes"] == []
 
-    def test_arquivo_sem_assinatura_ganha_uma_sem_ser_reanalisado(self, app_module,
-                                                                   db_roteado, tmp_path):
+    def test_arquivo_sem_assinatura_ganha_uma_sem_ser_reanalisado(
+        self, app_module, db_roteado, tmp_path
+    ):
         """
         O arquivo indexado antes desta feature: entra em `modificados`, mas
         marcado como `so_assinatura`. É contabilidade interna — não conta para
@@ -266,11 +278,15 @@ class TestConciliacao:
         (tmp_path / "nova.jpg").write_text("x", encoding="utf-8")
         st = intocada.stat()
 
-        db_roteado(_rotas([
-            _indexado(1, intocada, st.st_mtime, st.st_size),
-            _indexado(2, editada, 1000.0, 3),
-            _indexado(3, tmp_path / "apagada.jpg"),
-        ]))
+        db_roteado(
+            _rotas(
+                [
+                    _indexado(1, intocada, st.st_mtime, st.st_size),
+                    _indexado(2, editada, 1000.0, 3),
+                    _indexado(3, tmp_path / "apagada.jpg"),
+                ]
+            )
+        )
 
         achados = app_module._verificar_pasta(1, 1, str(tmp_path))
 
@@ -283,6 +299,7 @@ class TestConciliacao:
 # Gravação do resultado
 # ──────────────────────────────────────────────────────────────────────────
 
+
 def _sqls(conexao):
     return [str(c.args[0]) for c in conexao.execute.call_args_list]
 
@@ -291,11 +308,16 @@ class TestGravacao:
     def test_ausente_e_marcado_e_nao_apagado(self, app_module, db_roteado):
         """A garantia central da feature."""
         conexao = db_roteado({})
-        app_module._aplicar_verificacao(1, 1, {
-            "novos": [], "modificados": [],
-            "ausentes": [{"id": 7, "caminho": "C:/x.jpg", "nome": "x.jpg"}],
-            "voltaram": [],
-        })
+        app_module._aplicar_verificacao(
+            1,
+            1,
+            {
+                "novos": [],
+                "modificados": [],
+                "ausentes": [{"id": 7, "caminho": "C:/x.jpg", "nome": "x.jpg"}],
+                "voltaram": [],
+            },
+        )
 
         sql = " ".join(_sqls(conexao))
         assert "ausente_em" in sql
@@ -303,10 +325,16 @@ class TestGravacao:
 
     def test_reaparecido_perde_a_marca(self, app_module, db_roteado):
         conexao = db_roteado({})
-        app_module._aplicar_verificacao(1, 1, {
-            "novos": [], "modificados": [], "ausentes": [],
-            "voltaram": [{"id": 3, "caminho": "C:/v.jpg", "nome": "v.jpg"}],
-        })
+        app_module._aplicar_verificacao(
+            1,
+            1,
+            {
+                "novos": [],
+                "modificados": [],
+                "ausentes": [],
+                "voltaram": [{"id": 3, "caminho": "C:/v.jpg", "nome": "v.jpg"}],
+            },
+        )
 
         assert any("ausente_em = NULL" in s for s in _sqls(conexao))
 
@@ -316,12 +344,25 @@ class TestGravacao:
         busca encontrar a foto pelo que ela *era*, não pelo que é.
         """
         conexao = db_roteado({})
-        app_module._aplicar_verificacao(1, 1, {
-            "novos": [],
-            "modificados": [{"id": 5, "caminho": "C:/m.jpg", "nome": "m.jpg",
-                             "tipo": "jpg", "mtime": 2000.0, "tamanho": 99}],
-            "ausentes": [], "voltaram": [],
-        })
+        app_module._aplicar_verificacao(
+            1,
+            1,
+            {
+                "novos": [],
+                "modificados": [
+                    {
+                        "id": 5,
+                        "caminho": "C:/m.jpg",
+                        "nome": "m.jpg",
+                        "tipo": "jpg",
+                        "mtime": 2000.0,
+                        "tamanho": 99,
+                    }
+                ],
+                "ausentes": [],
+                "voltaram": [],
+            },
+        )
 
         sql = " ".join(_sqls(conexao))
         assert "descricao_ia = ''" in sql
@@ -334,13 +375,26 @@ class TestGravacao:
         primeira verificação depois de atualizar o app.
         """
         conexao = db_roteado({})
-        app_module._aplicar_verificacao(1, 1, {
-            "novos": [],
-            "modificados": [{"id": 5, "caminho": "C:/a.jpg", "nome": "a.jpg",
-                             "tipo": "jpg", "mtime": 2000.0, "tamanho": 99,
-                             "so_assinatura": True}],
-            "ausentes": [], "voltaram": [],
-        })
+        app_module._aplicar_verificacao(
+            1,
+            1,
+            {
+                "novos": [],
+                "modificados": [
+                    {
+                        "id": 5,
+                        "caminho": "C:/a.jpg",
+                        "nome": "a.jpg",
+                        "tipo": "jpg",
+                        "mtime": 2000.0,
+                        "tamanho": 99,
+                        "so_assinatura": True,
+                    }
+                ],
+                "ausentes": [],
+                "voltaram": [],
+            },
+        )
 
         sql = " ".join(_sqls(conexao))
         assert "descricao_ia" not in sql
@@ -349,45 +403,89 @@ class TestGravacao:
     def test_so_assinatura_nao_vai_para_a_fila(self, app_module, db_roteado):
         db_roteado({})
         with mock.patch.object(app_module._queue, "put") as posto:
-            app_module._aplicar_verificacao(1, 1, {
-                "novos": [],
-                "modificados": [{"id": 5, "caminho": "C:/a.jpg", "nome": "a.jpg",
-                                 "tipo": "jpg", "mtime": 1.0, "tamanho": 9,
-                                 "so_assinatura": True}],
-                "ausentes": [], "voltaram": [],
-            })
+            app_module._aplicar_verificacao(
+                1,
+                1,
+                {
+                    "novos": [],
+                    "modificados": [
+                        {
+                            "id": 5,
+                            "caminho": "C:/a.jpg",
+                            "nome": "a.jpg",
+                            "tipo": "jpg",
+                            "mtime": 1.0,
+                            "tamanho": 9,
+                            "so_assinatura": True,
+                        }
+                    ],
+                    "ausentes": [],
+                    "voltaram": [],
+                },
+            )
         posto.assert_not_called()
 
     def test_novo_e_modificado_entram_na_fila(self, app_module, db_roteado):
         db_roteado({})
         with mock.patch.object(app_module._queue, "put") as posto:
-            app_module._aplicar_verificacao(1, 1, {
-                "novos": [{"caminho": "C:/n.jpg", "nome": "n.jpg", "tipo": "jpg",
-                           "mtime": 1.0, "tamanho": 9}],
-                "modificados": [{"id": 5, "caminho": "C:/m.jpg", "nome": "m.jpg",
-                                 "tipo": "jpg", "mtime": 2.0, "tamanho": 8}],
-                "ausentes": [], "voltaram": [],
-            })
+            app_module._aplicar_verificacao(
+                1,
+                1,
+                {
+                    "novos": [
+                        {
+                            "caminho": "C:/n.jpg",
+                            "nome": "n.jpg",
+                            "tipo": "jpg",
+                            "mtime": 1.0,
+                            "tamanho": 9,
+                        }
+                    ],
+                    "modificados": [
+                        {
+                            "id": 5,
+                            "caminho": "C:/m.jpg",
+                            "nome": "m.jpg",
+                            "tipo": "jpg",
+                            "mtime": 2.0,
+                            "tamanho": 8,
+                        }
+                    ],
+                    "ausentes": [],
+                    "voltaram": [],
+                },
+            )
 
         enfileirados = {c.args[0]["nome"] for c in posto.call_args_list}
         assert enfileirados == {"n.jpg", "m.jpg"}
 
-    def test_arquivo_ja_indexado_por_outra_pasta_nao_quebra(self, app_module,
-                                                             db_roteado):
+    def test_arquivo_ja_indexado_por_outra_pasta_nao_quebra(self, app_module, db_roteado):
         """
         Pastas aninhadas: "C:\\Fotos" e "C:\\Fotos\\2024" as duas indexadas. O
         UNIQUE (user_id, caminho) recusa o segundo INSERT, e sem o rollback a
         transação fica abortada — o resto da verificação viraria erro 500.
         """
         conexao = db_roteado({})
-        conexao.execute.side_effect = app_module.psycopg2.errors.UniqueViolation(
-            "duplicado")
+        conexao.execute.side_effect = app_module.psycopg2.errors.UniqueViolation("duplicado")
 
-        app_module._aplicar_verificacao(1, 1, {
-            "novos": [{"caminho": "C:/n.jpg", "nome": "n.jpg", "tipo": "jpg",
-                       "mtime": 1.0, "tamanho": 9}],
-            "modificados": [], "ausentes": [], "voltaram": [],
-        })
+        app_module._aplicar_verificacao(
+            1,
+            1,
+            {
+                "novos": [
+                    {
+                        "caminho": "C:/n.jpg",
+                        "nome": "n.jpg",
+                        "tipo": "jpg",
+                        "mtime": 1.0,
+                        "tamanho": 9,
+                    }
+                ],
+                "modificados": [],
+                "ausentes": [],
+                "voltaram": [],
+            },
+        )
 
         conexao.rollback.assert_called()
 
@@ -396,14 +494,17 @@ class TestGravacao:
 # O endpoint
 # ──────────────────────────────────────────────────────────────────────────
 
+
 class TestEndpoint:
     def test_devolve_o_resumo(self, client_logado, db_roteado, tmp_path):
         (tmp_path / "nova.jpg").write_text("x", encoding="utf-8")
-        db_roteado({
-            "SELECT id, path FROM folders": {"fetchone": {"id": 1, "path": str(tmp_path)}},
-            "SELECT config_json": {"fetchone": {"config_json": None}},
-            "FROM files WHERE user_id": {"fetchall": []},
-        })
+        db_roteado(
+            {
+                "SELECT id, path FROM folders": {"fetchone": {"id": 1, "path": str(tmp_path)}},
+                "SELECT config_json": {"fetchone": {"config_json": None}},
+                "FROM files WHERE user_id": {"fetchall": []},
+            }
+        )
 
         corpo = client_logado.post("/api/folders/1/verificar").get_json()
 
@@ -411,8 +512,7 @@ class TestEndpoint:
         assert corpo["resumo"]["novos"] == 1
         assert corpo["novos"] == ["nova.jpg"]
 
-    def test_resumo_esconde_a_contabilidade_interna(self, client_logado, db_roteado,
-                                                     tmp_path):
+    def test_resumo_esconde_a_contabilidade_interna(self, client_logado, db_roteado, tmp_path):
         """
         O arquivo que só ganhou assinatura não mudou para o usuário. Contá-lo
         como "1 modificado" seria o app relatando o próprio trabalho de casa
@@ -420,13 +520,24 @@ class TestEndpoint:
         """
         arq = tmp_path / "antiga.jpg"
         arq.write_text("x", encoding="utf-8")
-        db_roteado({
-            "SELECT id, path FROM folders": {"fetchone": {"id": 1, "path": str(tmp_path)}},
-            "SELECT config_json": {"fetchone": {"config_json": None}},
-            "FROM files WHERE user_id": {"fetchall": [
-                {"id": 1, "caminho": str(arq), "nome": "antiga.jpg",
-                 "mtime": None, "tamanho": None, "ausente_em": None}]},
-        })
+        db_roteado(
+            {
+                "SELECT id, path FROM folders": {"fetchone": {"id": 1, "path": str(tmp_path)}},
+                "SELECT config_json": {"fetchone": {"config_json": None}},
+                "FROM files WHERE user_id": {
+                    "fetchall": [
+                        {
+                            "id": 1,
+                            "caminho": str(arq),
+                            "nome": "antiga.jpg",
+                            "mtime": None,
+                            "tamanho": None,
+                            "ausente_em": None,
+                        }
+                    ]
+                },
+            }
+        )
 
         corpo = client_logado.post("/api/folders/1/verificar").get_json()
 
@@ -437,16 +548,19 @@ class TestEndpoint:
         db_roteado({"SELECT id, path FROM folders": {"fetchone": None}})
         assert client_logado.post("/api/folders/999/verificar").status_code == 404
 
-    def test_pasta_sumida_do_disco_da_409_sem_marcar_nada(self, client_logado,
-                                                           db_roteado, tmp_path):
+    def test_pasta_sumida_do_disco_da_409_sem_marcar_nada(
+        self, client_logado, db_roteado, tmp_path
+    ):
         """
         Um HD externo desconectado apagaria a pasta inteira da busca de uma vez.
         Melhor avisar e não tocar em nada.
         """
         sumida = tmp_path / "disco_removido"
-        conexao = db_roteado({
-            "SELECT id, path FROM folders": {"fetchone": {"id": 1, "path": str(sumida)}},
-        })
+        conexao = db_roteado(
+            {
+                "SELECT id, path FROM folders": {"fetchone": {"id": 1, "path": str(sumida)}},
+            }
+        )
 
         r = client_logado.post("/api/folders/1/verificar")
 

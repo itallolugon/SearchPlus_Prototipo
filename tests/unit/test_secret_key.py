@@ -51,7 +51,7 @@ class TestPrecedencia:
     def test_gera_quando_nao_ha_nada(self, app_module, segredo_em):
         chave = app_module._resolver_secret_key()
 
-        assert len(chave) == 64          # token_hex(32)
+        assert len(chave) == 64  # token_hex(32)
         assert segredo_em.exists()
         assert segredo_em.read_text(encoding="utf-8").strip() == chave
 
@@ -60,18 +60,18 @@ class TestEstabilidade:
     def test_mesma_chave_entre_reinicios(self, app_module, segredo_em):
         """A propriedade central: reiniciar não pode deslogar o usuário."""
         primeira = app_module._resolver_secret_key()
-        segunda = app_module._resolver_secret_key()      # simula outro boot
+        segunda = app_module._resolver_secret_key()  # simula outro boot
 
         assert primeira == segunda
 
-    def test_chaves_diferentes_em_instalacoes_diferentes(self, app_module,
-                                                         tmp_path, monkeypatch):
+    def test_chaves_diferentes_em_instalacoes_diferentes(self, app_module, tmp_path, monkeypatch):
         """Duas máquinas não podem acabar com a mesma chave."""
         monkeypatch.delenv("SECRET_KEY", raising=False)
         chaves = set()
         for i in range(3):
-            monkeypatch.setattr(app_module, "ARQUIVO_SEGREDO",
-                                tmp_path / f"inst{i}" / ".secret_key")
+            monkeypatch.setattr(
+                app_module, "ARQUIVO_SEGREDO", tmp_path / f"inst{i}" / ".secret_key"
+            )
             (tmp_path / f"inst{i}").mkdir()
             chaves.add(app_module._resolver_secret_key())
 
@@ -90,16 +90,16 @@ class TestFalhas:
         Sem poder gravar, a chave vale para esta execução. Subir sem sessão
         persistente é pior que não subir? Não — o app fica utilizável.
         """
-        with mock.patch.object(type(segredo_em), "write_text",
-                               side_effect=OSError("somente leitura")):
+        with mock.patch.object(
+            type(segredo_em), "write_text", side_effect=OSError("somente leitura")
+        ):
             chave = app_module._resolver_secret_key()
 
-        assert len(chave) == 64          # continua devolvendo chave válida
+        assert len(chave) == 64  # continua devolvendo chave válida
 
     def test_arquivo_ilegivel_gera_nova(self, app_module, segredo_em):
         segredo_em.write_text("qualquer", encoding="utf-8")
-        with mock.patch.object(type(segredo_em), "read_text",
-                               side_effect=OSError("sem permissão")):
+        with mock.patch.object(type(segredo_em), "read_text", side_effect=OSError("sem permissão")):
             chave = app_module._resolver_secret_key()
 
         assert len(chave) == 64

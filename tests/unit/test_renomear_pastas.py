@@ -23,14 +23,17 @@ pytestmark = pytest.mark.unit
 
 
 class TestExtracaoDoSufixo:
-    @pytest.mark.parametrize("pasta,colecao,esperado", [
-        (r"D:\A\Ferias",         "Ferias", ""),        # exatamente o prefixo
-        (r"D:\A\Ferias_backup",  "Ferias", "backup"),
-        (r"D:\A\Ferias_praia_2", "Ferias", "praia_2"),
-        (r"D:\A\Outra",          "Ferias", None),      # não deriva do prefixo
-        (r"D:\A\FeriasXbackup",  "Ferias", None),      # sem o separador
-        (r"D:\A\Feriasx",        "Ferias", None),      # prefixo é só um pedaço
-    ])
+    @pytest.mark.parametrize(
+        "pasta,colecao,esperado",
+        [
+            (r"D:\A\Ferias", "Ferias", ""),  # exatamente o prefixo
+            (r"D:\A\Ferias_backup", "Ferias", "backup"),
+            (r"D:\A\Ferias_praia_2", "Ferias", "praia_2"),
+            (r"D:\A\Outra", "Ferias", None),  # não deriva do prefixo
+            (r"D:\A\FeriasXbackup", "Ferias", None),  # sem o separador
+            (r"D:\A\Feriasx", "Ferias", None),  # prefixo é só um pedaço
+        ],
+    )
     def test_separa_prefixo_de_sufixo(self, app_module, pasta, colecao, esperado):
         assert app_module._sufixo_da_pasta(pasta, colecao) == esperado
 
@@ -46,8 +49,12 @@ class TestExtracaoDoSufixo:
     def test_usa_o_nome_sanitizado_como_prefixo(self, app_module):
         """A pasta guarda o nome já sanitizado — comparar com o cru não casa."""
         limpo = app_module._sanitizar_nome("Ferias 2024/2025", padrao="x")
-        assert app_module._sufixo_da_pasta(
-            os.path.join("D:\\A", f"{limpo}_backup"), "Ferias 2024/2025") == "backup"
+        assert (
+            app_module._sufixo_da_pasta(
+                os.path.join("D:\\A", f"{limpo}_backup"), "Ferias 2024/2025"
+            )
+            == "backup"
+        )
 
 
 class TestRenomearNoDisco:
@@ -76,7 +83,7 @@ class TestRenomearNoDisco:
         assert novo is None
         assert motivo == "nome_em_uso"
         assert (destino / "importante.jpg").read_text(encoding="utf-8") == "nao apague"
-        assert origem.is_dir()          # a origem continua intacta
+        assert origem.is_dir()  # a origem continua intacta
 
     def test_mesmo_nome_e_no_op(self, app_module, tmp_path):
         pasta = tmp_path / "Ferias"
@@ -87,8 +94,7 @@ class TestRenomearNoDisco:
         assert os.path.normpath(novo) == str(pasta)
 
     def test_pasta_ausente(self, app_module, tmp_path):
-        novo, motivo = app_module._renomear_pasta_no_disco(
-            str(tmp_path / "nao_existe"), "Qualquer")
+        novo, motivo = app_module._renomear_pasta_no_disco(str(tmp_path / "nao_existe"), "Qualquer")
         assert novo is None
         assert motivo == "nao_encontrada"
 
@@ -97,10 +103,18 @@ def _rotas(nome_atual, pastas, existe=True):
     return {
         "SELECT nome FROM collections": {"fetchone": {"nome": nome_atual}},
         "SELECT id, nome FROM collections": {
-            "fetchone": {"id": 1, "nome": nome_atual} if existe else None},
-        "FROM collections": {"fetchone": {"id": 1, "nome": nome_atual,
-                                          "pasta_vinculada": None,
-                                          "modo_sync": "manual"} if existe else None},
+            "fetchone": {"id": 1, "nome": nome_atual} if existe else None
+        },
+        "FROM collections": {
+            "fetchone": {
+                "id": 1,
+                "nome": nome_atual,
+                "pasta_vinculada": None,
+                "modo_sync": "manual",
+            }
+            if existe
+            else None
+        },
         "FROM collection_folders": {"fetchall": [{"caminho": str(p)} for p in pastas]},
     }
 
@@ -110,11 +124,13 @@ class TestCascataAoRenomearColecao:
         """O caso central: Ferias/Ferias_praia → Viagem/Viagem_praia."""
         p1 = tmp_path / "Ferias"
         p2 = tmp_path / "Ferias_praia"
-        p1.mkdir(); p2.mkdir()
+        p1.mkdir()
+        p2.mkdir()
 
         db_roteado(_rotas("Ferias", [p1, p2]))
-        corpo = client_logado.patch("/api/collections/1", json={
-            "nome": "Viagem", "renomear_pastas": True}).get_json()
+        corpo = client_logado.patch(
+            "/api/collections/1", json={"nome": "Viagem", "renomear_pastas": True}
+        ).get_json()
 
         assert (tmp_path / "Viagem").is_dir()
         assert (tmp_path / "Viagem_praia").is_dir()
@@ -126,27 +142,28 @@ class TestCascataAoRenomearColecao:
         pasta.mkdir()
 
         db_roteado(_rotas("Ferias", [pasta]))
-        corpo = client_logado.patch("/api/collections/1",
-                                    json={"nome": "Viagem"}).get_json()
+        corpo = client_logado.patch("/api/collections/1", json={"nome": "Viagem"}).get_json()
 
-        assert pasta.is_dir()                       # continua com o nome antigo
+        assert pasta.is_dir()  # continua com o nome antigo
         assert corpo["pastas_renomeadas"] == []
 
-    def test_falha_no_disco_nao_desfaz_o_rename_da_colecao(self, client_logado,
-                                                           db_roteado, tmp_path):
+    def test_falha_no_disco_nao_desfaz_o_rename_da_colecao(
+        self, client_logado, db_roteado, tmp_path
+    ):
         """
         Reverter o nome da coleção por causa de uma pasta aberta no Explorer
         seria pior que a inconsistência — são operações independentes.
         """
         origem = tmp_path / "Ferias"
         origem.mkdir()
-        (tmp_path / "Viagem").mkdir()               # destino ocupado
+        (tmp_path / "Viagem").mkdir()  # destino ocupado
 
         db_roteado(_rotas("Ferias", [origem]))
-        r = client_logado.patch("/api/collections/1", json={
-            "nome": "Viagem", "renomear_pastas": True})
+        r = client_logado.patch(
+            "/api/collections/1", json={"nome": "Viagem", "renomear_pastas": True}
+        )
 
-        assert r.status_code == 200                 # a coleção foi renomeada
+        assert r.status_code == 200  # a coleção foi renomeada
         corpo = r.get_json()
         assert corpo["pastas_com_falha"][0]["motivo"] == "nome_em_uso"
         assert origem.is_dir()
@@ -160,11 +177,13 @@ class TestCascataAoRenomearColecao:
         """
         p1 = tmp_path / "testee"
         p2 = tmp_path / "teste01"
-        p1.mkdir(); p2.mkdir()
+        p1.mkdir()
+        p2.mkdir()
 
         db_roteado(_rotas("teste", [p1, p2]))
-        corpo = client_logado.patch("/api/collections/1", json={
-            "nome": "viagem", "renomear_pastas": True}).get_json()
+        corpo = client_logado.patch(
+            "/api/collections/1", json={"nome": "viagem", "renomear_pastas": True}
+        ).get_json()
 
         # Nenhuma foi renomeada, e nenhuma falhou — foram ignoradas.
         assert p1.is_dir() and p2.is_dir()
@@ -173,14 +192,17 @@ class TestCascataAoRenomearColecao:
         assert sorted(corpo["pastas_ignoradas"]) == ["teste01", "testee"]
 
     def test_mistura_de_padrao_e_fora_do_padrao(self, client_logado, db_roteado, tmp_path):
-        """A que segue o padrão é renomeada; a outra fica."""
+        """A que segue o padrão é renomeada
+        a outra fica."""
         boa = tmp_path / "Ferias_praia"
         estranha = tmp_path / "OutraCoisa"
-        boa.mkdir(); estranha.mkdir()
+        boa.mkdir()
+        estranha.mkdir()
 
         db_roteado(_rotas("Ferias", [boa, estranha]))
-        corpo = client_logado.patch("/api/collections/1", json={
-            "nome": "Viagem", "renomear_pastas": True}).get_json()
+        corpo = client_logado.patch(
+            "/api/collections/1", json={"nome": "Viagem", "renomear_pastas": True}
+        ).get_json()
 
         assert (tmp_path / "Viagem_praia").is_dir()
         assert estranha.is_dir()
@@ -188,8 +210,9 @@ class TestCascataAoRenomearColecao:
 
     def test_colecao_sem_pastas(self, client_logado, db_roteado):
         db_roteado(_rotas("Ferias", []))
-        corpo = client_logado.patch("/api/collections/1", json={
-            "nome": "Viagem", "renomear_pastas": True}).get_json()
+        corpo = client_logado.patch(
+            "/api/collections/1", json={"nome": "Viagem", "renomear_pastas": True}
+        ).get_json()
         assert corpo["pastas_renomeadas"] == []
 
 
@@ -199,8 +222,9 @@ class TestTrocarSufixoSobDemanda:
         pasta.mkdir()
 
         db_roteado(_rotas("Ferias", [pasta]))
-        corpo = client_logado.patch("/api/collections/1/folders", json={
-            "caminho": str(pasta), "sufixo": "praia"}).get_json()
+        corpo = client_logado.patch(
+            "/api/collections/1/folders", json={"caminho": str(pasta), "sufixo": "praia"}
+        ).get_json()
 
         assert corpo["nome"] == "Ferias_praia"
         assert (tmp_path / "Ferias_praia").is_dir()
@@ -210,8 +234,9 @@ class TestTrocarSufixoSobDemanda:
         pasta.mkdir()
 
         db_roteado(_rotas("Ferias", [pasta]))
-        corpo = client_logado.patch("/api/collections/1/folders", json={
-            "caminho": str(pasta), "sufixo": ""}).get_json()
+        corpo = client_logado.patch(
+            "/api/collections/1/folders", json={"caminho": str(pasta), "sufixo": ""}
+        ).get_json()
 
         assert corpo["nome"] == "Ferias"
 
@@ -220,8 +245,9 @@ class TestTrocarSufixoSobDemanda:
         pasta.mkdir()
 
         db_roteado(_rotas("Ferias", [pasta]))
-        corpo = client_logado.patch("/api/collections/1/folders", json={
-            "caminho": str(pasta), "sufixo": "a/b:c"}).get_json()
+        corpo = client_logado.patch(
+            "/api/collections/1/folders", json={"caminho": str(pasta), "sufixo": "a/b:c"}
+        ).get_json()
 
         assert "/" not in corpo["nome"] and ":" not in corpo["nome"]
 
@@ -231,8 +257,9 @@ class TestTrocarSufixoSobDemanda:
         intrusa.mkdir()
 
         db_roteado(_rotas("Ferias", []))
-        r = client_logado.patch("/api/collections/1/folders", json={
-            "caminho": str(intrusa), "sufixo": "x"})
+        r = client_logado.patch(
+            "/api/collections/1/folders", json={"caminho": str(intrusa), "sufixo": "x"}
+        )
 
         assert r.status_code == 403
         assert intrusa.is_dir()
@@ -243,8 +270,9 @@ class TestTrocarSufixoSobDemanda:
         (tmp_path / "Ferias_praia").mkdir()
 
         db_roteado(_rotas("Ferias", [origem]))
-        r = client_logado.patch("/api/collections/1/folders", json={
-            "caminho": str(origem), "sufixo": "praia"})
+        r = client_logado.patch(
+            "/api/collections/1/folders", json={"caminho": str(origem), "sufixo": "praia"}
+        )
 
         assert r.status_code == 409
         assert "Já existe" in r.get_json()["error"]
@@ -253,20 +281,21 @@ class TestTrocarSufixoSobDemanda:
         pasta = tmp_path / "Ferias"
         pasta.mkdir()
         db_roteado(_rotas("Ferias", [pasta]))
-        r = client_logado.patch("/api/collections/1/folders",
-                                json={"caminho": str(pasta)})
+        r = client_logado.patch("/api/collections/1/folders", json={"caminho": str(pasta)})
         assert r.status_code == 400
 
     def test_colecao_de_outro_dono_da_404(self, client_logado, db_roteado, tmp_path):
         pasta = tmp_path / "Ferias"
         pasta.mkdir()
         db_roteado(_rotas("Ferias", [pasta], existe=False))
-        r = client_logado.patch("/api/collections/9/folders", json={
-            "caminho": str(pasta), "sufixo": "x"})
+        r = client_logado.patch(
+            "/api/collections/9/folders", json={"caminho": str(pasta), "sufixo": "x"}
+        )
         assert r.status_code == 404
 
     def test_exige_sessao(self, client, db_roteado, tmp_path):
         db_roteado({})
-        r = client.patch("/api/collections/1/folders", json={
-            "caminho": str(tmp_path), "sufixo": "x"})
+        r = client.patch(
+            "/api/collections/1/folders", json={"caminho": str(tmp_path), "sufixo": "x"}
+        )
         assert r.status_code == 401

@@ -25,11 +25,18 @@ pytestmark = pytest.mark.unit
 
 class TestPatchDaColecao:
     def test_renomeia(self, client_logado, db_roteado):
-        db_roteado({
-            "FROM collections": {"fetchone": {"id": 1, "nome": "Novo Nome",
-                                              "pasta_vinculada": None,
-                                              "modo_sync": "manual"}},
-        })
+        db_roteado(
+            {
+                "FROM collections": {
+                    "fetchone": {
+                        "id": 1,
+                        "nome": "Novo Nome",
+                        "pasta_vinculada": None,
+                        "modo_sync": "manual",
+                    }
+                },
+            }
+        )
         r = client_logado.patch("/api/collections/1", json={"nome": "Novo Nome"})
         assert r.status_code == 200
         assert r.get_json()["nome"] == "Novo Nome"
@@ -62,11 +69,18 @@ class TestPatchDaColecao:
 
     def test_nome_muito_longo_e_truncado_ou_aceito(self, client_logado, db_roteado):
         """Nome longo não pode derrubar a requisição com 500."""
-        db_roteado({
-            "FROM collections": {"fetchone": {"id": 1, "nome": "x" * 200,
-                                              "pasta_vinculada": None,
-                                              "modo_sync": "manual"}},
-        })
+        db_roteado(
+            {
+                "FROM collections": {
+                    "fetchone": {
+                        "id": 1,
+                        "nome": "x" * 200,
+                        "pasta_vinculada": None,
+                        "modo_sync": "manual",
+                    }
+                },
+            }
+        )
         r = client_logado.patch("/api/collections/1", json={"nome": "x" * 200})
         assert r.status_code in (200, 400)
 
@@ -77,11 +91,18 @@ class TestPatchDaColecao:
 
     @pytest.mark.parametrize("modo", ["auto", "perguntar", "manual"])
     def test_aceita_os_tres_modos(self, client_logado, db_roteado, modo):
-        db_roteado({
-            "FROM collections": {"fetchone": {"id": 1, "nome": "C",
-                                              "pasta_vinculada": r"D:\Fotos\C",
-                                              "modo_sync": modo}},
-        })
+        db_roteado(
+            {
+                "FROM collections": {
+                    "fetchone": {
+                        "id": 1,
+                        "nome": "C",
+                        "pasta_vinculada": r"D:\Fotos\C",
+                        "modo_sync": modo,
+                    }
+                },
+            }
+        )
         r = client_logado.patch("/api/collections/1", json={"modo_sync": modo})
         assert r.status_code == 200
         assert r.get_json()["modo_sync"] == modo
@@ -92,28 +113,48 @@ class TestPatchDaColecao:
 
     def test_patch_parcial_nao_apaga_a_pasta(self, client_logado, db_roteado):
         """Mandar só o modo não pode zerar `pasta_vinculada` (regressão)."""
-        conexao = db_roteado({
-            "FROM collections": {"fetchone": {"id": 1, "nome": "C",
-                                              "pasta_vinculada": r"D:\Fotos\C",
-                                              "modo_sync": "auto"}},
-        })
+        conexao = db_roteado(
+            {
+                "FROM collections": {
+                    "fetchone": {
+                        "id": 1,
+                        "nome": "C",
+                        "pasta_vinculada": r"D:\Fotos\C",
+                        "modo_sync": "auto",
+                    }
+                },
+            }
+        )
         client_logado.patch("/api/collections/1", json={"modo_sync": "auto"})
 
-        updates = [str(c.args[0]) for c in conexao.execute.call_args_list
-                   if "UPDATE collections" in str(c.args[0])]
+        updates = [
+            str(c.args[0])
+            for c in conexao.execute.call_args_list
+            if "UPDATE collections" in str(c.args[0])
+        ]
         assert updates, "nenhum UPDATE foi executado"
         assert "pasta_vinculada" not in updates[0]
 
     def test_desvincular_volta_para_manual(self, client_logado, db_roteado):
-        conexao = db_roteado({
-            "FROM collections": {"fetchone": {"id": 1, "nome": "C",
-                                              "pasta_vinculada": None,
-                                              "modo_sync": "manual"}},
-        })
+        conexao = db_roteado(
+            {
+                "FROM collections": {
+                    "fetchone": {
+                        "id": 1,
+                        "nome": "C",
+                        "pasta_vinculada": None,
+                        "modo_sync": "manual",
+                    }
+                },
+            }
+        )
         client_logado.patch("/api/collections/1", json={"pasta_vinculada": None})
 
-        sql = next(str(c.args[0]) for c in conexao.execute.call_args_list
-                   if "UPDATE collections" in str(c.args[0]))
+        sql = next(
+            str(c.args[0])
+            for c in conexao.execute.call_args_list
+            if "UPDATE collections" in str(c.args[0])
+        )
         assert "pasta_vinculada = NULL" in sql
         assert "modo_sync = 'manual'" in sql
 
@@ -135,24 +176,39 @@ class TestPatchDaColecao:
 
 class TestCriarPastaAoVincular:
     def test_cria_a_subpasta_com_o_nome_da_colecao(self, client_logado, db_roteado, tmp_path):
-        db_roteado({
-            "SELECT nome FROM collections": {"fetchone": {"nome": "Arquitetura"}},
-            "FROM collections": {"fetchone": {"id": 1, "nome": "Arquitetura",
-                                              "pasta_vinculada": None,
-                                              "modo_sync": "auto"}},
-        })
-        r = client_logado.patch("/api/collections/1",
-                                json={"criar_pasta_em": str(tmp_path), "modo_sync": "auto"})
+        db_roteado(
+            {
+                "SELECT nome FROM collections": {"fetchone": {"nome": "Arquitetura"}},
+                "FROM collections": {
+                    "fetchone": {
+                        "id": 1,
+                        "nome": "Arquitetura",
+                        "pasta_vinculada": None,
+                        "modo_sync": "auto",
+                    }
+                },
+            }
+        )
+        r = client_logado.patch(
+            "/api/collections/1", json={"criar_pasta_em": str(tmp_path), "modo_sync": "auto"}
+        )
         assert r.status_code == 200
         assert (tmp_path / "Arquitetura").is_dir()
 
     def test_sanitiza_o_nome_da_pasta(self, client_logado, db_roteado, tmp_path):
-        db_roteado({
-            "SELECT nome FROM collections": {"fetchone": {"nome": "Ferias 2024/2025"}},
-            "FROM collections": {"fetchone": {"id": 1, "nome": "Ferias 2024/2025",
-                                              "pasta_vinculada": None,
-                                              "modo_sync": "manual"}},
-        })
+        db_roteado(
+            {
+                "SELECT nome FROM collections": {"fetchone": {"nome": "Ferias 2024/2025"}},
+                "FROM collections": {
+                    "fetchone": {
+                        "id": 1,
+                        "nome": "Ferias 2024/2025",
+                        "pasta_vinculada": None,
+                        "modo_sync": "manual",
+                    }
+                },
+            }
+        )
         client_logado.patch("/api/collections/1", json={"criar_pasta_em": str(tmp_path)})
         criadas = [p.name for p in tmp_path.iterdir() if p.is_dir()]
         assert criadas and "/" not in criadas[0]
@@ -162,12 +218,19 @@ class TestCriarPastaAoVincular:
         antiga.mkdir()
         (antiga / "preciso.txt").write_text("nao apague", encoding="utf-8")
 
-        db_roteado({
-            "SELECT nome FROM collections": {"fetchone": {"nome": "Natureza"}},
-            "FROM collections": {"fetchone": {"id": 1, "nome": "Natureza",
-                                              "pasta_vinculada": None,
-                                              "modo_sync": "manual"}},
-        })
+        db_roteado(
+            {
+                "SELECT nome FROM collections": {"fetchone": {"nome": "Natureza"}},
+                "FROM collections": {
+                    "fetchone": {
+                        "id": 1,
+                        "nome": "Natureza",
+                        "pasta_vinculada": None,
+                        "modo_sync": "manual",
+                    }
+                },
+            }
+        )
         client_logado.patch("/api/collections/1", json={"criar_pasta_em": str(tmp_path)})
 
         assert (antiga / "preciso.txt").read_text(encoding="utf-8") == "nao apague"
@@ -175,8 +238,9 @@ class TestCriarPastaAoVincular:
 
     def test_destino_inexistente_e_recusado(self, client_logado, db_roteado, tmp_path):
         db_roteado({})
-        r = client_logado.patch("/api/collections/1",
-                                json={"criar_pasta_em": str(tmp_path / "fantasma")})
+        r = client_logado.patch(
+            "/api/collections/1", json={"criar_pasta_em": str(tmp_path / "fantasma")}
+        )
         assert r.status_code == 400
 
 
@@ -222,8 +286,9 @@ class TestSincronia:
         client_logado.post("/api/collections/1/sync", json={})
         assert (origem / "a.jpg").read_text(encoding="utf-8") == "a.jpg"
 
-    def test_arquivo_ja_no_destino_e_pulado_nao_duplicado(self, client_logado,
-                                                          db_roteado, cenario_sync):
+    def test_arquivo_ja_no_destino_e_pulado_nao_duplicado(
+        self, client_logado, db_roteado, cenario_sync
+    ):
         """A pasta é um espelho: sincronizar duas vezes não gera `a_1.jpg`."""
         origem, destino = cenario_sync
         (destino / "a.jpg").write_text("a.jpg", encoding="utf-8")
@@ -235,8 +300,7 @@ class TestSincronia:
         assert corpo["ja_existiam"] == 1
         assert os.listdir(destino) == ["a.jpg"]
 
-    def test_arquivo_ausente_vira_falha_sem_abortar(self, client_logado,
-                                                   db_roteado, cenario_sync):
+    def test_arquivo_ausente_vira_falha_sem_abortar(self, client_logado, db_roteado, cenario_sync):
         origem, destino = cenario_sync
         db_roteado(_rotas_sync(origem, destino, ["a.jpg", "sumiu.jpg"]))
 
@@ -245,8 +309,9 @@ class TestSincronia:
         assert corpo["copiados"] == 1
         assert [f["motivo"] for f in corpo["falhas"]] == ["nao_encontrado"]
 
-    def test_arquivo_fora_das_pastas_monitoradas_e_recusado(self, client_logado,
-                                                            db_roteado, tmp_path):
+    def test_arquivo_fora_das_pastas_monitoradas_e_recusado(
+        self, client_logado, db_roteado, tmp_path
+    ):
         origem = tmp_path / "Fotos"
         destino = tmp_path / "Espelho"
         origem.mkdir()
@@ -254,14 +319,16 @@ class TestSincronia:
         intruso = tmp_path / "segredo.txt"
         intruso.write_text("chave", encoding="utf-8")
 
-        db_roteado({
-            "FROM collections": {"fetchone": {"id": 1, "nome": "C", "modo_sync": "auto"}},
-            "FROM collection_folders": {"fetchall": [{"caminho": str(destino)}]},
-            "JOIN files f ON f.id = cf.file_id": {
-                "fetchall": [{"nome": "segredo.txt", "caminho": str(intruso)}]
-            },
-            "SELECT path FROM folders": {"fetchall": [{"path": str(origem)}]},
-        })
+        db_roteado(
+            {
+                "FROM collections": {"fetchone": {"id": 1, "nome": "C", "modo_sync": "auto"}},
+                "FROM collection_folders": {"fetchall": [{"caminho": str(destino)}]},
+                "JOIN files f ON f.id = cf.file_id": {
+                    "fetchall": [{"nome": "segredo.txt", "caminho": str(intruso)}]
+                },
+                "SELECT path FROM folders": {"fetchall": [{"path": str(origem)}]},
+            }
+        )
 
         corpo = client_logado.post("/api/collections/1/sync", json={}).get_json()
 
@@ -271,24 +338,29 @@ class TestSincronia:
 
     def test_sem_pasta_recebendo_e_recusado(self, client_logado, db_roteado):
         """Nenhuma pasta marcada é escolha válida — mas não há o que sincronizar."""
-        db_roteado({
-            "FROM collections": {"fetchone": {"id": 1, "nome": "C", "modo_sync": "manual"}},
-            "FROM collection_folders": {"fetchall": []},
-        })
+        db_roteado(
+            {
+                "FROM collections": {"fetchone": {"id": 1, "nome": "C", "modo_sync": "manual"}},
+                "FROM collection_folders": {"fetchall": []},
+            }
+        )
         assert client_logado.post("/api/collections/1/sync", json={}).status_code == 400
 
     def test_todas_as_pastas_sumiram_do_disco(self, client_logado, db_roteado, tmp_path):
         """409, e a mensagem orienta — não é um erro técnico."""
-        db_roteado({
-            "FROM collections": {"fetchone": {"id": 1, "nome": "C", "modo_sync": "auto"}},
-            "FROM collection_folders": {"fetchall": [{"caminho": str(tmp_path / "foi_embora")}]},
-        })
+        db_roteado(
+            {
+                "FROM collections": {"fetchone": {"id": 1, "nome": "C", "modo_sync": "auto"}},
+                "FROM collection_folders": {
+                    "fetchall": [{"caminho": str(tmp_path / "foi_embora")}]
+                },
+            }
+        )
         r = client_logado.post("/api/collections/1/sync", json={})
         assert r.status_code == 409
         assert "Escolha outra pasta" in r.get_json()["error"]
 
-    def test_uma_pasta_sumida_nao_impede_as_outras(self, client_logado,
-                                                   db_roteado, cenario_sync):
+    def test_uma_pasta_sumida_nao_impede_as_outras(self, client_logado, db_roteado, cenario_sync):
         """Perder um destino não pode bloquear a cópia nos demais."""
         origem, destino = cenario_sync
         sumida = origem.parent / "nao_existe"
@@ -311,7 +383,7 @@ class TestSincronia:
         db_roteado(_rotas_sync(origem, [d1, d2], ["a.jpg"]))
         corpo = client_logado.post("/api/collections/1/sync", json={}).get_json()
 
-        assert corpo["copiados"] == 2          # uma cópia por pasta
+        assert corpo["copiados"] == 2  # uma cópia por pasta
         assert (d1 / "a.jpg").read_text(encoding="utf-8") == "conteudo"
         assert (d2 / "a.jpg").read_text(encoding="utf-8") == "conteudo"
         assert len(corpo["pastas"]) == 2
@@ -332,8 +404,7 @@ class TestSincronia:
     def test_lista_vazia_nao_faz_nada(self, client_logado, db_roteado, cenario_sync):
         origem, destino = cenario_sync
         db_roteado(_rotas_sync(origem, destino, []))
-        corpo = client_logado.post("/api/collections/1/sync",
-                                   json={"file_ids": []}).get_json()
+        corpo = client_logado.post("/api/collections/1/sync", json={"file_ids": []}).get_json()
         assert corpo["copiados"] == 0
         assert os.listdir(destino) == []
 

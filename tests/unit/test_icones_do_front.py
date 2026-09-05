@@ -43,10 +43,7 @@ ESTILO = os.path.join(RAIZ, "style.css")
 
 # Pontuação tipográfica e caracteres de desenho de caixa que aparecem em texto
 # e em comentário. São monocromáticos e legítimos — o alvo aqui é emoji.
-PERMITIDOS = set(
-    "—–…“”‘’ «»"
-    "·•×─→←"
-)
+PERMITIDOS = set("—–…“”‘’ «»·•×─→←")
 
 
 def _eh_emoji(ch: str) -> bool:
@@ -78,8 +75,7 @@ class TestSemEmoji:
         assert achados == [], (
             "%s voltou a ter emoji nas linhas %s. Use um símbolo do sprite: "
             "iconeHTML('nome') nos templates, icone('nome') quando o rótulo ao "
-            "lado vier de dado do usuário."
-            % (os.path.basename(arquivo), achados[:8])
+            "lado vier de dado do usuário." % (os.path.basename(arquivo), achados[:8])
         )
 
 
@@ -104,27 +100,29 @@ class TestSprite:
 
         # O ternário acima também pega strings que não são nome de ícone; só
         # interessa o que se parece com um id do sprite.
-        faltando = sorted(n for n in usados - definidos
-                          if n in _CANDIDATOS_DE_ICONE(js))
+        faltando = sorted(n for n in usados - definidos if n in _CANDIDATOS_DE_ICONE(js))
         assert faltando == [], (
-            "ícone referenciado que não existe no sprite do index.html: %s"
-            % faltando)
+            "ícone referenciado que não existe no sprite do index.html: %s" % faltando
+        )
 
     def test_ids_do_sprite_sao_unicos(self):
         ids = re.findall(r'<symbol id="(ic-[a-z-]+)"', _ler(INDEX))
         repetidos = sorted({i for i in ids if ids.count(i) > 1})
         assert repetidos == [], (
             "id repetido no sprite: %s. O `<use>` resolve para o primeiro, "
-            "então o segundo desenho nunca aparece." % repetidos)
+            "então o segundo desenho nunca aparece." % repetidos
+        )
 
     def test_os_simbolos_tem_o_mesmo_grid(self):
         """
         Um símbolo com viewBox diferente sai de escala no meio dos outros — é
         o tipo de coisa que faz um conjunto parecer figurinha avulsa.
         """
-        fora = [(i, vb) for i, vb in
-                re.findall(r'<symbol id="(ic-[a-z-]+)" viewBox="([^"]+)"', _ler(INDEX))
-                if vb != "0 0 24 24"]
+        fora = [
+            (i, vb)
+            for i, vb in re.findall(r'<symbol id="(ic-[a-z-]+)" viewBox="([^"]+)"', _ler(INDEX))
+            if vb != "0 0 24 24"
+        ]
         assert fora == [], "símbolo fora do grid 24x24: %s" % fora
 
 
@@ -138,7 +136,8 @@ class TestContratoDosHelpers:
         assert "function rotularCom(" in js
         assert "createTextNode" in js, (
             "rotularCom precisa inserir o rótulo como TEXTO; montar com "
-            "innerHTML abriria injeção através de um nome de pasta.")
+            "innerHTML abriria injeção através de um nome de pasta."
+        )
 
     def test_o_sprite_e_inline_e_nao_um_arquivo_externo(self):
         """O app roda offline; um .svg externo seria uma requisição a mais."""
@@ -148,10 +147,11 @@ class TestContratoDosHelpers:
 
     def test_o_traco_segue_a_cor_do_texto(self):
         css = _ler(ESTILO)
-        bloco = css[css.index(".ic {"):css.index(".ic {") + 400]
+        bloco = css[css.index(".ic {") : css.index(".ic {") + 400]
         assert "currentColor" in bloco, (
             "sem currentColor o ícone deixa de acompanhar o tema, que é a "
-            "razão de ter saído do emoji.")
+            "razão de ter saído do emoji."
+        )
 
 
 def _CANDIDATOS_DE_ICONE(js):

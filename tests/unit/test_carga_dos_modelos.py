@@ -49,11 +49,12 @@ class TestEstadoDosModelos:
         try:
             app_module._marcar_modelo("texto", "indisponivel", "faltou memória")
             atual = app_module.estado_dos_modelos()
-            assert atual["texto"] == {"estado": "indisponivel",
-                                      "motivo": "faltou memória"}
+            assert atual["texto"] == {"estado": "indisponivel", "motivo": "faltou memória"}
         finally:
-            app_module._estado_modelos.clear(); app_module._estado_modelos.update(estado)
-            app_module._motivo_modelos.clear(); app_module._motivo_modelos.update(motivo)
+            app_module._estado_modelos.clear()
+            app_module._estado_modelos.update(estado)
+            app_module._motivo_modelos.clear()
+            app_module._motivo_modelos.update(motivo)
 
     def test_motivo_so_aparece_quando_ha_motivo(self, app_module):
         estado = dict(app_module._estado_modelos)
@@ -62,8 +63,10 @@ class TestEstadoDosModelos:
             app_module._marcar_modelo("visual", "pronto")
             assert app_module.estado_dos_modelos()["visual"]["motivo"] == ""
         finally:
-            app_module._estado_modelos.clear(); app_module._estado_modelos.update(estado)
-            app_module._motivo_modelos.clear(); app_module._motivo_modelos.update(motivo)
+            app_module._estado_modelos.clear()
+            app_module._estado_modelos.update(estado)
+            app_module._motivo_modelos.clear()
+            app_module._motivo_modelos.update(motivo)
 
     def test_pronto_apaga_o_motivo_de_uma_falha_anterior(self, app_module):
         """
@@ -81,14 +84,17 @@ class TestEstadoDosModelos:
         try:
             app_module._marcar_modelo("texto", "indisponivel", "faltou memória")
             assert app_module.estado_dos_modelos()["texto"] == {
-                "estado": "indisponivel", "motivo": "faltou memória"}
+                "estado": "indisponivel",
+                "motivo": "faltou memória",
+            }
 
             app_module._marcar_modelo("texto", "pronto")
-            assert app_module.estado_dos_modelos()["texto"] == {
-                "estado": "pronto", "motivo": ""}
+            assert app_module.estado_dos_modelos()["texto"] == {"estado": "pronto", "motivo": ""}
         finally:
-            app_module._estado_modelos.clear(); app_module._estado_modelos.update(estado)
-            app_module._motivo_modelos.clear(); app_module._motivo_modelos.update(motivo)
+            app_module._estado_modelos.clear()
+            app_module._estado_modelos.update(estado)
+            app_module._motivo_modelos.clear()
+            app_module._motivo_modelos.update(motivo)
 
     def test_estado_e_copia(self, app_module):
         """Mexer no que o /api/health devolveu não pode alterar o estado real."""
@@ -109,7 +115,7 @@ class TestEstadoDosModelos:
         # pelo mesmo thread — juntos, ~11s medidos aqui. Um timeout apertado
         # transformaria essa lentidão legítima em falha intermitente.
         assert app_module._MODELOS_RESOLVIDOS.wait(timeout=60) is True
-        assert app_module.SBERT_OK is False       # o stub do conftest derruba
+        assert app_module.SBERT_OK is False  # o stub do conftest derruba
         assert app_module.busca_pronta() is False
 
 
@@ -120,11 +126,14 @@ class TestNadaPesadoNaImportacao:
     nenhum outro teste percebe.
     """
 
-    @pytest.mark.parametrize("modulo,custo", [
-        ("sentence_transformers", "~12s"),
-        ("sklearn.metrics.pairwise", "~4,8s"),
-        ("anthropic", "~3s"),
-    ])
+    @pytest.mark.parametrize(
+        "modulo,custo",
+        [
+            ("sentence_transformers", "~12s"),
+            ("sklearn.metrics.pairwise", "~4,8s"),
+            ("anthropic", "~3s"),
+        ],
+    )
     def test_import_pesado_fica_dentro_da_carga(self, modulo, custo):
         import ast
         import io
@@ -153,7 +162,8 @@ class TestNadaPesadoNaImportacao:
 
         assert not no_topo, (
             f"{modulo} ({custo}) voltou para o nível do módulo, "
-            f"linha(s) {no_topo} — o servidor volta a demorar para atender")
+            f"linha(s) {no_topo} — o servidor volta a demorar para atender"
+        )
 
 
 class TestHealth:
@@ -194,10 +204,8 @@ class TestHealth:
             assert jargao not in cru
 
 
-
 class TestBuscaAntesDosModelos:
-    def test_texto_devolve_503_e_nao_lista_vazia(self, client_logado, db_roteado,
-                                                  app_module):
+    def test_texto_devolve_503_e_nao_lista_vazia(self, client_logado, db_roteado, app_module):
         """
         Uma lista vazia com 200 é a resposta mais enganosa possível: o usuário
         lê "nada encontrado" e conclui que suas fotos não estão indexadas.
@@ -209,21 +217,22 @@ class TestBuscaAntesDosModelos:
         assert r.status_code == 503
         assert r.get_json()["resultados"] == []
 
-    def test_mensagem_de_espera_pede_para_tentar_de_novo(self, client_logado,
-                                                          db_roteado, app_module):
+    def test_mensagem_de_espera_pede_para_tentar_de_novo(
+        self, client_logado, db_roteado, app_module
+    ):
         db_roteado({})
         app = app_module
         evento_nao_resolvido = threading.Event()
-        with mock.patch.object(app, "SBERT_OK", False), \
-             mock.patch.object(app, "_MODELOS_RESOLVIDOS", evento_nao_resolvido):
-            corpo = client_logado.post("/api/search",
-                                       json={"query": "cachorro"}).get_json()
+        with (
+            mock.patch.object(app, "SBERT_OK", False),
+            mock.patch.object(app, "_MODELOS_RESOLVIDOS", evento_nao_resolvido),
+        ):
+            corpo = client_logado.post("/api/search", json={"query": "cachorro"}).get_json()
 
         assert corpo["carregando"] is True
         assert "instantes" in corpo["erro"]
 
-    def test_falha_definitiva_nao_manda_esperar(self, client_logado, db_roteado,
-                                                app_module):
+    def test_falha_definitiva_nao_manda_esperar(self, client_logado, db_roteado, app_module):
         """
         Depois que a carga terminou, "tente de novo em instantes" seria uma
         mentira — esperar não vai mudar nada. A mensagem tem que dizer o que
@@ -231,17 +240,18 @@ class TestBuscaAntesDosModelos:
         """
         db_roteado({})
         app = app_module
-        resolvido = threading.Event(); resolvido.set()
-        with mock.patch.object(app, "SBERT_OK", False), \
-             mock.patch.object(app, "_MODELOS_RESOLVIDOS", resolvido):
-            corpo = client_logado.post("/api/search",
-                                       json={"query": "cachorro"}).get_json()
+        resolvido = threading.Event()
+        resolvido.set()
+        with (
+            mock.patch.object(app, "SBERT_OK", False),
+            mock.patch.object(app, "_MODELOS_RESOLVIDOS", resolvido),
+        ):
+            corpo = client_logado.post("/api/search", json={"query": "cachorro"}).get_json()
 
         assert corpo.get("carregando") is None
         assert "rodar.bat" in corpo["erro"]
 
-    def test_nenhuma_mensagem_cita_nome_de_modelo(self, client_logado, db_roteado,
-                                                  app_module):
+    def test_nenhuma_mensagem_cita_nome_de_modelo(self, client_logado, db_roteado, app_module):
         """A mensagem antiga dizia "SBERT indisponível" para o usuário final."""
         db_roteado({})
         app = app_module
@@ -249,15 +259,15 @@ class TestBuscaAntesDosModelos:
             evento = threading.Event()
             if resolvido:
                 evento.set()
-            with mock.patch.object(app, "SBERT_OK", False), \
-                 mock.patch.object(app, "_MODELOS_RESOLVIDOS", evento):
-                erro = client_logado.post("/api/search",
-                                          json={"query": "x"}).get_json()["erro"]
+            with (
+                mock.patch.object(app, "SBERT_OK", False),
+                mock.patch.object(app, "_MODELOS_RESOLVIDOS", evento),
+            ):
+                erro = client_logado.post("/api/search", json={"query": "x"}).get_json()["erro"]
             for jargao in ("SBERT", "CLIP", "embedding", "semântica"):
                 assert jargao.lower() not in erro.lower()
 
-    def test_busca_por_imagem_tambem_da_503(self, client_logado, db_roteado,
-                                            app_module):
+    def test_busca_por_imagem_tambem_da_503(self, client_logado, db_roteado, app_module):
         db_roteado({})
         app = app_module
         with mock.patch.object(app, "CLIP_OK", False):

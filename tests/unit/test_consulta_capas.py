@@ -25,14 +25,27 @@ UID_DA_SESSAO = 4242
 
 
 def _colecoes(n):
-    return [{"id": i, "nome": f"Colecao {i}", "total": 4, "criado_em": None,
-             "pasta_vinculada": None, "modo_sync": "manual",
-             "capa_file_id": None, "capa_caminho": None} for i in range(1, n + 1)]
+    return [
+        {
+            "id": i,
+            "nome": f"Colecao {i}",
+            "total": 4,
+            "criado_em": None,
+            "pasta_vinculada": None,
+            "modo_sync": "manual",
+            "capa_file_id": None,
+            "capa_caminho": None,
+        }
+        for i in range(1, n + 1)
+    ]
 
 
 def _capas(n, por_colecao=4):
-    return [{"colecao_id": i, "caminho": f"C:/Fotos/{i}_{k}.jpg"}
-            for i in range(1, n + 1) for k in range(por_colecao)]
+    return [
+        {"colecao_id": i, "caminho": f"C:/Fotos/{i}_{k}.jpg"}
+        for i in range(1, n + 1)
+        for k in range(por_colecao)
+    ]
 
 
 def _consultas(conexao):
@@ -41,22 +54,19 @@ def _consultas(conexao):
 
 
 def _rotas(n):
-    return {"FROM collections": {"fetchall": _colecoes(n)},
-            "ROW_NUMBER": {"fetchall": _capas(n)}}
+    return {"FROM collections": {"fetchall": _colecoes(n)}, "ROW_NUMBER": {"fetchall": _capas(n)}}
 
 
 class TestNumeroDeConsultas:
     @pytest.mark.parametrize("n_colecoes", [1, 10, 30, 50])
-    def test_nao_cresce_com_o_numero_de_colecoes(self, client_logado, db_roteado,
-                                                  n_colecoes):
+    def test_nao_cresce_com_o_numero_de_colecoes(self, client_logado, db_roteado, n_colecoes):
         """O aceite do item: 2 consultas, tenha o usuário 1 coleção ou 50."""
         conexao = db_roteado(_rotas(n_colecoes))
         client_logado.get("/api/collections")
 
         assert len(_consultas(conexao)) == 2
 
-    def test_uma_consulta_para_a_lista_e_uma_para_as_capas(self, client_logado,
-                                                            db_roteado):
+    def test_uma_consulta_para_a_lista_e_uma_para_as_capas(self, client_logado, db_roteado):
         conexao = db_roteado(_rotas(5))
         client_logado.get("/api/collections")
 
@@ -86,8 +96,7 @@ class TestConsultaDasCapas:
         capas = _consultas(conexao)[1]
         assert "posicao <= 4" in capas
 
-    def test_agrupa_por_colecao_e_ordena_pela_mais_recente(self, client_logado,
-                                                            db_roteado):
+    def test_agrupa_por_colecao_e_ordena_pela_mais_recente(self, client_logado, db_roteado):
         conexao = db_roteado(_rotas(3))
         client_logado.get("/api/collections")
 
@@ -135,29 +144,36 @@ class TestConsultaDasCapas:
 class TestRespostaContinuaIgual:
     def test_distribui_as_capas_pela_colecao_certa(self, client_logado, db_roteado):
         """O risco da consulta única: misturar as capas entre coleções."""
-        db_roteado({
-            "FROM collections": {"fetchall": _colecoes(3)},
-            "ROW_NUMBER": {"fetchall": [
-                {"colecao_id": 1, "caminho": "C:/a.jpg"},
-                {"colecao_id": 3, "caminho": "C:/c1.jpg"},
-                {"colecao_id": 3, "caminho": "C:/c2.jpg"},
-            ]},
-        })
-        por_id = {c["id"]: c for c
-                  in client_logado.get("/api/collections").get_json()["colecoes"]}
+        db_roteado(
+            {
+                "FROM collections": {"fetchall": _colecoes(3)},
+                "ROW_NUMBER": {
+                    "fetchall": [
+                        {"colecao_id": 1, "caminho": "C:/a.jpg"},
+                        {"colecao_id": 3, "caminho": "C:/c1.jpg"},
+                        {"colecao_id": 3, "caminho": "C:/c2.jpg"},
+                    ]
+                },
+            }
+        )
+        por_id = {c["id"]: c for c in client_logado.get("/api/collections").get_json()["colecoes"]}
 
         assert por_id[1]["capas"] == ["C:/a.jpg"]
-        assert por_id[2]["capas"] == []                # sem imagem, sem capa
+        assert por_id[2]["capas"] == []  # sem imagem, sem capa
         assert por_id[3]["capas"] == ["C:/c1.jpg", "C:/c2.jpg"]
 
     def test_preserva_a_ordem_que_o_banco_devolveu(self, client_logado, db_roteado):
-        db_roteado({
-            "FROM collections": {"fetchall": _colecoes(1)},
-            "ROW_NUMBER": {"fetchall": [
-                {"colecao_id": 1, "caminho": "C:/nova.jpg"},
-                {"colecao_id": 1, "caminho": "C:/antiga.jpg"},
-            ]},
-        })
+        db_roteado(
+            {
+                "FROM collections": {"fetchall": _colecoes(1)},
+                "ROW_NUMBER": {
+                    "fetchall": [
+                        {"colecao_id": 1, "caminho": "C:/nova.jpg"},
+                        {"colecao_id": 1, "caminho": "C:/antiga.jpg"},
+                    ]
+                },
+            }
+        )
         colecao = client_logado.get("/api/collections").get_json()["colecoes"][0]
         assert colecao["capas"] == ["C:/nova.jpg", "C:/antiga.jpg"]
 
@@ -166,9 +182,17 @@ class TestRespostaContinuaIgual:
         db_roteado(_rotas(1))
         colecao = client_logado.get("/api/collections").get_json()["colecoes"][0]
 
-        assert set(colecao) == {"id", "nome", "total", "criado_em", "capas",
-                                "capa", "capa_file_id",
-                                "pasta_vinculada", "modo_sync"}
+        assert set(colecao) == {
+            "id",
+            "nome",
+            "total",
+            "criado_em",
+            "capas",
+            "capa",
+            "capa_file_id",
+            "pasta_vinculada",
+            "modo_sync",
+        }
 
     def test_exige_sessao(self, client, db_roteado):
         db_roteado({})

@@ -20,9 +20,16 @@ UID = 4242
 
 
 def _colecao(**extra):
-    base = {"id": 1, "nome": "Viagem", "total": 3, "criado_em": None,
-            "pasta_vinculada": None, "modo_sync": "manual",
-            "capa_file_id": None, "capa_caminho": None}
+    base = {
+        "id": 1,
+        "nome": "Viagem",
+        "total": 3,
+        "criado_em": None,
+        "pasta_vinculada": None,
+        "modo_sync": "manual",
+        "capa_file_id": None,
+        "capa_caminho": None,
+    }
     base.update(extra)
     return base
 
@@ -32,17 +39,23 @@ def _rotas(linhas=None):
 
 
 def _sql_listagem(conexao):
-    return next(str(c.args[0]) for c in conexao.execute.call_args_list
-                if "FROM collections c" in str(c.args[0]))
+    return next(
+        str(c.args[0])
+        for c in conexao.execute.call_args_list
+        if "FROM collections c" in str(c.args[0])
+    )
 
 
 class TestOrdenacao:
-    @pytest.mark.parametrize("valor,esperado", [
-        ("recentes", "c.criado_em DESC"),
-        ("antigas",  "c.criado_em ASC"),
-        ("nome",     "lower(c.nome) ASC"),
-        ("tamanho",  "COUNT(cf.file_id) DESC"),
-    ])
+    @pytest.mark.parametrize(
+        "valor,esperado",
+        [
+            ("recentes", "c.criado_em DESC"),
+            ("antigas", "c.criado_em ASC"),
+            ("nome", "lower(c.nome) ASC"),
+            ("tamanho", "COUNT(cf.file_id) DESC"),
+        ],
+    )
     def test_ordens_conhecidas(self, client_logado, db_roteado, valor, esperado):
         conexao = db_roteado(_rotas())
         client_logado.get(f"/api/collections?ordem={valor}")
@@ -70,8 +83,7 @@ class TestOrdenacao:
         cai no padrão sem sequer ser mencionada.
         """
         conexao = db_roteado(_rotas())
-        r = client_logado.get(
-            "/api/collections?ordem=c.nome; DROP TABLE collections--")
+        r = client_logado.get("/api/collections?ordem=c.nome; DROP TABLE collections--")
 
         assert r.status_code == 200
         sql = _sql_listagem(conexao)
@@ -98,15 +110,13 @@ class TestCapaNaListagem:
         assert c["capa_file_id"] is None
 
     def test_capa_escolhida_vem_com_o_caminho(self, client_logado, db_roteado):
-        db_roteado(_rotas([_colecao(capa_file_id=42,
-                                    capa_caminho=r"C:\Fotos\escolhida.jpg")]))
+        db_roteado(_rotas([_colecao(capa_file_id=42, capa_caminho=r"C:\Fotos\escolhida.jpg")]))
         c = client_logado.get("/api/collections").get_json()["colecoes"][0]
 
         assert c["capa"] == r"C:\Fotos\escolhida.jpg"
         assert c["capa_file_id"] == 42
 
-    def test_capa_apontando_para_arquivo_sumido_volta_ao_mosaico(self, client_logado,
-                                                                  db_roteado):
+    def test_capa_apontando_para_arquivo_sumido_volta_ao_mosaico(self, client_logado, db_roteado):
         """
         O LEFT JOIN devolve caminho nulo quando a imagem saiu da biblioteca. A
         coleção volta ao mosaico sozinha, em vez de mostrar imagem quebrada —
@@ -127,11 +137,15 @@ class TestCapaNaListagem:
 class TestDefinirCapa:
     def _rotas_patch(self, pertence=True):
         return {
-            "SELECT id, nome FROM collections": {
-                "fetchone": {"id": 1, "nome": "Viagem"}},
-            "FROM collections": {"fetchone": {"id": 1, "nome": "Viagem",
-                                              "pasta_vinculada": None,
-                                              "modo_sync": "manual"}},
+            "SELECT id, nome FROM collections": {"fetchone": {"id": 1, "nome": "Viagem"}},
+            "FROM collections": {
+                "fetchone": {
+                    "id": 1,
+                    "nome": "Viagem",
+                    "pasta_vinculada": None,
+                    "modo_sync": "manual",
+                }
+            },
             "FROM collection_files cf": {"fetchone": {"?column?": 1} if pertence else None},
             "FROM collection_folders": {"fetchall": []},
         }
@@ -141,16 +155,14 @@ class TestDefinirCapa:
         r = client_logado.patch("/api/collections/1", json={"capa_file_id": 42})
 
         assert r.status_code == 200
-        assert any("capa_file_id = %s" in str(c.args[0])
-                   for c in conexao.execute.call_args_list)
+        assert any("capa_file_id = %s" in str(c.args[0]) for c in conexao.execute.call_args_list)
 
     def test_nulo_volta_ao_mosaico(self, client_logado, db_roteado):
         conexao = db_roteado(self._rotas_patch())
         r = client_logado.patch("/api/collections/1", json={"capa_file_id": None})
 
         assert r.status_code == 200
-        assert any("capa_file_id = NULL" in str(c.args[0])
-                   for c in conexao.execute.call_args_list)
+        assert any("capa_file_id = NULL" in str(c.args[0]) for c in conexao.execute.call_args_list)
 
     def test_imagem_fora_da_colecao_e_recusada(self, client_logado, db_roteado):
         """
@@ -177,10 +189,8 @@ class TestDefinirCapa:
         conexao = db_roteado(self._rotas_patch())
         client_logado.patch("/api/collections/1", json={"nome": "Outro"})
 
-        assert not any("capa_file_id" in str(c.args[0])
-                       for c in conexao.execute.call_args_list)
+        assert not any("capa_file_id" in str(c.args[0]) for c in conexao.execute.call_args_list)
 
     def test_exige_sessao(self, client, db_roteado):
         db_roteado({})
-        assert client.patch("/api/collections/1",
-                            json={"capa_file_id": 1}).status_code == 401
+        assert client.patch("/api/collections/1", json={"capa_file_id": 1}).status_code == 401

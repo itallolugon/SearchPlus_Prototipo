@@ -59,7 +59,7 @@ class TestRitmoObservado:
         """
         for _ in range(9):
             ritmo_limpo._registrar_duracao(1.0)
-        ritmo_limpo._registrar_duracao(170.0)          # o monstro
+        ritmo_limpo._registrar_duracao(170.0)  # o monstro
 
         medido = ritmo_limpo._ritmo_observado()
 
@@ -146,9 +146,8 @@ class TestConvergencia:
         a descida. Vinte dá folga para mexer nas faixas sem reescrever o
         teste, e ainda pega qualquer volta ao texto por segundo.
         """
-        vistos = [ritmo_limpo._texto_do_restante(p, 1.0)
-                  for p in range(1800, 0, -1)]
-        trocas = sum(1 for a, b in zip(vistos, vistos[1:]) if a != b)
+        vistos = [ritmo_limpo._texto_do_restante(p, 1.0) for p in range(1800, 0, -1)]
+        trocas = sum(1 for a, b in zip(vistos, vistos[1:], strict=False) if a != b)
 
         assert trocas <= 20, f"o texto mudou {trocas} vezes drenando a fila"
 
@@ -159,8 +158,7 @@ class TestConvergencia:
         substituído. Estimativa que sobe sozinha é o que mais destrói a
         confiança numa barra de progresso.
         """
-        vistos = [ritmo_limpo._texto_do_restante(p, 1.0)
-                  for p in range(1800, 0, -1)]
+        vistos = [ritmo_limpo._texto_do_restante(p, 1.0) for p in range(1800, 0, -1)]
 
         ja_encerrados = set()
         anterior = None
@@ -175,16 +173,19 @@ class TestConvergencia:
 
 
 class TestComoAPessoaLe:
-    @pytest.mark.parametrize("pendentes,segundos,esperado", [
-        (0,    1.0, ""),                          # nada na fila, nada a dizer
-        (10,   1.0, "quase terminando"),          # menos de 1 min
-        (59,   1.0, "quase terminando"),
-        (120,  1.0, "≈ 2 min restantes"),
-        (300,  1.0, "≈ 5 min restantes"),
-        (1500, 1.0, "≈ 25 min restantes"),        # de 5 em 5 acima de 10 min
-        (5400, 1.0, "≈ 1 hora restante"),
-        (18000, 1.0, "≈ 5 horas restantes"),
-    ])
+    @pytest.mark.parametrize(
+        "pendentes,segundos,esperado",
+        [
+            (0, 1.0, ""),  # nada na fila, nada a dizer
+            (10, 1.0, "quase terminando"),  # menos de 1 min
+            (59, 1.0, "quase terminando"),
+            (120, 1.0, "≈ 2 min restantes"),
+            (300, 1.0, "≈ 5 min restantes"),
+            (1500, 1.0, "≈ 25 min restantes"),  # de 5 em 5 acima de 10 min
+            (5400, 1.0, "≈ 1 hora restante"),
+            (18000, 1.0, "≈ 5 horas restantes"),
+        ],
+    )
     def test_faixas(self, app_module, pendentes, segundos, esperado):
         assert app_module._texto_do_restante(pendentes, segundos) == esperado
 
@@ -232,9 +233,11 @@ class TestSoContaOQueFoiProcessado:
         puxaria a estimativa para baixo, prometendo um fim que não vem.
         """
         import inspect
+
         fonte = inspect.getsource(app_module._process_worker)
 
         pos_registro = fonte.index("_registrar_duracao")
         pos_reenfileira = fonte.index("_queue.put(item)")
         assert pos_reenfileira < pos_registro, (
-            "o re-enfileiramento tem que sair antes do registro de duração")
+            "o re-enfileiramento tem que sair antes do registro de duração"
+        )

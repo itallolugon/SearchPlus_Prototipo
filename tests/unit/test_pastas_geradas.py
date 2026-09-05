@@ -38,7 +38,8 @@ def _rotas(pastas, vinculada=None, existe_colecao=True):
     return {
         "SELECT id, pasta_vinculada FROM collections": {
             "fetchone": {"id": 1, "pasta_vinculada": str(vinculada) if vinculada else None}
-            if existe_colecao else None
+            if existe_colecao
+            else None
         },
         "SELECT id FROM collections": {"fetchone": {"id": 1} if existe_colecao else None},
         "FROM collection_folders": {"fetchall": [{"caminho": str(p)} for p in pastas]},
@@ -83,23 +84,27 @@ class TestExclusaoRecusada:
 
     def test_sem_confirmacao_nao_apaga(self, client_logado, db_roteado, pasta_gerada):
         db_roteado(_rotas([pasta_gerada]))
-        r = client_logado.delete("/api/collections/1/folders",
-                                 json={"caminhos": [str(pasta_gerada)]})
+        r = client_logado.delete(
+            "/api/collections/1/folders", json={"caminhos": [str(pasta_gerada)]}
+        )
         assert r.status_code == 400
-        assert pasta_gerada.is_dir()          # continua lá
+        assert pasta_gerada.is_dir()  # continua lá
 
     def test_confirmacao_falsa_nao_apaga(self, client_logado, db_roteado, pasta_gerada):
         db_roteado(_rotas([pasta_gerada]))
-        r = client_logado.delete("/api/collections/1/folders",
-                                 json={"caminhos": [str(pasta_gerada)], "confirmar": False})
+        r = client_logado.delete(
+            "/api/collections/1/folders", json={"caminhos": [str(pasta_gerada)], "confirmar": False}
+        )
         assert r.status_code == 400
         assert pasta_gerada.is_dir()
 
     def test_confirmacao_precisa_ser_booleano(self, client_logado, db_roteado, pasta_gerada):
         # "true" (string) não é confirmação — evita aceitar coerção acidental.
         db_roteado(_rotas([pasta_gerada]))
-        r = client_logado.delete("/api/collections/1/folders",
-                                 json={"caminhos": [str(pasta_gerada)], "confirmar": "true"})
+        r = client_logado.delete(
+            "/api/collections/1/folders",
+            json={"caminhos": [str(pasta_gerada)], "confirmar": "true"},
+        )
         assert r.status_code == 400
         assert pasta_gerada.is_dir()
 
@@ -112,8 +117,9 @@ class TestExclusaoRecusada:
 
     def test_lista_vazia_nao_apaga_nada(self, client_logado, db_roteado, pasta_gerada):
         db_roteado(_rotas([pasta_gerada]))
-        r = client_logado.delete("/api/collections/1/folders",
-                                 json={"caminhos": [], "confirmar": True})
+        r = client_logado.delete(
+            "/api/collections/1/folders", json={"caminhos": [], "confirmar": True}
+        )
         assert r.status_code == 400
         assert pasta_gerada.is_dir()
 
@@ -123,10 +129,10 @@ class TestExclusaoRecusada:
         intrusa.mkdir()
         (intrusa / "importante.txt").write_text("nao apague", encoding="utf-8")
 
-        db_roteado(_rotas([]))          # nada registrado
-        corpo = client_logado.delete("/api/collections/1/folders",
-                                     json={"caminhos": [str(intrusa)],
-                                           "confirmar": True}).get_json()
+        db_roteado(_rotas([]))  # nada registrado
+        corpo = client_logado.delete(
+            "/api/collections/1/folders", json={"caminhos": [str(intrusa)], "confirmar": True}
+        ).get_json()
 
         assert corpo["apagadas"] == []
         assert corpo["falhas"][0]["motivo"] == "nao_autorizada"
@@ -137,25 +143,27 @@ class TestExclusaoRecusada:
         outra.mkdir()
         (outra / "x.jpg").write_text("x", encoding="utf-8")
 
-        db_roteado(_rotas([tmp_path / "MinhaPasta"]))   # registro não inclui `outra`
-        corpo = client_logado.delete("/api/collections/1/folders",
-                                     json={"caminhos": [str(outra)],
-                                           "confirmar": True}).get_json()
+        db_roteado(_rotas([tmp_path / "MinhaPasta"]))  # registro não inclui `outra`
+        corpo = client_logado.delete(
+            "/api/collections/1/folders", json={"caminhos": [str(outra)], "confirmar": True}
+        ).get_json()
 
         assert corpo["falhas"][0]["motivo"] == "nao_autorizada"
         assert outra.is_dir()
 
     def test_colecao_de_outro_dono_da_404(self, client_logado, db_roteado, pasta_gerada):
         db_roteado(_rotas([pasta_gerada], existe_colecao=False))
-        r = client_logado.delete("/api/collections/9/folders",
-                                 json={"caminhos": [str(pasta_gerada)], "confirmar": True})
+        r = client_logado.delete(
+            "/api/collections/9/folders", json={"caminhos": [str(pasta_gerada)], "confirmar": True}
+        )
         assert r.status_code == 404
         assert pasta_gerada.is_dir()
 
     def test_exige_sessao(self, client, db_roteado, pasta_gerada):
         db_roteado({})
-        r = client.delete("/api/collections/1/folders",
-                          json={"caminhos": [str(pasta_gerada)], "confirmar": True})
+        r = client.delete(
+            "/api/collections/1/folders", json={"caminhos": [str(pasta_gerada)], "confirmar": True}
+        )
         assert r.status_code == 401
         assert pasta_gerada.is_dir()
 
@@ -163,9 +171,9 @@ class TestExclusaoRecusada:
 class TestExclusaoExecutada:
     def test_apaga_a_pasta_escolhida(self, client_logado, db_roteado, pasta_gerada):
         db_roteado(_rotas([pasta_gerada]))
-        corpo = client_logado.delete("/api/collections/1/folders",
-                                     json={"caminhos": [str(pasta_gerada)],
-                                           "confirmar": True}).get_json()
+        corpo = client_logado.delete(
+            "/api/collections/1/folders", json={"caminhos": [str(pasta_gerada)], "confirmar": True}
+        ).get_json()
 
         assert corpo["apagadas"] == [str(pasta_gerada)]
         assert not pasta_gerada.exists()
@@ -174,32 +182,37 @@ class TestExclusaoExecutada:
         """O ponto do pedido: excluir uma pasta e manter a outra."""
         a = tmp_path / "Natureza"
         b = tmp_path / "Natureza (1)"
-        a.mkdir(); b.mkdir()
+        a.mkdir()
+        b.mkdir()
         (a / "x.jpg").write_text("x", encoding="utf-8")
         (b / "y.jpg").write_text("y", encoding="utf-8")
 
         db_roteado(_rotas([a, b]))
-        client_logado.delete("/api/collections/1/folders",
-                             json={"caminhos": [str(b)], "confirmar": True})
+        client_logado.delete(
+            "/api/collections/1/folders", json={"caminhos": [str(b)], "confirmar": True}
+        )
 
-        assert a.is_dir() and (a / "x.jpg").exists()   # preservada
-        assert not b.exists()                           # apagada
+        assert a.is_dir() and (a / "x.jpg").exists()  # preservada
+        assert not b.exists()  # apagada
 
     def test_pasta_ja_ausente_nao_e_erro(self, client_logado, db_roteado, tmp_path):
         fantasma = tmp_path / "sumiu"
         db_roteado(_rotas([fantasma]))
-        r = client_logado.delete("/api/collections/1/folders",
-                                 json={"caminhos": [str(fantasma)], "confirmar": True})
+        r = client_logado.delete(
+            "/api/collections/1/folders", json={"caminhos": [str(fantasma)], "confirmar": True}
+        )
 
         assert r.status_code == 200
         assert r.get_json()["falhas"] == []
 
-    def test_pasta_apagada_sai_do_conjunto_de_destinos(self, client_logado,
-                                                       db_roteado, pasta_gerada):
+    def test_pasta_apagada_sai_do_conjunto_de_destinos(
+        self, client_logado, db_roteado, pasta_gerada
+    ):
         """Sem isto, a próxima adição tentaria copiar para um caminho morto."""
         conexao = db_roteado(_rotas([pasta_gerada], vinculada=pasta_gerada))
-        client_logado.delete("/api/collections/1/folders",
-                             json={"caminhos": [str(pasta_gerada)], "confirmar": True})
+        client_logado.delete(
+            "/api/collections/1/folders", json={"caminhos": [str(pasta_gerada)], "confirmar": True}
+        )
 
         # A linha de collection_folders some junto com a pasta — é o que a tira
         # do conjunto. Resta ajustar o espelho em collections.
@@ -216,8 +229,9 @@ class TestExclusaoExecutada:
         vizinho.write_text("intocado", encoding="utf-8")
 
         db_roteado(_rotas([alvo]))
-        client_logado.delete("/api/collections/1/folders",
-                             json={"caminhos": [str(alvo)], "confirmar": True})
+        client_logado.delete(
+            "/api/collections/1/folders", json={"caminhos": [str(alvo)], "confirmar": True}
+        )
 
         assert not alvo.exists()
         assert vizinho.read_text(encoding="utf-8") == "intocado"
@@ -232,8 +246,7 @@ class TestAbrirPasta:
         r = client_logado.get(f"/api/open_folder?path={qualquer}")
         assert r.status_code == 403
 
-    def test_pasta_registrada_passa_pela_autorizacao(self, client_logado,
-                                                     db_roteado, pasta_gerada):
+    def test_pasta_registrada_passa_pela_autorizacao(self, client_logado, db_roteado, pasta_gerada):
         db_roteado({"FROM collection_folders": {"fetchall": [{"caminho": str(pasta_gerada)}]}})
         r = client_logado.get(f"/api/open_folder?path={pasta_gerada}")
         # 200 no Windows; 501 em outro SO — o que importa é NÃO ser 403.

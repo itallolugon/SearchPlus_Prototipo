@@ -21,14 +21,17 @@ pytestmark = pytest.mark.unit
 
 
 class TestSepararExclusoes:
-    @pytest.mark.parametrize("entrada,consulta,excluidos", [
-        ("praia -pessoas",           "praia",        ["pessoas"]),
-        ("praia",                    "praia",        []),
-        ("-pessoas praia",           "praia",        ["pessoas"]),
-        ("praia -pessoas -barco",    "praia",        ["pessoas", "barco"]),
-        ("por do sol -pessoas",      "por do sol",   ["pessoas"]),
-        ("",                         "",             []),
-    ])
+    @pytest.mark.parametrize(
+        "entrada,consulta,excluidos",
+        [
+            ("praia -pessoas", "praia", ["pessoas"]),
+            ("praia", "praia", []),
+            ("-pessoas praia", "praia", ["pessoas"]),
+            ("praia -pessoas -barco", "praia", ["pessoas", "barco"]),
+            ("por do sol -pessoas", "por do sol", ["pessoas"]),
+            ("", "", []),
+        ],
+    )
     def test_separa(self, app_module, entrada, consulta, excluidos):
         assert app_module._separar_exclusoes(entrada) == (consulta, excluidos)
 
@@ -38,8 +41,7 @@ class TestSepararExclusoes:
         excluindo "te" e "vi"; "2024-2025" excluiria "2025".
         """
         assert app_module._separar_exclusoes("bem-te-vi") == ("bem-te-vi", [])
-        assert app_module._separar_exclusoes("relatorio 2024-2025") == (
-            "relatorio 2024-2025", [])
+        assert app_module._separar_exclusoes("relatorio 2024-2025") == ("relatorio 2024-2025", [])
 
     def test_hifen_sozinho_e_ignorado(self, app_module):
         """Um traço solto é digitação, não intenção."""
@@ -51,20 +53,23 @@ class TestSepararExclusoes:
 
 class TestCairNaExclusao:
     def test_casa_na_descricao(self, app_module):
-        assert app_module._cai_na_exclusao(
-            ["pessoas"], "praia com pessoas ao fundo", "img_001.jpg") is True
+        assert (
+            app_module._cai_na_exclusao(["pessoas"], "praia com pessoas ao fundo", "img_001.jpg")
+            is True
+        )
 
     def test_casa_no_nome_do_arquivo(self, app_module):
         """
         Quem exclui "pessoas" espera que "reuniao-com-pessoas.jpg" saia também,
         mesmo que a descrição não mencione ninguém.
         """
-        assert app_module._cai_na_exclusao(
-            ["pessoas"], "sala vazia", "reuniao-com-pessoas.jpg") is True
+        assert (
+            app_module._cai_na_exclusao(["pessoas"], "sala vazia", "reuniao-com-pessoas.jpg")
+            is True
+        )
 
     def test_nao_casa_deixa_passar(self, app_module):
-        assert app_module._cai_na_exclusao(
-            ["pessoas"], "praia deserta", "img_001.jpg") is False
+        assert app_module._cai_na_exclusao(["pessoas"], "praia deserta", "img_001.jpg") is False
 
     def test_lista_vazia_nao_exclui_nada(self, app_module):
         assert app_module._cai_na_exclusao([], "qualquer coisa", "x.jpg") is False
@@ -77,8 +82,9 @@ class TestCairNaExclusao:
         assert app_module._cai_na_exclusao([""], "praia deserta", "x.jpg") is False
 
     def test_basta_um_termo_casar(self, app_module):
-        assert app_module._cai_na_exclusao(
-            ["barco", "pessoas"], "praia com pessoas", "x.jpg") is True
+        assert (
+            app_module._cai_na_exclusao(["barco", "pessoas"], "praia com pessoas", "x.jpg") is True
+        )
 
 
 def _sbert_falso():
@@ -90,6 +96,7 @@ def _sbert_falso():
     em AttributeError antes de chegar ao que ele quer verificar.
     """
     import numpy as np
+
     falso = mock.MagicMock()
     falso.encode.return_value = np.zeros(384)
     return falso
@@ -103,18 +110,20 @@ def _rotas_busca(linhas=None):
 
 
 class TestBuscaComExclusao:
-    def test_termo_excluido_sai_da_consulta_enviada(self, client_logado, db_roteado,
-                                                     app_module):
+    def test_termo_excluido_sai_da_consulta_enviada(self, client_logado, db_roteado, app_module):
         """
         Deixar "-pessoas" na frase faria o motor procurar POR pessoas — o
         oposto do pedido.
         """
         db_roteado(_rotas_busca())
-        with mock.patch.object(app_module, "SBERT_OK", True), \
-             mock.patch.object(app_module, "_SBERT", _sbert_falso()), \
-             mock.patch.object(app_module, "_gerar_embedding", return_value=[0.1] * 384), \
-             mock.patch.object(app_module, "_analisar_query",
-                               wraps=app_module._analisar_query) as analisou:
+        with (
+            mock.patch.object(app_module, "SBERT_OK", True),
+            mock.patch.object(app_module, "_SBERT", _sbert_falso()),
+            mock.patch.object(app_module, "_gerar_embedding", return_value=[0.1] * 384),
+            mock.patch.object(
+                app_module, "_analisar_query", wraps=app_module._analisar_query
+            ) as analisou,
+        ):
             client_logado.post("/api/search", json={"query": "praia -pessoas"})
 
         assert analisou.call_args.args[0] == "praia"
@@ -126,11 +135,14 @@ class TestBuscaComExclusao:
         usuário fica sem entender por quê.
         """
         db_roteado(_rotas_busca())
-        with mock.patch.object(app_module, "SBERT_OK", True), \
-             mock.patch.object(app_module, "_SBERT", _sbert_falso()), \
-             mock.patch.object(app_module, "_gerar_embedding", return_value=[0.1] * 384):
+        with (
+            mock.patch.object(app_module, "SBERT_OK", True),
+            mock.patch.object(app_module, "_SBERT", _sbert_falso()),
+            mock.patch.object(app_module, "_gerar_embedding", return_value=[0.1] * 384),
+        ):
             corpo = client_logado.post(
-                "/api/search", json={"query": "praia -pessoas -barco"}).get_json()
+                "/api/search", json={"query": "praia -pessoas -barco"}
+            ).get_json()
 
         assert corpo["consulta"] == "praia"
         assert corpo["excluidos"] == ["pessoas", "barco"]
@@ -163,11 +175,12 @@ class TestEscopo:
         descartada, e o refino trazendo MENOS do que existia dentro dele.
         """
         conexao = db_roteado(_rotas_busca())
-        with mock.patch.object(app_module, "SBERT_OK", True), \
-             mock.patch.object(app_module, "_SBERT", _sbert_falso()), \
-             mock.patch.object(app_module, "_gerar_embedding", return_value=[0.1] * 384):
-            client_logado.post("/api/search",
-                               json={"query": "praia", "escopo": [1, 2, 3]})
+        with (
+            mock.patch.object(app_module, "SBERT_OK", True),
+            mock.patch.object(app_module, "_SBERT", _sbert_falso()),
+            mock.patch.object(app_module, "_gerar_embedding", return_value=[0.1] * 384),
+        ):
+            client_logado.post("/api/search", json={"query": "praia", "escopo": [1, 2, 3]})
 
         sqls = [str(c.args[0]) for c in conexao.execute.call_args_list]
         assert any("id = ANY(%s)" in q for q in sqls)
@@ -175,11 +188,14 @@ class TestEscopo:
     def test_ids_invalidos_sao_descartados(self, client_logado, db_roteado, app_module):
         """Um id que não é número não pode derrubar a busca inteira."""
         db_roteado(_rotas_busca())
-        with mock.patch.object(app_module, "SBERT_OK", True), \
-             mock.patch.object(app_module, "_SBERT", _sbert_falso()), \
-             mock.patch.object(app_module, "_gerar_embedding", return_value=[0.1] * 384):
-            r = client_logado.post("/api/search", json={
-                "query": "praia", "escopo": [1, "abc", None, 3]})
+        with (
+            mock.patch.object(app_module, "SBERT_OK", True),
+            mock.patch.object(app_module, "_SBERT", _sbert_falso()),
+            mock.patch.object(app_module, "_gerar_embedding", return_value=[0.1] * 384),
+        ):
+            r = client_logado.post(
+                "/api/search", json={"query": "praia", "escopo": [1, "abc", None, 3]}
+            )
 
         assert r.status_code == 200
 
@@ -189,11 +205,12 @@ class TestEscopo:
         consulta gigante para dizer "busque em quase tudo".
         """
         conexao = db_roteado(_rotas_busca())
-        with mock.patch.object(app_module, "SBERT_OK", True), \
-             mock.patch.object(app_module, "_SBERT", _sbert_falso()), \
-             mock.patch.object(app_module, "_gerar_embedding", return_value=[0.1] * 384):
-            client_logado.post("/api/search",
-                               json={"query": "praia", "escopo": list(range(9000))})
+        with (
+            mock.patch.object(app_module, "SBERT_OK", True),
+            mock.patch.object(app_module, "_SBERT", _sbert_falso()),
+            mock.patch.object(app_module, "_gerar_embedding", return_value=[0.1] * 384),
+        ):
+            client_logado.post("/api/search", json={"query": "praia", "escopo": list(range(9000))})
 
         for chamada in conexao.execute.call_args_list:
             if "id = ANY(%s)" in str(chamada.args[0]):
@@ -202,20 +219,24 @@ class TestEscopo:
 
     def test_a_resposta_confirma_o_escopo(self, client_logado, db_roteado, app_module):
         db_roteado(_rotas_busca())
-        with mock.patch.object(app_module, "SBERT_OK", True), \
-             mock.patch.object(app_module, "_SBERT", _sbert_falso()), \
-             mock.patch.object(app_module, "_gerar_embedding", return_value=[0.1] * 384):
+        with (
+            mock.patch.object(app_module, "SBERT_OK", True),
+            mock.patch.object(app_module, "_SBERT", _sbert_falso()),
+            mock.patch.object(app_module, "_gerar_embedding", return_value=[0.1] * 384),
+        ):
             corpo = client_logado.post(
-                "/api/search", json={"query": "praia", "escopo": [1, 2, 3]}).get_json()
+                "/api/search", json={"query": "praia", "escopo": [1, 2, 3]}
+            ).get_json()
 
         assert corpo["escopo"] == 3
 
-    def test_sem_escopo_a_busca_e_a_de_sempre(self, client_logado, db_roteado,
-                                               app_module):
+    def test_sem_escopo_a_busca_e_a_de_sempre(self, client_logado, db_roteado, app_module):
         conexao = db_roteado(_rotas_busca())
-        with mock.patch.object(app_module, "SBERT_OK", True), \
-             mock.patch.object(app_module, "_SBERT", _sbert_falso()), \
-             mock.patch.object(app_module, "_gerar_embedding", return_value=[0.1] * 384):
+        with (
+            mock.patch.object(app_module, "SBERT_OK", True),
+            mock.patch.object(app_module, "_SBERT", _sbert_falso()),
+            mock.patch.object(app_module, "_gerar_embedding", return_value=[0.1] * 384),
+        ):
             corpo = client_logado.post("/api/search", json={"query": "praia"}).get_json()
 
         sqls = [str(c.args[0]) for c in conexao.execute.call_args_list]
@@ -224,40 +245,56 @@ class TestEscopo:
 
 
 class TestFiltrosComponem:
-    def test_filtro_avancado_soma_a_consulta(self, client_logado, db_roteado,
-                                              app_module):
+    def test_filtro_avancado_soma_a_consulta(self, client_logado, db_roteado, app_module):
         """
         O item suspeitava que os filtros substituíssem a consulta. Não
         substituem — entram como AND no mesmo SELECT. Este teste existe para
         que continue assim.
         """
         conexao = db_roteado(_rotas_busca())
-        with mock.patch.object(app_module, "SBERT_OK", True), \
-             mock.patch.object(app_module, "_SBERT", _sbert_falso()), \
-             mock.patch.object(app_module, "_gerar_embedding", return_value=[0.1] * 384):
-            client_logado.post("/api/search", json={
-                "query": "praia",
-                "avancado": {"data_de": "2026-01-01", "pasta": "C:/Fotos"},
-            })
+        with (
+            mock.patch.object(app_module, "SBERT_OK", True),
+            mock.patch.object(app_module, "_SBERT", _sbert_falso()),
+            mock.patch.object(app_module, "_gerar_embedding", return_value=[0.1] * 384),
+        ):
+            client_logado.post(
+                "/api/search",
+                json={
+                    "query": "praia",
+                    "avancado": {"data_de": "2026-01-01", "pasta": "C:/Fotos"},
+                },
+            )
 
-        principal = next(q for q in (str(c.args[0]) for c in conexao.execute.call_args_list)
-                         if "SELECT id, folder_id, nome, caminho" in q)
+        principal = next(
+            q
+            for q in (str(c.args[0]) for c in conexao.execute.call_args_list)
+            if "SELECT id, folder_id, nome, caminho" in q
+        )
         assert "data_adicionado >= %s" in principal
         assert "left(lower(caminho), %s)" in principal
-        assert "embedding" in principal          # a consulta continua lá
+        assert "embedding" in principal  # a consulta continua lá
 
     def test_escopo_e_filtro_convivem(self, client_logado, db_roteado, app_module):
         conexao = db_roteado(_rotas_busca())
-        with mock.patch.object(app_module, "SBERT_OK", True), \
-             mock.patch.object(app_module, "_SBERT", _sbert_falso()), \
-             mock.patch.object(app_module, "_gerar_embedding", return_value=[0.1] * 384):
-            client_logado.post("/api/search", json={
-                "query": "praia", "escopo": [1, 2],
-                "avancado": {"data_de": "2026-01-01"},
-            })
+        with (
+            mock.patch.object(app_module, "SBERT_OK", True),
+            mock.patch.object(app_module, "_SBERT", _sbert_falso()),
+            mock.patch.object(app_module, "_gerar_embedding", return_value=[0.1] * 384),
+        ):
+            client_logado.post(
+                "/api/search",
+                json={
+                    "query": "praia",
+                    "escopo": [1, 2],
+                    "avancado": {"data_de": "2026-01-01"},
+                },
+            )
 
-        principal = next(q for q in (str(c.args[0]) for c in conexao.execute.call_args_list)
-                         if "SELECT id, folder_id, nome, caminho" in q)
+        principal = next(
+            q
+            for q in (str(c.args[0]) for c in conexao.execute.call_args_list)
+            if "SELECT id, folder_id, nome, caminho" in q
+        )
         assert "id = ANY(%s)" in principal
         assert "data_adicionado >= %s" in principal
 
@@ -270,6 +307,7 @@ class TestExclusaoVisual:
         pessoa nunca fica sabendo que existia.
         """
         import inspect
+
         fonte = inspect.getsource(app_module.api_search)
 
         assert "LIMIAR_EXCLUSAO_VISUAL = 0.25" in fonte
@@ -279,6 +317,7 @@ class TestExclusaoVisual:
     def test_a_exclusao_visual_roda_antes_da_pontuacao(self, app_module):
         """O que o usuário mandou tirar não disputa posição — sai."""
         import inspect
+
         fonte = inspect.getsource(app_module.api_search)
 
         pos_visual = fonte.index("excluidos_visualmente = set()")

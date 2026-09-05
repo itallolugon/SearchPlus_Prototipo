@@ -25,8 +25,7 @@ UID = 4242
 class TestIdsValidos:
     def test_devolve_so_os_que_existem(self, client_logado, db_roteado):
         db_roteado({"SELECT id FROM files": {"fetchall": [{"id": 1}, {"id": 3}]}})
-        corpo = client_logado.post("/api/files/validos",
-                                   json={"ids": [1, 2, 3]}).get_json()
+        corpo = client_logado.post("/api/files/validos", json={"ids": [1, 2, 3]}).get_json()
 
         assert corpo["ids"] == [1, 3]
 
@@ -43,8 +42,7 @@ class TestIdsValidos:
         editado à mão ou ter sobrado de uma versão antiga do app.
         """
         conexao = db_roteado({"SELECT id FROM files": {"fetchall": [{"id": 1}]}})
-        r = client_logado.post("/api/files/validos",
-                               json={"ids": [1, "abc", None, {"x": 1}]})
+        r = client_logado.post("/api/files/validos", json={"ids": [1, "abc", None, {"x": 1}]})
 
         assert r.status_code == 200
         chamada = conexao.execute.call_args_list[0]
@@ -52,8 +50,7 @@ class TestIdsValidos:
 
     def test_corpo_sem_lista_e_recusado(self, client_logado, db_roteado):
         db_roteado({})
-        assert client_logado.post("/api/files/validos",
-                                  json={"ids": "1,2,3"}).status_code == 400
+        assert client_logado.post("/api/files/validos", json={"ids": "1,2,3"}).status_code == 400
 
     def test_corpo_vazio_e_recusado(self, client_logado, db_roteado):
         db_roteado({})
@@ -82,5 +79,4 @@ class TestIdsValidos:
 
     def test_exige_sessao(self, client, db_roteado):
         db_roteado({})
-        assert client.post("/api/files/validos",
-                           json={"ids": [1]}).status_code == 401
+        assert client.post("/api/files/validos", json={"ids": [1]}).status_code == 401

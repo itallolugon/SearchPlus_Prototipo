@@ -41,33 +41,41 @@ def _achatar(params):
 
 class TestNormalizacaoDeEntrada:
     def test_aceita_lista_em_file_ids(self, client_logado, db_roteado):
-        db_roteado({
-            "FROM collections": {"fetchone": {"id": 1}},
-            "FROM files":       {"fetchall": [{"id": 1}, {"id": 2}, {"id": 3}]},
-            "INSERT INTO collection_files": {"fetchall": [{"file_id": 1}, {"file_id": 2}, {"file_id": 3}]},
-        })
+        db_roteado(
+            {
+                "FROM collections": {"fetchone": {"id": 1}},
+                "FROM files": {"fetchall": [{"id": 1}, {"id": 2}, {"id": 3}]},
+                "INSERT INTO collection_files": {
+                    "fetchall": [{"file_id": 1}, {"file_id": 2}, {"file_id": 3}]
+                },
+            }
+        )
         r = client_logado.post("/api/collections/1/files", json={"file_ids": [1, 2, 3]})
         assert r.status_code == 200
         assert r.get_json()["adicionados"] == 3
 
     def test_aceita_file_id_singular_formato_antigo(self, client_logado, db_roteado):
         # O painel lateral ainda chama assim; quebrar isso seria regressão.
-        db_roteado({
-            "FROM collections": {"fetchone": {"id": 1}},
-            "FROM files":       {"fetchall": [{"id": 42}]},
-            "INSERT INTO collection_files": {"fetchall": [{"file_id": 42}]},
-        })
+        db_roteado(
+            {
+                "FROM collections": {"fetchone": {"id": 1}},
+                "FROM files": {"fetchall": [{"id": 42}]},
+                "INSERT INTO collection_files": {"fetchall": [{"file_id": 42}]},
+            }
+        )
         r = client_logado.post("/api/collections/1/files", json={"file_id": 42})
         assert r.status_code == 200
         assert r.get_json()["adicionados"] == 1
 
     def test_remove_ids_repetidos_do_proprio_lote(self, client_logado, db_roteado):
         # "Selecionar tudo" sobre um grid já parcialmente marcado pode repetir.
-        conexao = db_roteado({
-            "FROM collections": {"fetchone": {"id": 1}},
-            "FROM files":       {"fetchall": [{"id": 1}, {"id": 2}]},
-            "INSERT INTO collection_files": {"fetchall": [{"file_id": 1}, {"file_id": 2}]},
-        })
+        conexao = db_roteado(
+            {
+                "FROM collections": {"fetchone": {"id": 1}},
+                "FROM files": {"fetchall": [{"id": 1}, {"id": 2}]},
+                "INSERT INTO collection_files": {"fetchall": [{"file_id": 1}, {"file_id": 2}]},
+            }
+        )
         client_logado.post("/api/collections/1/files", json={"file_ids": [1, 2, 1, 2, 1]})
 
         enviados = _params_do_sql(conexao, "SELECT id FROM files")
@@ -92,11 +100,13 @@ class TestNormalizacaoDeEntrada:
 class TestIdempotencia:
     def test_informa_quantos_ja_estavam_na_colecao(self, client_logado, db_roteado):
         # 3 enviados, o banco aceitou 1 → os outros 2 já estavam lá.
-        db_roteado({
-            "FROM collections": {"fetchone": {"id": 1}},
-            "FROM files":       {"fetchall": [{"id": 1}, {"id": 2}, {"id": 3}]},
-            "INSERT INTO collection_files": {"fetchall": [{"file_id": 3}]},
-        })
+        db_roteado(
+            {
+                "FROM collections": {"fetchone": {"id": 1}},
+                "FROM files": {"fetchall": [{"id": 1}, {"id": 2}, {"id": 3}]},
+                "INSERT INTO collection_files": {"fetchall": [{"file_id": 3}]},
+            }
+        )
         corpo = client_logado.post(
             "/api/collections/1/files", json={"file_ids": [1, 2, 3]}
         ).get_json()
@@ -105,11 +115,13 @@ class TestIdempotencia:
 
     def test_reenviar_tudo_nao_e_erro(self, client_logado, db_roteado):
         # Nenhuma linha nova, mas a operação é bem-sucedida.
-        db_roteado({
-            "FROM collections": {"fetchone": {"id": 1}},
-            "FROM files":       {"fetchall": [{"id": 1}, {"id": 2}]},
-            "INSERT INTO collection_files": {"fetchall": []},
-        })
+        db_roteado(
+            {
+                "FROM collections": {"fetchone": {"id": 1}},
+                "FROM files": {"fetchall": [{"id": 1}, {"id": 2}]},
+                "INSERT INTO collection_files": {"fetchall": []},
+            }
+        )
         r = client_logado.post("/api/collections/1/files", json={"file_ids": [1, 2]})
         assert r.status_code == 200
         corpo = r.get_json()
@@ -117,11 +129,13 @@ class TestIdempotencia:
         assert corpo["ja_existiam"] == 2
 
     def test_soma_bate_com_o_lote_enviado(self, client_logado, db_roteado):
-        db_roteado({
-            "FROM collections": {"fetchone": {"id": 1}},
-            "FROM files":       {"fetchall": [{"id": i} for i in range(1, 6)]},
-            "INSERT INTO collection_files": {"fetchall": [{"file_id": 4}, {"file_id": 5}]},
-        })
+        db_roteado(
+            {
+                "FROM collections": {"fetchone": {"id": 1}},
+                "FROM files": {"fetchall": [{"id": i} for i in range(1, 6)]},
+                "INSERT INTO collection_files": {"fetchall": [{"file_id": 4}, {"file_id": 5}]},
+            }
+        )
         corpo = client_logado.post(
             "/api/collections/1/files", json={"file_ids": [1, 2, 3, 4, 5]}
         ).get_json()
@@ -131,11 +145,13 @@ class TestIdempotencia:
 class TestIsolamentoPorUsuario:
     def test_ignora_arquivo_de_outro_dono_dentro_do_lote(self, client_logado, db_roteado):
         # 3 enviados, o filtro por user_id devolve 2: o intruso não entra.
-        conexao = db_roteado({
-            "FROM collections": {"fetchone": {"id": 1}},
-            "FROM files":       {"fetchall": [{"id": 1}, {"id": 2}]},
-            "INSERT INTO collection_files": {"fetchall": [{"file_id": 1}, {"file_id": 2}]},
-        })
+        conexao = db_roteado(
+            {
+                "FROM collections": {"fetchone": {"id": 1}},
+                "FROM files": {"fetchall": [{"id": 1}, {"id": 2}]},
+                "INSERT INTO collection_files": {"fetchall": [{"file_id": 1}, {"file_id": 2}]},
+            }
+        )
         client_logado.post("/api/collections/1/files", json={"file_ids": [1, 2, 999]})
 
         inseridos = _params_do_sql(conexao, "INSERT INTO collection_files")
@@ -147,10 +163,12 @@ class TestIsolamentoPorUsuario:
         assert r.status_code == 404
 
     def test_nenhum_arquivo_proprio_da_404(self, client_logado, db_roteado):
-        db_roteado({
-            "FROM collections": {"fetchone": {"id": 1}},
-            "FROM files":       {"fetchall": []},
-        })
+        db_roteado(
+            {
+                "FROM collections": {"fetchone": {"id": 1}},
+                "FROM files": {"fetchall": []},
+            }
+        )
         r = client_logado.post("/api/collections/1/files", json={"file_ids": [999]})
         assert r.status_code == 404
 
@@ -162,15 +180,17 @@ class TestIsolamentoPorUsuario:
 
 class TestRemocaoEmLote:
     def test_remove_varios_de_uma_vez(self, client_logado, db_roteado):
-        db_roteado({
-            # `nome` vem junto: depois do DELETE não há mais como saber que
-            # arquivo era, e é pelo nome que a cópia é achada na pasta espelho.
-            "SELECT nome FROM files": {"fetchall": [{"nome": "a.jpg"}, {"nome": "b.jpg"}]},
-            "FROM collections": {"fetchone": {"id": 1, "modo_sync": "manual"}},
-            "FROM files":       {"fetchall": [{"id": 1}, {"id": 2}]},
-            "FROM collection_folders": {"fetchall": []},
-            "DELETE FROM collection_files": {"fetchall": []},
-        })
+        db_roteado(
+            {
+                # `nome` vem junto: depois do DELETE não há mais como saber que
+                # arquivo era, e é pelo nome que a cópia é achada na pasta espelho.
+                "SELECT nome FROM files": {"fetchall": [{"nome": "a.jpg"}, {"nome": "b.jpg"}]},
+                "FROM collections": {"fetchone": {"id": 1, "modo_sync": "manual"}},
+                "FROM files": {"fetchall": [{"id": 1}, {"id": 2}]},
+                "FROM collection_folders": {"fetchall": []},
+                "DELETE FROM collection_files": {"fetchall": []},
+            }
+        )
         corpo = client_logado.delete(
             "/api/collections/1/files", json={"file_ids": [1, 2]}
         ).get_json()

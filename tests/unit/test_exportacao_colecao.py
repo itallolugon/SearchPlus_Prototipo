@@ -22,6 +22,7 @@ pytestmark = pytest.mark.unit
 # Sanitização — RF-038, RF-039, RF-040
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class TestSanitizacaoDeNome:
     @pytest.mark.parametrize(
         "bruto,proibido",
@@ -41,7 +42,9 @@ class TestSanitizacaoDeNome:
         assert proibido not in limpo
 
     def test_preserva_nome_ja_valido(self, app_module):
-        assert app_module._sanitizar_nome("Arquitetura Moderna", padrao="x") == "Arquitetura Moderna"
+        assert (
+            app_module._sanitizar_nome("Arquitetura Moderna", padrao="x") == "Arquitetura Moderna"
+        )
 
     def test_preserva_acentuacao(self, app_module):
         # Acento é válido no NTFS; remover mutilaria o nome escolhido pelo usuário.
@@ -73,6 +76,7 @@ class TestSanitizacaoDeNome:
 # ──────────────────────────────────────────────────────────────────────────────
 # Colisões — RF-041, RF-042, RF-043
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 class TestColisaoDeNomes:
     def test_pasta_livre_mantem_o_nome(self, app_module, tmp_path):
@@ -146,6 +150,7 @@ class TestColisaoDeNomes:
 # Autorização de origem — RF-045
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 class TestOrigemAutorizada:
     def test_aceita_arquivo_dentro_da_pasta_monitorada(self, app_module, tmp_path):
         pasta = tmp_path / "Fotos"
@@ -188,6 +193,7 @@ class TestOrigemAutorizada:
 # Cópia de verdade — RF-044, RF-046, RF-052, RF-056
 # ──────────────────────────────────────────────────────────────────────────────
 
+
 @pytest.fixture()
 def exportar(app_module):
     """Roda um job de exportação síncrono e devolve o estado final."""
@@ -197,10 +203,17 @@ def exportar(app_module):
         job_id = "teste"
         with app_module._export_lock:
             app_module._export_jobs[job_id] = {
-                "user_id": 1, "collection_id": 1, "colecao": "Teste",
-                "pasta": pasta_destino, "total": len(itens), "copiados": 0,
-                "falhas": [], "estado": "executando", "cancelar": False,
-                "erro": None, "criado_em": time.time(),
+                "user_id": 1,
+                "collection_id": 1,
+                "colecao": "Teste",
+                "pasta": pasta_destino,
+                "total": len(itens),
+                "copiados": 0,
+                "falhas": [],
+                "estado": "executando",
+                "cancelar": False,
+                "erro": None,
+                "criado_em": time.time(),
             }
         if cancelar_apos is not None:
             import threading
@@ -214,6 +227,7 @@ def exportar(app_module):
                             return
                         if job["estado"] != "executando":
                             return
+
             threading.Thread(target=_cancelar, daemon=True).start()
 
         app_module._worker_exportacao(job_id, itens, pasta_destino)
@@ -223,14 +237,18 @@ def exportar(app_module):
 
 
 def _item(caminho, nome=None, autorizado=True):
-    return {"nome": nome or os.path.basename(caminho),
-            "caminho": str(caminho), "autorizado": autorizado}
+    return {
+        "nome": nome or os.path.basename(caminho),
+        "caminho": str(caminho),
+        "autorizado": autorizado,
+    }
 
 
 class TestCopiaDeArquivos:
     def test_copia_todos_os_arquivos(self, tmp_path, exportar):
         origem, destino = tmp_path / "o", tmp_path / "d"
-        origem.mkdir(); destino.mkdir()
+        origem.mkdir()
+        destino.mkdir()
         for n in ("a.jpg", "b.jpg", "c.jpg"):
             (origem / n).write_text(n, encoding="utf-8")
 
@@ -242,7 +260,8 @@ class TestCopiaDeArquivos:
 
     def test_conteudo_e_preservado(self, tmp_path, exportar):
         origem, destino = tmp_path / "o", tmp_path / "d"
-        origem.mkdir(); destino.mkdir()
+        origem.mkdir()
+        destino.mkdir()
         (origem / "a.jpg").write_text("conteudo exato", encoding="utf-8")
 
         exportar([_item(origem / "a.jpg")], str(destino))
@@ -252,7 +271,8 @@ class TestCopiaDeArquivos:
     def test_originais_permanecem_intactos(self, tmp_path, exportar):
         # Exportar COPIA. Se movesse, a coleção apontaria para o vazio.
         origem, destino = tmp_path / "o", tmp_path / "d"
-        origem.mkdir(); destino.mkdir()
+        origem.mkdir()
+        destino.mkdir()
         (origem / "a.jpg").write_text("original", encoding="utf-8")
 
         exportar([_item(origem / "a.jpg")], str(destino))
@@ -263,7 +283,9 @@ class TestCopiaDeArquivos:
     def test_nomes_iguais_de_pastas_diferentes_nao_se_sobrescrevem(self, tmp_path, exportar):
         # Caso comum: toda câmera gera IMG_0001.jpg.
         a, b, destino = tmp_path / "a", tmp_path / "b", tmp_path / "d"
-        a.mkdir(); b.mkdir(); destino.mkdir()
+        a.mkdir()
+        b.mkdir()
+        destino.mkdir()
         (a / "IMG_0001.jpg").write_text("da pasta A", encoding="utf-8")
         (b / "IMG_0001.jpg").write_text("da pasta B", encoding="utf-8")
 
@@ -278,12 +300,11 @@ class TestFalhasPorItem:
     def test_arquivo_ausente_nao_aborta_a_exportacao(self, tmp_path, exportar):
         # O índice envelhece: o usuário move arquivos fora do app.
         origem, destino = tmp_path / "o", tmp_path / "d"
-        origem.mkdir(); destino.mkdir()
+        origem.mkdir()
+        destino.mkdir()
         (origem / "existe.jpg").write_text("x", encoding="utf-8")
 
-        job = exportar(
-            [_item(origem / "existe.jpg"), _item(origem / "sumiu.jpg")], str(destino)
-        )
+        job = exportar([_item(origem / "existe.jpg"), _item(origem / "sumiu.jpg")], str(destino))
 
         assert job["estado"] == "concluido"
         assert job["copiados"] == 1
@@ -310,12 +331,15 @@ class TestFalhasPorItem:
 
     def test_total_bate_com_copiados_mais_falhas(self, tmp_path, exportar):
         origem, destino = tmp_path / "o", tmp_path / "d"
-        origem.mkdir(); destino.mkdir()
+        origem.mkdir()
+        destino.mkdir()
         (origem / "ok.jpg").write_text("x", encoding="utf-8")
 
-        itens = [_item(origem / "ok.jpg"),
-                 _item(origem / "sumiu.jpg"),
-                 _item(origem / "bloqueado.jpg", autorizado=False)]
+        itens = [
+            _item(origem / "ok.jpg"),
+            _item(origem / "sumiu.jpg"),
+            _item(origem / "bloqueado.jpg", autorizado=False),
+        ]
         job = exportar(itens, str(destino))
 
         assert job["copiados"] + len(job["falhas"]) == job["total"] == 3
@@ -324,7 +348,8 @@ class TestFalhasPorItem:
 class TestCancelamento:
     def test_cancelar_interrompe_e_preserva_o_copiado(self, tmp_path, exportar):
         origem, destino = tmp_path / "o", tmp_path / "d"
-        origem.mkdir(); destino.mkdir()
+        origem.mkdir()
+        destino.mkdir()
         itens = []
         for i in range(30):
             (origem / f"f{i}.jpg").write_text(str(i), encoding="utf-8")
@@ -339,7 +364,8 @@ class TestCancelamento:
 
     def test_cancelar_nao_apaga_a_origem(self, tmp_path, exportar):
         origem, destino = tmp_path / "o", tmp_path / "d"
-        origem.mkdir(); destino.mkdir()
+        origem.mkdir()
+        destino.mkdir()
         itens = []
         for i in range(20):
             (origem / f"f{i}.jpg").write_text(str(i), encoding="utf-8")

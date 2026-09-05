@@ -21,7 +21,8 @@ pytestmark = pytest.mark.unit
 class TestQualSinalRespondeu:
     def test_imagem_reconhecida_pela_aparencia(self, app_module):
         origem = app_module._origem_do_resultado(
-            eh_imagem=True, peso_visual=0.28, peso_textual=0.05, nome_bateu=False)
+            eh_imagem=True, peso_visual=0.28, peso_textual=0.05, nome_bateu=False
+        )
         assert origem == app_module.ORIGEM_APARENCIA
 
     def test_imagem_reconhecida_pela_descricao(self, app_module):
@@ -31,23 +32,27 @@ class TestQualSinalRespondeu:
         a IA escreveu olhando para a foto.
         """
         origem = app_module._origem_do_resultado(
-            eh_imagem=True, peso_visual=0.04, peso_textual=0.40, nome_bateu=False)
+            eh_imagem=True, peso_visual=0.04, peso_textual=0.40, nome_bateu=False
+        )
         assert origem == app_module.ORIGEM_DESCRICAO
 
     def test_documento_vem_pelo_texto(self, app_module):
         origem = app_module._origem_do_resultado(
-            eh_imagem=False, peso_visual=0.0, peso_textual=0.52, nome_bateu=False)
+            eh_imagem=False, peso_visual=0.0, peso_textual=0.52, nome_bateu=False
+        )
         assert origem == app_module.ORIGEM_TEXTO
 
     def test_documento_nunca_vem_pela_aparencia(self, app_module):
         """PDF não tem aparência reconhecível — não há sinal visual nele."""
         origem = app_module._origem_do_resultado(
-            eh_imagem=False, peso_visual=0.99, peso_textual=0.01, nome_bateu=False)
+            eh_imagem=False, peso_visual=0.99, peso_textual=0.01, nome_bateu=False
+        )
         assert origem != app_module.ORIGEM_APARENCIA
 
     def test_nome_ganha_quando_e_o_maior(self, app_module):
         origem = app_module._origem_do_resultado(
-            eh_imagem=True, peso_visual=0.05, peso_textual=0.03, nome_bateu=True)
+            eh_imagem=True, peso_visual=0.05, peso_textual=0.03, nome_bateu=True
+        )
         assert origem == app_module.ORIGEM_NOME
 
     def test_nome_nao_ganha_de_um_sinal_forte(self, app_module):
@@ -57,12 +62,14 @@ class TestQualSinalRespondeu:
         — o usuário passaria a caçar nome de arquivo em vez de descrever.
         """
         origem = app_module._origem_do_resultado(
-            eh_imagem=True, peso_visual=0.30, peso_textual=0.02, nome_bateu=True)
+            eh_imagem=True, peso_visual=0.30, peso_textual=0.02, nome_bateu=True
+        )
         assert origem == app_module.ORIGEM_APARENCIA
 
     def test_nome_fora_da_disputa_quando_nao_bateu(self, app_module):
         origem = app_module._origem_do_resultado(
-            eh_imagem=False, peso_visual=0.0, peso_textual=0.01, nome_bateu=False)
+            eh_imagem=False, peso_visual=0.0, peso_textual=0.01, nome_bateu=False
+        )
         assert origem == app_module.ORIGEM_TEXTO
 
     def test_compara_contribuicao_e_nao_sinal_cru(self, app_module):
@@ -73,7 +80,8 @@ class TestQualSinalRespondeu:
         """
         # Contribuições, não sinais: 0.27 visual contra 0.28 textual.
         origem = app_module._origem_do_resultado(
-            eh_imagem=True, peso_visual=0.27, peso_textual=0.28, nome_bateu=False)
+            eh_imagem=True, peso_visual=0.27, peso_textual=0.28, nome_bateu=False
+        )
         assert origem == app_module.ORIGEM_DESCRICAO
 
 
@@ -85,6 +93,7 @@ class TestPesoDoNomeNaoDiverge:
         uma coisa e o resultado ser ordenado por outra.
         """
         import inspect
+
         fonte = inspect.getsource(app_module._ajustar_score)
         assert "PESO_NOME" in fonte
         assert "score += 0.15" not in fonte
@@ -95,6 +104,7 @@ class TestNaBusca:
 
     def test_a_resposta_carrega_a_origem(self, app_module):
         import inspect
+
         fonte = inspect.getsource(app_module.api_search)
         assert '"origem": origem' in fonte
 
@@ -104,21 +114,24 @@ class TestNaBusca:
         entra no lugar dele — não um segundo número disfarçado.
         """
         import inspect
+
         fonte = inspect.getsource(app_module._origem_do_resultado)
         assert "return" in fonte
-        for constante in ("ORIGEM_APARENCIA", "ORIGEM_DESCRICAO",
-                          "ORIGEM_TEXTO", "ORIGEM_NOME"):
+        for constante in ("ORIGEM_APARENCIA", "ORIGEM_DESCRICAO", "ORIGEM_TEXTO", "ORIGEM_NOME"):
             assert isinstance(getattr(app_module, constante), str)
 
     def test_as_quatro_origens_sao_distintas(self, app_module):
-        valores = {app_module.ORIGEM_APARENCIA, app_module.ORIGEM_DESCRICAO,
-                   app_module.ORIGEM_TEXTO, app_module.ORIGEM_NOME}
+        valores = {
+            app_module.ORIGEM_APARENCIA,
+            app_module.ORIGEM_DESCRICAO,
+            app_module.ORIGEM_TEXTO,
+            app_module.ORIGEM_NOME,
+        }
         assert len(valores) == 4
 
     def test_nenhuma_origem_usa_jargao(self, app_module):
         """O valor vai para o front e pode acabar visível; não pode citar modelo."""
-        for constante in ("ORIGEM_APARENCIA", "ORIGEM_DESCRICAO",
-                          "ORIGEM_TEXTO", "ORIGEM_NOME"):
+        for constante in ("ORIGEM_APARENCIA", "ORIGEM_DESCRICAO", "ORIGEM_TEXTO", "ORIGEM_NOME"):
             valor = getattr(app_module, constante).lower()
             for jargao in ("clip", "sbert", "bm25", "embedding", "score"):
                 assert jargao not in valor

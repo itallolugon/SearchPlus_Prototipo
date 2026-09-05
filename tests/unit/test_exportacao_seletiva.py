@@ -23,21 +23,23 @@ pytestmark = pytest.mark.unit
 
 
 def _arquivo(nome, tipo, data=None):
-    return {"nome": nome, "tipo": tipo, "caminho": f"C:/x/{nome}",
-            "data_adicionado": data}
+    return {"nome": nome, "tipo": tipo, "caminho": f"C:/x/{nome}", "data_adicionado": data}
 
 
 class TestFiltroPorTipo:
     def test_so_imagens(self, app_module):
-        arquivos = [_arquivo("a.jpg", "jpg"), _arquivo("b.pdf", "pdf"),
-                    _arquivo("c.png", "png")]
+        arquivos = [_arquivo("a.jpg", "jpg"), _arquivo("b.pdf", "pdf"), _arquivo("c.png", "png")]
         saida = app_module._filtrar_por_tipo(arquivos, "imagens")
         assert [a["nome"] for a in saida] == ["a.jpg", "c.png"]
 
     def test_so_documentos(self, app_module):
         """Vídeo e áudio não são documento — são mídia."""
-        arquivos = [_arquivo("a.jpg", "jpg"), _arquivo("b.pdf", "pdf"),
-                    _arquivo("c.mp4", "mp4"), _arquivo("d.docx", "docx")]
+        arquivos = [
+            _arquivo("a.jpg", "jpg"),
+            _arquivo("b.pdf", "pdf"),
+            _arquivo("c.mp4", "mp4"),
+            _arquivo("d.docx", "docx"),
+        ]
         saida = app_module._filtrar_por_tipo(arquivos, "documentos")
         assert [a["nome"] for a in saida] == ["b.pdf", "d.docx"]
 
@@ -47,8 +49,7 @@ class TestFiltroPorTipo:
 
     def test_tipo_em_maiuscula(self, app_module):
         """O tipo vem do nome do arquivo e pode chegar em qualquer caixa."""
-        assert len(app_module._filtrar_por_tipo(
-            [_arquivo("A.JPG", "JPG")], "imagens")) == 1
+        assert len(app_module._filtrar_por_tipo([_arquivo("A.JPG", "JPG")], "imagens")) == 1
 
 
 class TestPadraoDeNome:
@@ -65,13 +66,13 @@ class TestPadraoDeNome:
         assert app_module._nome_exportado("{n}", "foto.jpg", 42, "V", None) == "042.jpg"
 
     def test_combina_marcadores(self, app_module):
-        saida = app_module._nome_exportado(
-            "{colecao}_{n}_{nome}", "praia.jpg", 3, "Viagem", None)
+        saida = app_module._nome_exportado("{colecao}_{n}_{nome}", "praia.jpg", 3, "Viagem", None)
         assert saida == "Viagem_003_praia.jpg"
 
     def test_data_no_nome(self, app_module):
         saida = app_module._nome_exportado(
-            "{data}_{nome}", "foto.jpg", 1, "V", datetime(2026, 8, 31))
+            "{data}_{nome}", "foto.jpg", 1, "V", datetime(2026, 8, 31)
+        )
         assert saida == "2026-08-31_foto.jpg"
 
     def test_sem_data_o_marcador_some(self, app_module):
@@ -97,7 +98,7 @@ class TestPadraoDeNome:
         assert len(saida) <= app_module.LIMITE_NOME_EXPORTADO + len(".jpg")
 
     def test_padrao_que_zera_o_nome_cai_no_original(self, app_module):
-        """"///" sanitizado não sobra nada; sem o padrão, o arquivo ficaria sem nome."""
+        """ "///" sanitizado não sobra nada; sem o padrão, o arquivo ficaria sem nome."""
         saida = app_module._nome_exportado("///", "foto.jpg", 1, "V", None)
         assert saida == "foto.jpg"
 
@@ -124,6 +125,7 @@ class TestSubpastaPorData:
 class TestRedimensionamento:
     def _imagem(self, caminho, largura, altura):
         from PIL import Image
+
         Image.new("RGB", (largura, altura), (120, 90, 200)).save(caminho)
 
     def test_reduz_mantendo_a_proporcao(self, app_module, tmp_path):
@@ -134,9 +136,10 @@ class TestRedimensionamento:
         assert app_module._copiar_redimensionando(str(origem), str(alvo), 800) is True
 
         from PIL import Image
+
         with Image.open(alvo) as img:
             assert img.width == 800
-            assert img.height == 400        # proporção preservada
+            assert img.height == 400  # proporção preservada
 
     def test_imagem_menor_e_copiada_intacta(self, app_module, tmp_path):
         """
@@ -152,6 +155,7 @@ class TestRedimensionamento:
     def test_png_com_transparencia_vira_jpeg_sem_estourar(self, app_module, tmp_path):
         """RGBA em JPEG levanta erro; converter mantém o formato pedido."""
         from PIL import Image
+
         origem = tmp_path / "transparente.png"
         alvo = tmp_path / "saida.jpg"
         Image.new("RGBA", (1200, 600), (10, 20, 30, 128)).save(origem)
@@ -178,8 +182,12 @@ class TestValidacaoDasOpcoes:
     def test_padrao_sem_opcoes(self, app_module):
         opcoes, erro = app_module._validar_opcoes_export({})
         assert erro is None
-        assert opcoes == {"tipos": "tudo", "padrao_nome": "",
-                          "largura_max": None, "subpastas_por_data": False}
+        assert opcoes == {
+            "tipos": "tudo",
+            "padrao_nome": "",
+            "largura_max": None,
+            "subpastas_por_data": False,
+        }
 
     def test_tipo_desconhecido_e_recusado(self, app_module):
         _, erro = app_module._validar_opcoes_export({"tipos": "planilhas"})
@@ -206,6 +214,7 @@ class TestValidacaoDasOpcoes:
         nada foi reduzido é pior que recusar na hora.
         """
         from unittest import mock
+
         with mock.patch.object(app_module, "PIL_OK", False):
             _, erro = app_module._validar_opcoes_export({"largura_max": 800})
         assert "redimensionar" in erro
@@ -219,33 +228,37 @@ class TestNoEndpoint:
             "SELECT path FROM folders": {"fetchall": [{"path": "C:/x"}]},
         }
 
-    def test_tipo_sem_nada_correspondente_explica(self, client_logado, db_roteado,
-                                                   tmp_path):
+    def test_tipo_sem_nada_correspondente_explica(self, client_logado, db_roteado, tmp_path):
         """
         A coleção tem conteúdo, mas nada do tipo pedido. Dizer "coleção vazia"
         mandaria o usuário procurar o problema no lugar errado.
         """
         db_roteado(self._rotas([_arquivo("a.pdf", "pdf")]))
-        r = client_logado.post("/api/collections/1/export", json={
-            "destino": str(tmp_path), "tipos": "imagens"})
+        r = client_logado.post(
+            "/api/collections/1/export", json={"destino": str(tmp_path), "tipos": "imagens"}
+        )
 
         assert r.status_code == 400
         assert "Nenhuma imagem" in r.get_json()["error"]
 
-    def test_opcao_invalida_e_recusada_antes_de_criar_pasta(self, client_logado,
-                                                             db_roteado, tmp_path):
+    def test_opcao_invalida_e_recusada_antes_de_criar_pasta(
+        self, client_logado, db_roteado, tmp_path
+    ):
         """
         Recusar depois de criar a pasta deixaria uma pasta vazia no destino a
         cada tentativa errada.
         """
         db_roteado(self._rotas([_arquivo("a.jpg", "jpg")]))
-        r = client_logado.post("/api/collections/1/export", json={
-            "destino": str(tmp_path), "largura_max": 5})
+        r = client_logado.post(
+            "/api/collections/1/export", json={"destino": str(tmp_path), "largura_max": 5}
+        )
 
         assert r.status_code == 400
         assert list(tmp_path.iterdir()) == []
 
     def test_exige_sessao(self, client, db_roteado, tmp_path):
         db_roteado({})
-        assert client.post("/api/collections/1/export",
-                           json={"destino": str(tmp_path)}).status_code == 401
+        assert (
+            client.post("/api/collections/1/export", json={"destino": str(tmp_path)}).status_code
+            == 401
+        )

@@ -120,9 +120,18 @@ class TestColecoes:
         db_roteado(
             {
                 "FROM collections": {
-                    "fetchall": [{"id": 1, "nome": "Viagem", "total": 3, "criado_em": None,
-                                  "pasta_vinculada": None, "modo_sync": "manual",
-                                  "capa_file_id": None, "capa_caminho": None}]
+                    "fetchall": [
+                        {
+                            "id": 1,
+                            "nome": "Viagem",
+                            "total": 3,
+                            "criado_em": None,
+                            "pasta_vinculada": None,
+                            "modo_sync": "manual",
+                            "capa_file_id": None,
+                            "capa_caminho": None,
+                        }
+                    ]
                 }
             }
         )
@@ -141,12 +150,26 @@ class TestColecoes:
             {
                 "FROM collections": {
                     "fetchall": [
-                        {"id": 1, "nome": "Viagem", "total": 2, "criado_em": None,
-                         "pasta_vinculada": None, "modo_sync": "manual",
-                                  "capa_file_id": None, "capa_caminho": None},
-                        {"id": 2, "nome": "Praia", "total": 1, "criado_em": None,
-                         "pasta_vinculada": None, "modo_sync": "manual",
-                                  "capa_file_id": None, "capa_caminho": None},
+                        {
+                            "id": 1,
+                            "nome": "Viagem",
+                            "total": 2,
+                            "criado_em": None,
+                            "pasta_vinculada": None,
+                            "modo_sync": "manual",
+                            "capa_file_id": None,
+                            "capa_caminho": None,
+                        },
+                        {
+                            "id": 2,
+                            "nome": "Praia",
+                            "total": 1,
+                            "criado_em": None,
+                            "pasta_vinculada": None,
+                            "modo_sync": "manual",
+                            "capa_file_id": None,
+                            "capa_caminho": None,
+                        },
                     ]
                 },
                 "ROW_NUMBER": {
@@ -169,10 +192,18 @@ class TestColecoes:
         db_roteado(
             {
                 "FROM collections": {
-                    "fetchall": [{"id": 7, "nome": "Documentos", "total": 3,
-                                  "criado_em": None, "pasta_vinculada": None,
-                                  "modo_sync": "manual",
-                                  "capa_file_id": None, "capa_caminho": None}]
+                    "fetchall": [
+                        {
+                            "id": 7,
+                            "nome": "Documentos",
+                            "total": 3,
+                            "criado_em": None,
+                            "pasta_vinculada": None,
+                            "modo_sync": "manual",
+                            "capa_file_id": None,
+                            "capa_caminho": None,
+                        }
+                    ]
                 },
             }
         )
