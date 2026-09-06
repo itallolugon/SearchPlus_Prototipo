@@ -3940,6 +3940,68 @@ async function salvarConfigPasta() {
 // STATUS BAR COM FEEDBACK DE CONCLUSÃO
 let _ultimaFila = 0;  // pra detectar quando a análise termina
 
+// A home acompanha a análise sozinha.
+// ---------------------------------------------------------------------------
+// Antes, quem adicionava uma pasta ficava olhando a barra de progresso andar
+// com a home vazia atrás, e só via as fotos depois de recarregar a página na
+// mão. O aviso de "análise concluída" existia, mas avisar sem mostrar é o pior
+// dos dois mundos: a pessoa fica sabendo que terminou e continua sem ver nada.
+//
+// Redesenhar a galeria custa uma requisição e reconstrói o container inteiro,
+// então não dá para fazer isso nas mesmas batidas de 2s da barra de status. As
+// regras abaixo existem para atualizar quando ADIANTA e ficar quieto quando
+// atrapalharia.
+const _ESPERA_ENTRE_ATUALIZACOES = 8000;   // ms; a análise leva minutos
+let _ultimaAtualizacaoDaHome = 0;
+
+// A análise pode terminar enquanto a pessoa está numa janela ou lendo os
+// resultados de uma busca. Nesse caso não dá para redesenhar na hora, mas a
+// atualização não pode simplesmente se perder: ela fica devendo, e a próxima
+// batida da barra de status paga assim que a home reaparecer.
+//
+// Voltar da busca já passa por mostrarHome(), que recarrega a galeria. Fechar
+// uma janela, não — e era por aí que a home ficava velha sem ninguém notar.
+let _homeDeveAtualizar = false;
+
+// Redesenhar por baixo de uma janela aberta, ou enquanto a pessoa lê os
+// resultados de uma busca, seria trabalho jogado fora no melhor caso e um
+// susto no pior.
+function _homeEstaAparecendo() {
+    const dash = document.getElementById('dashboardView');
+    if (!dash || dash.style.display === 'none') return false;
+    const busca = document.getElementById('searchResultsView');
+    if (busca && busca.style.display === 'block') return false;
+    return _modaisAbertos().length === 0;
+}
+
+// `motivo` distingue os dois casos: 'fim' é a atualização que não pode faltar,
+// e por isso ignora o intervalo; 'andamento' é a que deixa as fotos irem
+// aparecendo, e respeita o intervalo para não redesenhar a cada 2 segundos.
+async function atualizarHomeSeCabe(motivo) {
+    if (!_homeEstaAparecendo()) {
+        // Guarda a dívida só para o fim da análise. Uma atualização de
+        // andamento perdida não faz falta: vem outra em seguida.
+        if (motivo === 'fim') _homeDeveAtualizar = true;
+        return false;
+    }
+
+    const agora = Date.now();
+    if (motivo !== 'fim' && agora - _ultimaAtualizacaoDaHome < _ESPERA_ENTRE_ATUALIZACOES) {
+        return false;
+    }
+    _ultimaAtualizacaoDaHome = agora;
+    _homeDeveAtualizar = false;
+
+    // A galeria é reconstruída do zero; sem guardar a rolagem, a página salta
+    // para o topo no meio da leitura. A seleção não precisa disso — ela vive
+    // num Set em memória e é redesenhada a partir dele.
+    const rolagem = window.scrollY;
+    await carregarGaleria();
+    window.scrollTo({ top: rolagem, behavior: 'instant' });
+    return true;
+}
+
+
 async function buscarStatus() {
     const b = document.getElementById('statusBar');
     try {
@@ -3949,13 +4011,27 @@ async function buscarStatus() {
 
         // Detecta transição fila>0 -> fila=0: análise terminou.
         // Só notifica se as notificações estiverem ativadas nas configs.
-        if (_ultimaFila > 0 && pend === 0 && currentConfig.notificacoes !== false) {
+        const terminou = (_ultimaFila > 0 && pend === 0);
+
+        if (terminou && currentConfig.notificacoes !== false) {
             // Com o resumo a um clique: é o momento em que a pessoa está
             // olhando e a pergunta "entrou tudo?" está viva. Depois ela ainda
             // encontra o mesmo resumo nas Configurações.
             toastComAcao('Análise concluída! Os arquivos já podem ser buscados.',
                          'Ver resumo', abrirResumoIndexacao);
         }
+
+        // Mostrar o resultado NÃO depende de as notificações estarem ligadas:
+        // quem desligou o aviso não pediu para a home ficar desatualizada.
+        if (terminou || _homeDeveAtualizar) {
+            atualizarHomeSeCabe('fim');
+        } else if (pend > 0 && pend !== _ultimaFila) {
+            // `pend !== _ultimaFila` é o sinal de que alguma coisa andou desde
+            // a última batida. Sem ele, uma fila parada (fora da janela de
+            // horário, por exemplo) redesenharia a galeria à toa.
+            atualizarHomeSeCabe('andamento');
+        }
+
         _ultimaFila = pend;
 
         // Monta o texto do status
