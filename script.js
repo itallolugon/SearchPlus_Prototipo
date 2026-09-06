@@ -131,6 +131,46 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 });
 
+// Falha silenciosa: a rede de segurança.
+// ---------------------------------------------------------------------------
+// Boa parte do app trata erro HTTP (`if (!r.ok)`) mas não trata a rede cair.
+// São coisas diferentes: com o servidor fora do ar o `fetch` REJEITA, a função
+// morre ali, e o usuário fica olhando para um clique que não fez nada — sem
+// mensagem, sem carregando, sem nada. É o pior tipo de falha, porque a pessoa
+// não sabe se deu errado ou se ela é que não clicou direito.
+//
+// Consertar as funções uma a uma resolve as de hoje e não resolve a próxima
+// que alguém escrever. Este ouvinte pega a classe inteira, inclusive o código
+// que ainda não existe.
+//
+// Não substitui tratamento específico: quando dá para dizer O QUE falhou
+// ("não foi possível remover a pasta"), a função continua dizendo. Isto aqui é
+// o piso, para que nunca seja silêncio.
+let _ultimoAvisoDeRede = 0;
+
+window.addEventListener('unhandledrejection', (evento) => {
+    const motivo = evento.reason;
+    const ehRede = motivo instanceof TypeError
+        && /fetch|network|failed|load/i.test(String(motivo.message || ''));
+
+    // O log continua saindo em qualquer caso: quem está depurando precisa do
+    // erro inteiro, não do resumo amigável.
+    console.error('Promessa rejeitada sem tratamento:', motivo);
+
+    if (!ehRede) return;
+
+    // Uma tela que dispara várias chamadas de uma vez geraria um aviso por
+    // chamada. Um a cada 5s basta para informar sem virar avalanche.
+    const agora = Date.now();
+    if (agora - _ultimoAvisoDeRede < 5000) return;
+    _ultimoAvisoDeRede = agora;
+
+    if (typeof toastErro === 'function') {
+        toastErro('Não foi possível falar com o servidor. '
+                  + 'Verifique se o Search+ ainda está rodando e tente de novo.');
+    }
+});
+
 // ==========================================
 // SISTEMA DE TOAST (notificações ao usuário)
 // ==========================================
@@ -2489,9 +2529,18 @@ async function adicionarPasta() {
 
 async function removerPasta(p) {
     if (!await confirmarAcao("Remover pasta", "Remover esta pasta do computador? O Search+ não vai mais buscar nela.", "Remover")) return;
-    const res = await fetch(`${API_BASE_URL}/api/folders`, { method: 'DELETE', headers: fetchOptions.headers, body: JSON.stringify({ pasta: p }) });
-    const config = await res.json();
-    atualizarListaModalPastas(config.pastas);
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/folders`, { method: 'DELETE', headers: fetchOptions.headers, body: JSON.stringify({ pasta: p }) });
+        if (!res.ok) {
+            toastErro(await _erroDaResposta(res, 'Não foi possível remover a pasta'));
+            return;
+        }
+        const config = await res.json();
+        atualizarListaModalPastas(config.pastas);
+    } catch (e) {
+        console.error(e);
+        toastErro('Não foi possível remover a pasta. O servidor respondeu?');
+    }
 }
 
 async function forcarAnalise() {
