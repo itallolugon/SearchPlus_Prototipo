@@ -2295,27 +2295,66 @@ async function realizarBusca() {
     }
 }
 
+// Cards de "recentes", montados pelo DOM.
+//
+// A versão anterior montava isto com template string e innerHTML, e o nome do
+// arquivo entrava em DOIS lugares onde não podia:
+//
+//   onclick="abrirPainelPeloNome('${r.nome}')"   e   <p>${r.nome}</p>
+//
+// Um apóstrofo no nome — "Ana's foto.jpg", coisa comuníssima — fechava a
+// string do onclick e o card parava de abrir. Um `<` no nome injetava HTML.
+// Como os nomes vêm de arquivos do disco, basta alguém receber um arquivo com
+// nome preparado para isso virar execução de script.
+//
+// Montar pelo DOM resolve os dois de uma vez: `textContent` não interpreta
+// HTML, e o clique é uma função de verdade, não texto que vira código.
+//
+// De quebra, o índice vai na closure em vez de o clique procurar o arquivo
+// pelo nome depois — dois arquivos com o mesmo nome em pastas diferentes
+// abriam o errado.
 function popularDashboard(resultados) {
     const rGridImg = document.getElementById('recentImgs');
     const rGridDoc = document.getElementById('recentDocs');
-    rGridImg.innerHTML = ''; rGridDoc.innerHTML = '';
+    if (!rGridImg || !rGridDoc) return;
 
+    const imagens = document.createDocumentFragment();
+    const documentos = document.createDocumentFragment();
     let imgs = 0, docs = 0;
-    resultados.forEach(r => {
-        const ext = r.tipo.toLowerCase();
-        if (extensoesImagem.includes(ext) && imgs < 4) {
-            rGridImg.innerHTML += `<div class="recent-card" onclick="abrirPainelPeloNome('${r.nome}')"><div class="recent-img"><img src="${formatImagePath(r.caminho)}" alt="${_attr(textoAlternativo(r))}"></div><p>${r.nome}</p></div>`;
-            imgs++;
-        } else if (!extensoesImagem.includes(ext) && docs < 4) {
-            rGridDoc.innerHTML += `<div class="recent-card" onclick="abrirPainelPeloNome('${r.nome}')"><div class="recent-img doc-icon">${ext.toUpperCase()}</div><p>${r.nome}</p></div>`;
-            docs++;
-        }
-    });
-}
 
-function abrirPainelPeloNome(nome) {
-    const idx = window.resultadosAtuais.findIndex(r => r.nome === nome);
-    if (idx !== -1) abrirPainelLateral(idx);
+    resultados.forEach((r, indice) => {
+        const ext = (r.tipo || '').toLowerCase();
+        const ehImagem = extensoesImagem.includes(ext);
+        if (ehImagem ? imgs >= 4 : docs >= 4) return;
+
+        const card = document.createElement('div');
+        card.className = 'recent-card';
+        card.onclick = () => abrirPainelLateral(indice);
+
+        const midia = document.createElement('div');
+        if (ehImagem) {
+            midia.className = 'recent-img';
+            const img = document.createElement('img');
+            img.src = formatImagePath(r.caminho);
+            img.alt = textoAlternativo(r);
+            midia.appendChild(img);
+        } else {
+            midia.className = 'recent-img doc-icon';
+            midia.textContent = ext.toUpperCase();
+        }
+
+        const nome = document.createElement('p');
+        nome.textContent = r.nome;
+
+        card.append(midia, nome);
+        if (ehImagem) { imagens.appendChild(card); imgs++; }
+        else { documentos.appendChild(card); docs++; }
+    });
+
+    // Uma escrita por grade, e não uma por card: `innerHTML +=` dentro do laço
+    // reconstruía tudo que já estava lá a cada volta.
+    rGridImg.replaceChildren(imagens);
+    rGridDoc.replaceChildren(documentos);
 }
 
 // ==========================================
