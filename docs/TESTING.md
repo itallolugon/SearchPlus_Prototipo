@@ -199,6 +199,66 @@ imagens sob demanda e para re-ranquear.
 
 Violar qualquer limite encerra o Locust com código 1 — o CI quebra.
 
+### O que a carga exercita
+
+Doze tarefas, com peso proporcional ao uso real. A busca pesa mais porque é o
+que o produto faz; as rotas de coleção entram com o peso do fluxo que a feature
+de pastas criou.
+
+| Peso | Tarefa | Cobre |
+|---|---|---|
+| 10 | `buscar` | `POST /api/search` |
+| 4 | `buscar_com_filtro` | Busca com filtro de tipo |
+| 4 | `abrir_colecao_e_listar_pastas` | `GET /folders` — caminho quente, lê o disco |
+| 3 | `abrir_painel_inicial` | `/stats` + `/gallery` juntos |
+| 3 | `selecionar_tudo_e_adicionar_em_lote` | Lote grande em `/files` |
+| 2 | `colecao_com_pasta_vinculada` | `PATCH` + `/sync` |
+| 2 | `readicionar_lote_ja_existente` | Caminho idempotente |
+| 2 | `listar_colecoes`, `validar_sessao` | Navegação |
+| 1 | `exportar_colecao_e_acompanhar` | `/export` + polling do job + limpeza |
+| 1 | `listar_favoritos`, `consultar_status_do_motor` | Auxiliares |
+
+Duas tarefas fazem asserção além do código HTTP: a de lote repetido **falha** se
+`adicionados` não for 0 (denunciaria duplicação sob concorrência), e a de
+sincronia falha se a resposta não trouxer `copiados`.
+
+`abrir_colecao_e_listar_pastas` trata **404 como sucesso**: entre listar e
+abrir, outro usuário virtual pode ter excluído a coleção. Contar isso como erro
+faria a taxa de falha medir a concorrência do próprio teste, não o produto.
+
+> **Rodando contra o backend real.** `SEARCHPLUS_LOAD_SYNC_DIR` (padrão
+> `C:\Temp\searchplus-carga`) é a pasta-mãe das tarefas de exportação. Contra
+> `app.py`, o Python **cria subpastas de verdade** ali. Aponte para um
+> diretório descartável. As tarefas limpam o que criam, mas uma execução
+> interrompida pode deixar resíduo.
+
+### Última execução — 30/08/2026
+
+Contra `mock_server.py`, que isola a medição da latência do Supabase e do tempo
+de IA. O que se mede aqui é a camada de aplicação.
+
+| Perfil | Usuários | Requisições | Falhas | p95 geral |
+|---|---|---|---|---|
+| `smoke` | 12 | 717 | **0** | 270 ms |
+| `load` | rampa até 20 | 3 052 | **0** | 260 ms |
+| `stress` | rampa até 150 | 11 384 | **0** | 280 ms |
+
+p95 por rota de coleção no perfil `stress` — todas uma ordem de grandeza abaixo
+da busca, que domina o tempo:
+
+| Rota | p95 |
+|---|---|
+| `PATCH /api/collections/[id]` | ~17 ms |
+| `GET /api/collections/[id]/folders` | ~25 ms |
+| `GET /api/collections/export/[job]` | ~26 ms |
+| `POST /api/collections/[id]/sync` | ~27 ms |
+| `DELETE /api/collections/[id]/folders` | ~27 ms |
+| `POST /api/collections/[id]/files (lote)` | ~37 ms |
+| `POST /api/search` | ~280 ms |
+
+Detalhe da análise em
+[`10-requisitos-nao-funcionais.md` §9-B](10-requisitos-nao-funcionais.md).
+
 **Calibre contra o backend real antes de tratar como meta.** Os números atuais
 foram validados contra o mock, cujo `/api/search` responde em ~250 ms. O backend
 real é mais lento: na medição desta sessão, a primeira busca de uma imagem sem

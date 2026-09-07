@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from urllib.parse import urlparse
 
 from locust import HttpUser, LoadTestShape, between, events, task
@@ -36,6 +37,11 @@ PERFIL = os.environ.get("SEARCHPLUS_LOAD_PROFILE", "smoke").lower()
 USUARIO = os.environ.get("SEARCHPLUS_LOAD_USER", "carga_teste")
 SENHA = os.environ.get("SEARCHPLUS_LOAD_PASSWORD", "carga_teste")
 PERMITE_REMOTO = os.environ.get("SEARCHPLUS_LOAD_ALLOW_REMOTE") == "1"
+
+# Pasta-mãe usada pela tarefa de coleção vinculada. Contra o MOCK nada é escrito
+# em disco, então o valor é só um caminho de fachada. Contra o backend REAL, o
+# Python cria subpastas de verdade aqui — aponte para um diretório descartável.
+DESTINO_SYNC = os.environ.get("SEARCHPLUS_LOAD_SYNC_DIR", r"C:\Temp\searchplus-carga")
 
 # Limites de aceitação. São referências iniciais: ajuste conforme a máquina e o
 # ambiente, documentando a mudança.
@@ -144,6 +150,312 @@ class UsuarioDoSearchPlus(HttpUser):
     @task(1)
     def consultar_status_do_motor(self):
         self.client.get("/api/status", name="/api/status")
+
+    @task(3)
+    def selecionar_tudo_e_adicionar_em_lote(self):
+        """
+        O fluxo que "selecionar tudo" cria: uma busca, e todos os resultados
+        indo de uma vez para uma coleção.
+
+        É a requisição de maior payload do produto — a lista de ids cresce com o
+        tamanho do resultado. Medir aqui é o que evita descobrir em produção que
+        uma busca com 200 imagens estoura o tempo do INSERT em lote.
+        """
+        consulta = CONSULTAS[UsuarioDoSearchPlus._contador % len(CONSULTAS)]
+        r = self.client.post(
+            "/api/search", json={"query": consulta, "filtro": "all"}, name="/api/search"
+        )
+        if r.status_code != 200:
+            return
+        ids = [item["id"] for item in (r.json() or {}).get("resultados", []) if item.get("id")]
+        if not ids:
+            return
+
+        col = self.client.post(
+            "/api/collections",
+            json={"nome": f"carga-{UsuarioDoSearchPlus._contador}-{time.time_ns()}"},
+            name="/api/collections (criar)",
+        )
+        # 409 = nome repetido; qualquer coisa fora de 200 não dá id para seguir.
+        if col.status_code != 200:
+            return
+        col_id = (col.json() or {}).get("id")
+        if not col_id:
+            return
+
+        with self.client.post(
+            f"/api/collections/{col_id}/files",
+            json={"file_ids": ids},
+            catch_response=True,
+            name="/api/collections/[id]/files (lote)",
+        ) as add:
+            if add.status_code != 200:
+                add.failure(f"HTTP {add.status_code}")
+            elif "adicionados" not in (add.json() or {}):
+                add.failure("resposta sem o campo 'adicionados'")
+            else:
+                add.success()
+
+        # A confirmação de exportação imediata relê a coleção para mostrar o
+        # total: entra na medição porque acontece a cada adição em lote.
+        self.client.get(f"/api/collections/{col_id}", name="/api/collections/[id]")
+
+        # Não deixa lixo acumulando no banco entre execuções.
+        self.client.delete(f"/api/collections/{col_id}", name="/api/collections/[id] (excluir)")
+
+    @task(2)
+    def colecao_com_pasta_vinculada(self):
+        """
+        Fluxo da coleção espelhada: vincula uma pasta e adiciona em lote.
+
+        No modo 'auto' cada adição dispara um /sync logo depois do POST em
+        /files — é o par de requisições que o usuário passa a fazer o tempo
+        todo, então é o que precisa ser medido junto.
+        """
+        col = self.client.post(
+            "/api/collections",
+            json={"nome": f"carga-sync-{UsuarioDoSearchPlus._contador}-{time.time_ns()}"},
+            name="/api/collections (criar)",
+        )
+        if col.status_code != 200:
+            return
+        col_id = (col.json() or {}).get("id")
+        if not col_id:
+            return
+
+        with self.client.patch(
+            f"/api/collections/{col_id}",
+            json={"criar_pasta_em": DESTINO_SYNC, "modo_sync": "auto"},
+            catch_response=True,
+            name="/api/collections/[id] (vincular pasta)",
+        ) as vinc:
+            if vinc.status_code != 200:
+                # Sem a pasta de destino no alvo, o resto da tarefa não se aplica.
+                vinc.success()
+                self.client.delete(
+                    f"/api/collections/{col_id}", name="/api/collections/[id] (excluir)"
+                )
+                return
+            vinc.success()
+
+        consulta = CONSULTAS[UsuarioDoSearchPlus._contador % len(CONSULTAS)]
+        r = self.client.post(
+            "/api/search", json={"query": consulta, "filtro": "all"}, name="/api/search"
+        )
+        ids = (
+            [item["id"] for item in (r.json() or {}).get("resultados", []) if item.get("id")]
+            if r.status_code == 200
+            else []
+        )
+        if not ids:
+            self.client.delete(f"/api/collections/{col_id}", name="/api/collections/[id] (excluir)")
+            return
+
+        add = self.client.post(
+            f"/api/collections/{col_id}/files",
+            json={"file_ids": ids},
+            name="/api/collections/[id]/files (lote)",
+        )
+        novos = (add.json() or {}).get("ids_adicionados", ids) if add.status_code == 200 else []
+
+        if novos:
+            with self.client.post(
+                f"/api/collections/{col_id}/sync",
+                json={"file_ids": novos},
+                catch_response=True,
+                name="/api/collections/[id]/sync",
+            ) as sync:
+                if sync.status_code != 200:
+                    sync.failure(f"HTTP {sync.status_code}")
+                elif "copiados" not in (sync.json() or {}):
+                    sync.failure("resposta sem o campo 'copiados'")
+                else:
+                    sync.success()
+
+        self.client.delete(f"/api/collections/{col_id}", name="/api/collections/[id] (excluir)")
+
+    @task(4)
+    def abrir_colecao_e_listar_pastas(self):
+        """
+        Caminho quente: `/folders` é chamado toda vez que uma coleção abre.
+
+        Alimenta o botão "Abrir pasta exportada" e o modal de pastas. Ele lê o
+        disco (os.path.isdir + os.listdir por pasta), então é o endpoint de
+        coleção mais sensível a I/O — o que justifica o peso maior que as
+        tarefas de escrita.
+        """
+        r = self.client.get("/api/collections", name="/api/collections")
+        if r.status_code != 200:
+            return
+        colecoes = (r.json() or {}).get("colecoes", [])
+        if not colecoes:
+            return
+
+        # 404 aqui é resposta CORRETA, não falha: entre listar e abrir, outro
+        # usuário virtual pode ter excluído a coleção. Marcar como erro faria a
+        # taxa de falha medir a concorrência do próprio teste, não o produto.
+        col = colecoes[UsuarioDoSearchPlus._contador % len(colecoes)]
+        with self.client.get(
+            f"/api/collections/{col['id']}", catch_response=True, name="/api/collections/[id]"
+        ) as det:
+            if det.status_code in (200, 404):
+                det.success()
+            else:
+                det.failure(f"HTTP {det.status_code}")
+
+        with self.client.get(
+            f"/api/collections/{col['id']}/folders",
+            catch_response=True,
+            name="/api/collections/[id]/folders",
+        ) as pf:
+            if pf.status_code == 404:
+                pf.success()  # coleção excluída no meio
+            elif pf.status_code != 200:
+                pf.failure(f"HTTP {pf.status_code}")
+            elif "pastas" not in (pf.json() or {}):
+                pf.failure("resposta sem o campo 'pastas'")
+            else:
+                pf.success()
+
+    @task(1)
+    def exportar_colecao_e_acompanhar(self):
+        """
+        Exportação completa: dispara o job, acompanha o progresso e limpa.
+
+        É a operação mais cara do produto — copia arquivo a arquivo em thread
+        separada. O polling entra na medição porque o frontend consulta a cada
+        400 ms enquanto a barra está na tela.
+
+        A limpeza no fim usa DELETE /folders, que só aceita caminho registrado
+        para a própria coleção: a carga não consegue apagar nada além do que
+        ela mesma criou.
+        """
+        col = self.client.post(
+            "/api/collections",
+            json={"nome": f"carga-exp-{UsuarioDoSearchPlus._contador}-{time.time_ns()}"},
+            name="/api/collections (criar)",
+        )
+        if col.status_code != 200:
+            return
+        col_id = (col.json() or {}).get("id")
+        if not col_id:
+            return
+
+        consulta = CONSULTAS[UsuarioDoSearchPlus._contador % len(CONSULTAS)]
+        r = self.client.post(
+            "/api/search", json={"query": consulta, "filtro": "all"}, name="/api/search"
+        )
+        ids = (
+            [i["id"] for i in (r.json() or {}).get("resultados", []) if i.get("id")]
+            if r.status_code == 200
+            else []
+        )
+        if ids:
+            self.client.post(
+                f"/api/collections/{col_id}/files",
+                json={"file_ids": ids},
+                name="/api/collections/[id]/files (lote)",
+            )
+
+        exp = self.client.post(
+            f"/api/collections/{col_id}/export",
+            json={"destino": DESTINO_SYNC},
+            catch_response=True,
+            name="/api/collections/[id]/export",
+        )
+        with exp:
+            if exp.status_code == 400:
+                # Coleção vazia ou destino ausente no alvo: não é falha do teste.
+                exp.success()
+                self.client.delete(
+                    f"/api/collections/{col_id}", name="/api/collections/[id] (excluir)"
+                )
+                return
+            if exp.status_code != 200:
+                exp.failure(f"HTTP {exp.status_code}")
+                self.client.delete(
+                    f"/api/collections/{col_id}", name="/api/collections/[id] (excluir)"
+                )
+                return
+            exp.success()
+
+        job = (exp.json() or {}).get("job_id")
+        # Acompanha até concluir, com teto: um job travado não pode prender o
+        # usuário virtual para sempre.
+        for _ in range(25):
+            st = self.client.get(
+                f"/api/collections/export/{job}", name="/api/collections/export/[job]"
+            )
+            if st.status_code != 200:
+                break
+            if (st.json() or {}).get("estado") != "executando":
+                break
+            time.sleep(0.4)
+
+        pf = self.client.get(
+            f"/api/collections/{col_id}/folders", name="/api/collections/[id]/folders"
+        )
+        caminhos = (
+            [p["caminho"] for p in (pf.json() or {}).get("pastas", [])]
+            if pf.status_code == 200
+            else []
+        )
+        if caminhos:
+            self.client.delete(
+                f"/api/collections/{col_id}/folders",
+                json={"caminhos": caminhos, "confirmar": True},
+                name="/api/collections/[id]/folders (apagar)",
+            )
+        self.client.delete(f"/api/collections/{col_id}", name="/api/collections/[id] (excluir)")
+
+    @task(2)
+    def readicionar_lote_ja_existente(self):
+        """
+        Re-adicionar o mesmo lote: o caminho 100% idempotente.
+
+        Custa um INSERT ... ON CONFLICT DO NOTHING que não grava nada. Se este
+        ficar lento, o gargalo é o próprio lote — não a escrita.
+        """
+        # A consulta precisa devolver resultados, senão a tarefa sai sem medir
+        # nada — e some silenciosamente do relatório. CONSULTAS é a mesma lista
+        # que a task `buscar` usa, então acompanha o acervo do alvo.
+        consulta = CONSULTAS[UsuarioDoSearchPlus._contador % len(CONSULTAS)]
+        r = self.client.post(
+            "/api/search", json={"query": consulta, "filtro": "all"}, name="/api/search"
+        )
+        if r.status_code != 200:
+            return
+        ids = [item["id"] for item in (r.json() or {}).get("resultados", []) if item.get("id")]
+        if not ids:
+            return
+
+        col = self.client.post(
+            "/api/collections",
+            json={"nome": f"carga-dup-{UsuarioDoSearchPlus._contador}-{time.time_ns()}"},
+            name="/api/collections (criar)",
+        )
+        if col.status_code != 200:
+            return
+        col_id = (col.json() or {}).get("id")
+        if not col_id:
+            return
+
+        rota = f"/api/collections/{col_id}/files"
+        self.client.post(rota, json={"file_ids": ids}, name="/api/collections/[id]/files (lote)")
+        with self.client.post(
+            rota,
+            json={"file_ids": ids},
+            catch_response=True,
+            name="/api/collections/[id]/files (lote repetido)",
+        ) as dup:
+            if dup.status_code != 200:
+                dup.failure(f"HTTP {dup.status_code}")
+            elif (dup.json() or {}).get("adicionados") != 0:
+                dup.failure("re-adicionar duplicou itens na coleção")
+            else:
+                dup.success()
+
+        self.client.delete(f"/api/collections/{col_id}", name="/api/collections/[id] (excluir)")
 
 
 # ─────────────────────────────────────────────────────────────────────────────

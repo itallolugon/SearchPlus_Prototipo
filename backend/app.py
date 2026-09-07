@@ -10,10 +10,14 @@ import hashlib
 import bcrypt
 import mimetypes
 import queue
+import secrets
+import sys
+import shutil
 import subprocess
 import threading
 import time
 import unicodedata
+from collections import deque
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -73,19 +77,26 @@ CLAUDE_OK = False
 # Modelo usado tanto para descrever imagens quanto para julgar a busca.
 # Pode ser trocado no .env (CLAUDE_MODEL) sem mexer no código.
 CLAUDE_MODEL = os.environ.get("CLAUDE_MODEL", "").strip() or "claude-opus-5"
-try:
-    import anthropic as _anthropic
-    _chave = os.environ.get("ANTHROPIC_API_KEY", "").strip()
-    if not _chave:
-        print("[AI] ANTHROPIC_API_KEY não encontrada no .env — análise de imagens e re-rank ficarão indisponíveis.")
-    else:
+# O `import anthropic` custa ~3s sozinho. Como nada dele é preciso para o
+# servidor atender, ele sai daqui e vai para a carga em segundo plano, junto
+# dos modelos — ver _carregar_modelos().
+
+
+def _iniciar_claude() -> None:
+    global _CLAUDE, CLAUDE_OK
+    try:
+        import anthropic as _anthropic
+        _chave = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+        if not _chave:
+            print("[AI] ANTHROPIC_API_KEY não encontrada no .env — análise de imagens e re-rank ficarão indisponíveis.")
+            return
         _CLAUDE = _anthropic.Anthropic(api_key=_chave)
         CLAUDE_OK = True
         print("[AI] Claude ativo — descrição de imagens e re-rank da busca via API.")
-except ImportError:
-    print("[AI] Lib 'anthropic' não instalada (pip install anthropic).")
-except Exception as _e:
-    print(f"[AI] Falha ao iniciar Claude: {_e}")
+    except ImportError:
+        print("[AI] Lib 'anthropic' não instalada (pip install anthropic).")
+    except Exception as _e:
+        print(f"[AI] Falha ao iniciar Claude: {_e}")
 
 try:
     import fitz  # PyMuPDF
@@ -99,13 +110,21 @@ try:
 except ImportError:
     DOCX_OK = False
 
+# numpy fica aqui: custa 0,3s e é usado em vários pontos.
 try:
-    from sklearn.feature_extraction.text import TfidfVectorizer
-    from sklearn.metrics.pairwise import cosine_similarity
     import numpy as np
-    SKLEARN_OK = True
+    NUMPY_OK = True
 except ImportError:
-    SKLEARN_OK = False
+    NUMPY_OK = False
+
+# scikit-learn sai do caminho de inicialização: sozinho ele custava 4,8s dos
+# ~7s que o servidor levava para atender o primeiro pedido, e nada dele é
+# preciso até alguém buscar. Carrega junto dos modelos, no mesmo thread.
+#
+# `TfidfVectorizer` também era importado aqui e não é usado em lugar nenhum —
+# um import morto pagando parte dessa conta.
+cosine_similarity = None
+SKLEARN_OK = False
 
 # Força uso do cache local por padrão — evita timeouts de rede ao checar arquivos no HuggingFace.
 # Para baixar modelos pela primeira vez, rode com: SEARCHPLUS_OFFLINE=0 py backend/app.py
@@ -114,34 +133,156 @@ if os.environ.get("SEARCHPLUS_OFFLINE", "1") == "1":
     os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 try:
-    from sentence_transformers import SentenceTransformer as _ST
-    _SBERT = _ST("paraphrase-multilingual-MiniLM-L12-v2")
-    SBERT_OK = True
-    print("[AI] Sentence Transformers carregado — busca semântica ativa.")
-except Exception as _e:
-    SBERT_OK = False
-    print(f"[AI] Sentence Transformers indisponível: {_e}")
-
-# ── CLIP: busca visual direta (texto↔imagem no mesmo espaço vetorial) ───────
-# Dois modelos: encoder de texto multilingual + encoder de imagem original.
-# Total ~1.1GB no primeiro download. Rode uma vez com SEARCHPLUS_OFFLINE=0.
-try:
     from PIL import Image as _PILImage
     PIL_OK = True
 except ImportError:
     PIL_OK = False
 
-try:
-    if not PIL_OK:
-        raise ImportError("Pillow não instalado (pip install Pillow).")
-    from sentence_transformers import SentenceTransformer as _ST2
-    _CLIP_TXT = _ST2("sentence-transformers/clip-ViT-B-32-multilingual-v1")
-    _CLIP_IMG = _ST2("sentence-transformers/clip-ViT-B-32")
-    CLIP_OK = True
-    print("[AI] CLIP multilingual carregado — busca visual ativa.")
-except Exception as _e:
-    CLIP_OK = False
-    print(f"[AI] CLIP indisponível (busca visual desligada): {_e}")
+# ── Modelos de busca: carregados em segundo plano ──────────────────────────
+#
+# Carregar aqui, na importação, custava ~30 segundos antes de o Flask começar a
+# atender. Nesse intervalo o navegador não recebia nem a tela de login: o
+# usuário via "não foi possível acessar" e concluía que o programa não abriu.
+#
+# Agora a importação só declara o estado; um thread carrega em paralelo e o
+# servidor atende de imediato. As flags continuam sendo globais do módulo, e
+# todas as leituras acontecem dentro de funções (tempo de chamada), então elas
+# enxergam o valor atualizado assim que a carga termina.
+_SBERT = None
+_CLIP_TXT = None
+_CLIP_IMG = None
+SBERT_OK = False
+CLIP_OK = False
+
+# "carregando" → "pronto" | "indisponivel"
+_estado_modelos = {"texto": "carregando", "visual": "carregando"}
+_motivo_modelos: dict[str, str] = {}
+_lock_modelos = threading.Lock()
+
+# Sinaliza que a carga TERMINOU — de bem ou de mal. Quem espera aqui precisa
+# saber que não adianta mais esperar, não que deu certo; para saber se deu
+# certo, olhe SBERT_OK / CLIP_OK.
+_MODELOS_RESOLVIDOS = threading.Event()
+
+
+def _marcar_modelo(qual: str, estado: str, motivo: str = "") -> None:
+    """
+    Grava estado e motivo JUNTOS: o motivo explica o estado atual, não o
+    histórico. Marcar sem motivo apaga o que havia — senão um texto de falha
+    sobrevive a um "pronto" posterior, e o /api/health passa a afirmar as duas
+    coisas ao mesmo tempo. A tela mostraria o erro de uma tentativa que já deu
+    certo, e a pessoa reinstalaria o programa por causa de um aviso vencido.
+    """
+    with _lock_modelos:
+        _estado_modelos[qual] = estado
+        if motivo:
+            _motivo_modelos[qual] = motivo
+        else:
+            _motivo_modelos.pop(qual, None)
+
+
+def estado_dos_modelos() -> dict:
+    """Cópia do estado, para o /api/health responder sem segurar o lock."""
+    with _lock_modelos:
+        return {
+            "texto": {"estado": _estado_modelos["texto"],
+                      "motivo": _motivo_modelos.get("texto", "")},
+            "visual": {"estado": _estado_modelos["visual"],
+                       "motivo": _motivo_modelos.get("visual", "")},
+        }
+
+
+def busca_pronta() -> bool:
+    """A busca por texto depende do modelo de texto; é ele que manda."""
+    return SBERT_OK
+
+
+def _carregar_modelos() -> None:
+    """
+    Carrega os modelos, um de cada vez, atualizando o estado conforme termina.
+
+    O de texto vem primeiro de propósito: é ele que destrava a busca escrita,
+    que é o que o usuário faz assim que abre o programa. O visual pode demorar
+    mais um pouco sem que ninguém fique esperando.
+    """
+    global _SBERT, _CLIP_TXT, _CLIP_IMG, SBERT_OK, CLIP_OK
+    global cosine_similarity, SKLEARN_OK
+
+    # Carregar em paralelo com o servidor tem um custo: a cada 5ms (padrão do
+    # Python) o interpretador tira o GIL desta thread e oferece às outras. No
+    # meio de um import pesado isso é quase sempre desperdício — troca de
+    # contexto sem ninguém para atender. Alargando a fatia para 50ms, a carga
+    # terminou em 35s em vez de 42s nas medições.
+    #
+    # Isso NÃO limita a espera de um pedido a 50ms: um import em C segura o GIL
+    # enquanto quiser, e a fatia não interrompe código nativo. Medido durante a
+    # carga, o /api/health respondeu com mediana de 6ms e pior caso de ~1,5s.
+    # O pior caso já existia antes desta linha; ela só reduz o vaivém inútil.
+    _fatia_original = sys.getswitchinterval()
+    sys.setswitchinterval(0.05)
+    try:
+        _carregar_modelos_de_fato()
+    finally:
+        sys.setswitchinterval(_fatia_original)
+        _MODELOS_RESOLVIDOS.set()
+
+
+def _carregar_modelos_de_fato() -> None:
+    global _SBERT, _CLIP_TXT, _CLIP_IMG, SBERT_OK, CLIP_OK
+    global cosine_similarity, SKLEARN_OK
+
+    try:
+        from sentence_transformers import SentenceTransformer as _ST
+        _SBERT = _ST("paraphrase-multilingual-MiniLM-L12-v2")
+        SBERT_OK = True
+        _marcar_modelo("texto", "pronto")
+        print("[AI] Sentence Transformers carregado — busca semântica ativa.")
+    except Exception as _e:
+        SBERT_OK = False
+        _marcar_modelo("texto", "indisponivel", str(_e))
+        print(f"[AI] Sentence Transformers indisponível: {_e}")
+
+    # scikit-learn e o SDK do Claude vêm DEPOIS do modelo de texto. Os dois
+    # somam ~8s e nenhum deles é preciso para a busca escrita funcionar:
+    # deixá-los na frente adiava em 8 segundos o momento em que o usuário
+    # consegue buscar, sem devolver nada em troca.
+    try:
+        from sklearn.metrics.pairwise import cosine_similarity as _cos
+        cosine_similarity = _cos
+        SKLEARN_OK = True
+    except ImportError as _e:
+        SKLEARN_OK = False
+        print(f"[AI] scikit-learn indisponível: {_e}")
+
+    _iniciar_claude()
+
+    # CLIP: busca visual direta (texto↔imagem no mesmo espaço vetorial).
+    # Dois modelos: encoder de texto multilingual + encoder de imagem original.
+    # Total ~1.1GB no primeiro download. Rode uma vez com SEARCHPLUS_OFFLINE=0.
+    try:
+        if not PIL_OK:
+            raise ImportError("Pillow não instalado (pip install Pillow).")
+        from sentence_transformers import SentenceTransformer as _ST2
+        _CLIP_TXT = _ST2("sentence-transformers/clip-ViT-B-32-multilingual-v1")
+        _CLIP_IMG = _ST2("sentence-transformers/clip-ViT-B-32")
+        CLIP_OK = True
+        _marcar_modelo("visual", "pronto")
+        print("[AI] CLIP multilingual carregado — busca visual ativa.")
+    except Exception as _e:
+        CLIP_OK = False
+        _marcar_modelo("visual", "indisponivel", str(_e))
+        print(f"[AI] CLIP indisponível (busca visual desligada): {_e}")
+
+
+def iniciar_carga_dos_modelos() -> None:
+    """Dispara a carga uma única vez. Chamada na importação."""
+    if _MODELOS_RESOLVIDOS.is_set():
+        return
+    threading.Thread(target=_carregar_modelos, daemon=True,
+                     name="carga-modelos").start()
+
+
+iniciar_carga_dos_modelos()
 
 # ── BM25: busca por palavra-chave (complemento ao SBERT) ────────────────────
 try:
@@ -162,12 +303,69 @@ except ImportError:
 # em serve_static(), logo abaixo.
 app = Flask(__name__, static_folder=None)
 
-# Chave de sessão: vem do .env em produção. O fallback só existe para o
-# desenvolvimento local não exigir configuração — trocar a chave invalida todas
-# as sessões abertas, então em produção ela PRECISA ser fixa e secreta.
-app.secret_key = os.environ.get("SECRET_KEY", "").strip() or "searchplus_dev_only_key"
-if app.secret_key == "searchplus_dev_only_key":
-    print("[Auth] SECRET_KEY não definida no .env — usando chave de desenvolvimento.")
+ARQUIVO_SEGREDO = BASE_DIR / ".secret_key"
+
+
+def _restringir_ao_dono(caminho: Path) -> None:
+    """
+    Deixa o arquivo legível só pelo dono.
+
+    No Windows `os.chmod` só mexe no bit de somente-leitura — o modo 0600 é
+    praticamente inócuo lá. Quem de fato restringe é o `icacls`: remove a
+    herança e concede acesso apenas ao usuário atual. Em POSIX, `chmod` basta.
+    """
+    try:
+        if os.name == "nt":
+            usuario = os.environ.get("USERNAME") or ""
+            if usuario:
+                subprocess.run(
+                    ["icacls", str(caminho), "/inheritance:r",
+                     "/grant:r", f"{usuario}:F"],
+                    capture_output=True, check=False,
+                )
+        else:
+            os.chmod(caminho, 0o600)
+    except Exception as exc:
+        print(f"[Auth] não foi possível restringir {caminho.name}: "
+              f"{type(exc).__name__}: {exc}")
+
+
+def _resolver_secret_key() -> str:
+    """
+    Chave de sessão, em ordem de precedência: ambiente → arquivo → gerar.
+
+    Antes existia só o primeiro passo, com um literal de desenvolvimento como
+    fallback — e como o literal era o mesmo em toda execução, a sessão até
+    sobrevivia. O problema era outro: uma chave conhecida e versionada permite
+    forjar cookie de sessão. Gerar e guardar resolve os dois lados: a chave
+    passa a ser secreta E estável entre reinícios.
+    """
+    do_ambiente = os.environ.get("SECRET_KEY", "").strip()
+    if do_ambiente:
+        return do_ambiente
+
+    if ARQUIVO_SEGREDO.exists():
+        try:
+            guardada = ARQUIVO_SEGREDO.read_text(encoding="utf-8").strip()
+            if guardada:
+                return guardada
+        except OSError as exc:
+            print(f"[Auth] não foi possível ler .secret_key: {exc}")
+
+    nova = secrets.token_hex(32)
+    try:
+        ARQUIVO_SEGREDO.write_text(nova, encoding="utf-8")
+        _restringir_ao_dono(ARQUIVO_SEGREDO)
+        print("[Auth] SECRET_KEY gerada e salva em backend/.secret_key")
+    except OSError as exc:
+        # Disco somente-leitura: a chave vale para esta execução. Avisar é o
+        # que importa — sem isso o usuário só notaria pelo relogin.
+        print(f"[Auth] não foi possível salvar .secret_key ({exc}). "
+              "A sessão será perdida ao reiniciar.")
+    return nova
+
+
+app.secret_key = _resolver_secret_key()
 
 # ── Origens liberadas no CORS ───────────────────────────────────────────────
 # O front pode ser servido pelo próprio Flask (same-origin, porta 5000) ou por
@@ -579,6 +777,28 @@ def _fechar_db_do_request(_exc):
         conn.close()   # idempotente: no-op se o handler já fechou
 
 
+def _vec_to_list(v):
+    """
+    Normaliza um vetor lido do banco para lista de float puro.
+
+    O pgvector >= 0.4 devolve um objeto `Vector`, que NÃO é iterável e não
+    converte pra float direto — np.array([Vector]) vira array de dtype=object
+    e quebra o cosine_similarity. Aceita também list/tuple/numpy (caso o
+    adapter não esteja registrado) pra ficar à prova de versão.
+    """
+    if v is None:
+        return None
+    to_list = getattr(v, "to_list", None)     # pgvector.Vector
+    if callable(to_list):
+        return [float(x) for x in to_list()]
+    tolist = getattr(v, "tolist", None)       # numpy.ndarray
+    if callable(tolist):
+        return [float(x) for x in tolist()]
+    if isinstance(v, str):                    # fallback: '[0.1,0.2,...]'
+        return [float(x) for x in v.strip("[]").split(",") if x.strip()]
+    return [float(x) for x in v]              # list/tuple
+
+
 def _safe_json_loads(raw, default=None):
     """
     Wrapper tolerante de json.loads. No Postgres com JSONB, vem como dict
@@ -729,7 +949,16 @@ def serve_static(filename):
         # as_posix(): send_from_directory espera '/' como separador. No Windows,
         # str(rel) devolveria 'fonts\arquivo.ttf' e a barra invertida seria
         # recusada, transformando um arquivo existente em 404.
-        return send_from_directory(str(FRONTEND_DIR), rel.as_posix())
+        resposta = send_from_directory(str(FRONTEND_DIR), rel.as_posix())
+
+        # Código do frontend nunca é cacheado. O index.html referencia
+        # `script.js?v=<string fixa>`: se o navegador guardar a versão antiga,
+        # ela fica servida para sempre, e o app passa a rodar HTML novo com JS
+        # velho — sintoma que aparece como erro de backend, não de cache.
+        # Fonte e imagem continuam cacheáveis: mudam raramente e pesam.
+        if rel.suffix.lower() in {".js", ".css", ".html"}:
+            resposta.headers["Cache-Control"] = "no-store, must-revalidate"
+        return resposta
 
     # Não é arquivo: se o caminho tem cara de recurso estático (tem extensão),
     # é um 404 de verdade. Sem extensão, é rota de SPA — entrega o index.html
@@ -751,7 +980,12 @@ _DEFAULT_CFG = {
     "perfil_local": "",
     "perfil_avatar": "",
     "perfil_banner": "",
-    "cor_primaria": "#A855F7",
+    # Clareado 3% em relacao ao #A855F7 original: como TEXTO sobre a
+    # superficie dos cards, o tom anterior media 4,38:1 e nao passava no
+    # minimo de 4,5:1 da WCAG. A diferenca e imperceptivel a olho.
+    # Este e o padrao que VALE: o front so usa o dele quando o servidor
+    # nao manda nada.
+    "cor_primaria": "#AB5AF7",
     "cor_secundaria": "#E879F9",
     "cor_texto_botao": "#FFFFFF",
     "tema": "dark",
@@ -764,6 +998,10 @@ _DEFAULT_CFG = {
     "modo_privado": False,
     "pastas_ignoradas": "",
     "modo_desempenho": "economico",
+    # Último diretório usado para exportar. Pré-preenche o seletor nativo na
+    # próxima vez — quem sempre exporta para o mesmo lugar reescolhia o caminho
+    # a cada exportação. Vazio = seletor abre onde o sistema decidir.
+    "ultima_pasta_exportacao": "",
 }
 
 
@@ -1283,7 +1521,7 @@ def api_serve_file(filepath):
 # Diálogos nativos do Windows (tkinter)
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _tk_pick(mode: str):
+def _tk_pick(mode: str, inicial: str = ""):
     """Abre seletor nativo. mode='image' | 'folder'. Retorna path ou None."""
     import tkinter as tk
     from tkinter import filedialog
@@ -1304,7 +1542,12 @@ def _tk_pick(mode: str):
             ],
         )
     else:
-        path = filedialog.askdirectory(title="Selecionar Pasta")
+        # `initialdir` inexistente faz o tkinter cair no padrão sozinho, sem
+        # erro — daí só checar isdir e deixar o resto com ele.
+        kwargs = {"title": "Selecionar Pasta"}
+        if inicial and os.path.isdir(inicial):
+            kwargs["initialdir"] = inicial
+        path = filedialog.askdirectory(**kwargs)
 
     root.destroy()
     return os.path.normpath(path) if path else None
@@ -1350,7 +1593,7 @@ def api_choose_folder():
     if not _uid():
         return jsonify({"status": "erro", "mensagem": "Não autenticado."}), 401
     try:
-        path = _tk_pick("folder")
+        path = _tk_pick("folder", inicial=_ultima_pasta_exportacao(_uid()))
         if path:
             return jsonify({"status": "sucesso", "pasta": path})
         return jsonify({"status": "cancelado"})
@@ -1641,6 +1884,54 @@ def _expandir_sinonimos(palavras: list[str]) -> str:
     return " ".join(expandido)
 
 
+def _separar_exclusoes(query: str) -> tuple[str, list[str]]:
+    """
+    Separa "praia -pessoas" em ("praia", ["pessoas"]).
+
+    Existe porque refinar era recomeçar: quem procurou "praia" e recebeu trinta
+    fotos com gente no meio não tinha como dizer "essas não" — só reescrever a
+    frase e torcer.
+
+    O hífen só conta colado a uma palavra e precedido de espaço (ou no começo).
+    Sem isso, "bem-te-vi" viraria "bem" excluindo "te" e "vi", e "2024-2025"
+    excluiria "2025" — nomes de arquivo e datas são cheios de hífen.
+    """
+    if not query:
+        return "", []
+
+    excluidos = []
+    restantes = []
+
+    for pedaco in query.split():
+        if pedaco.startswith("-"):
+            # Um traço solto é digitação, não intenção — e deixá-lo na consulta
+            # faria a busca procurar por um hífen.
+            termo = pedaco[1:].strip()
+            if termo:
+                excluidos.append(termo)
+        else:
+            restantes.append(pedaco)
+
+    return " ".join(restantes), excluidos
+
+
+def _cai_na_exclusao(termos_excluidos_norm: list[str], desc_norm: str,
+                     nome_norm: str) -> bool:
+    """
+    O resultado bate com algo que o usuário pediu para tirar.
+
+    Compara contra a descrição E o nome do arquivo. Quem exclui "pessoas"
+    espera que "reuniao-com-pessoas.jpg" saia também, mesmo que a descrição
+    não mencione ninguém.
+    """
+    for termo in termos_excluidos_norm:
+        if not termo:
+            continue
+        if termo in desc_norm or termo in nome_norm:
+            return True
+    return False
+
+
 def _analisar_query(query: str) -> dict:
     """
     Analisa a query do usuário e extrai metadados úteis para a busca:
@@ -1680,6 +1971,44 @@ def _analisar_query(query: str) -> dict:
         "busca_desenho":   busca_desenho,
         "busca_foto":      busca_foto,
     }
+
+
+# Como o resultado foi encontrado. O número que ordena a busca continua
+# escondido de propósito — dizer "0,72" não ensina nada a ninguém. O que ajuda
+# é saber QUAL sinal respondeu, porque é isso que diz ao usuário como pedir da
+# próxima vez: se a foto do cachorro veio "pela aparência", descrever a cena
+# funciona; se veio "pelo nome do arquivo", vale continuar usando o nome.
+#
+# São quatro e não três porque, numa imagem, o texto que o Search+ tem não é
+# texto do arquivo — é a descrição que a IA escreveu olhando para ela. Chamar
+# isso de "texto do documento" seria mentira sobre a origem do dado.
+ORIGEM_APARENCIA = "aparencia"
+ORIGEM_DESCRICAO = "descricao"
+ORIGEM_TEXTO     = "texto"
+ORIGEM_NOME      = "nome"
+
+# Quanto o nome do arquivo soma ao score quando a busca inteira aparece nele.
+# Precisa ser o mesmo valor usado em _ajustar_score: são as duas pontas da
+# mesma regra, e separá-las faria a badge dizer uma coisa e o score, outra.
+PESO_NOME = 0.15
+
+
+def _origem_do_resultado(eh_imagem: bool, peso_visual: float, peso_textual: float,
+                         nome_bateu: bool) -> str:
+    """
+    Qual sinal mais contribuiu para este resultado ter aparecido.
+
+    Compara contribuições já multiplicadas pelos pesos — não os sinais crus.
+    Um sinal visual de 0,9 que entra com peso 0,30 contribui menos que um
+    textual de 0,6 com peso 0,45, e é a contribuição que explica a posição.
+    """
+    candidatos = [(peso_textual, ORIGEM_DESCRICAO if eh_imagem else ORIGEM_TEXTO)]
+    if eh_imagem:
+        candidatos.append((peso_visual, ORIGEM_APARENCIA))
+    if nome_bateu:
+        candidatos.append((PESO_NOME, ORIGEM_NOME))
+
+    return max(candidatos, key=lambda c: c[0])[1]
 
 
 def _ajustar_score(score_raw: float, q: dict, desc_norm: str, nome_norm: str) -> float | None:
@@ -1745,7 +2074,7 @@ def _ajustar_score(score_raw: float, q: dict, desc_norm: str, nome_norm: str) ->
 
     # Query exata dentro do nome do arquivo → +15%
     if q["normalizada"] and q["normalizada"] in nome_norm:
-        score += 0.15
+        score += PESO_NOME
 
     # Cada palavra-chave da query que aparece na descrição → +5%
     if matches_desc:
@@ -1822,19 +2151,59 @@ def api_search():
         query  = (data.get("query") or "").strip()
         filtro = data.get("filtro", "all")
         avancado = data.get("avancado") or {}
+        # Ids do resultado anterior, quando a pessoa pediu para buscar DENTRO
+        # dele. Refinar era recomeçar: cada tentativa jogava fora o que a
+        # busca anterior já tinha acertado.
+        escopo = data.get("escopo") or []
     else:
         query  = (request.args.get("q") or "").strip()
         filtro = request.args.get("filtro", "all")
         avancado = {}
+        escopo = []
+
+    # "praia -pessoas": o que vem depois do hífen sai da consulta e vira
+    # filtro de exclusão. Precisa sair ANTES de qualquer análise — deixar
+    # "-pessoas" na frase faria o motor procurar por pessoas, que é o oposto
+    # do pedido.
+    query, termos_excluidos = _separar_exclusoes(query)
+
+    escopo_ids = []
+    for i in escopo[:5000]:
+        try:
+            escopo_ids.append(int(i))
+        except (TypeError, ValueError):
+            continue
 
     if not query:
+        # Só exclusões, sem nada a procurar ("-pessoas" sozinho): não dá para
+        # buscar "tudo menos pessoas" — a busca precisa de um assunto.
+        if termos_excluidos:
+            return jsonify({
+                "resultados": [], "tempo": 0,
+                "erro": "Diga também o que você procura. Sozinho, o traço só "
+                        "serve para tirar algo de uma busca — por exemplo, "
+                        "\u201cpraia -pessoas\u201d.",
+            })
         return jsonify({"resultados": [], "tempo": 0})
 
     t0 = time.time()
 
     if not SBERT_OK:
-        return jsonify({"resultados": [], "tempo": 0,
-                        "erro": "SBERT indisponível — busca semântica desligada."})
+        # Duas situações bem diferentes, e o usuário precisa saber qual é a
+        # dele: esperar meio minuto resolve uma e não resolve a outra.
+        if not _MODELOS_RESOLVIDOS.is_set():
+            return jsonify({
+                "resultados": [], "tempo": 0, "carregando": True,
+                "erro": "Ainda estou preparando a busca. Isso leva alguns "
+                        "segundos na primeira vez que o programa abre — "
+                        "tente de novo em instantes.",
+            }), 503
+        return jsonify({
+            "resultados": [], "tempo": 0,
+            "erro": "A busca por texto não está disponível. Feche o programa "
+                    "e abra de novo; se continuar, rode o rodar.bat uma vez "
+                    "com a internet conectada.",
+        }), 503
 
     q = _analisar_query(query)
     query_emb = _SBERT.encode(q["expandida"], convert_to_numpy=True).tolist()
@@ -1872,6 +2241,20 @@ def api_search():
         sql_filtros.append("left(lower(caminho), %s) = %s")
         params_filtro.append(len(prefixo_pasta))
         params_filtro.append(prefixo_pasta)
+
+    # Buscar só entre os favoritos. Favoritar marcava o arquivo e não servia
+    # para mais nada na busca — quem separou as fotos boas ao longo de meses
+    # não conseguia procurar dentro delas.
+    if avancado.get("so_favoritos"):
+        sql_filtros.append("favorito = 1")
+
+    # Buscar dentro dos resultados anteriores. Entra como filtro do banco e não
+    # como corte no fim: cortar depois faria os 100 candidatos serem escolhidos
+    # entre a biblioteca inteira e só então reduzidos ao escopo — a maioria
+    # descartada, e o refino trazendo menos do que existia.
+    if escopo_ids:
+        sql_filtros.append("id = ANY(%s)")
+        params_filtro.append(escopo_ids)
 
     sql_where_extra = (" AND " + " AND ".join(sql_filtros)) if sql_filtros else ""
 
@@ -1928,7 +2311,15 @@ def api_search():
     conn.close()
 
     if not rows:
-        return jsonify({"resultados": [], "tempo": round(time.time() - t0, 3)})
+        # Os campos do refino vão junto mesmo sem resultado. Sem eles, a trilha
+        # sumiria da tela justamente quando a pessoa mais precisa dela: o
+        # refino apertou demais, não veio nada, e o caminho de volta é remover
+        # um dos filtros que acabaram de desaparecer da vista.
+        return jsonify({
+            "resultados": [], "tempo": round(time.time() - t0, 3),
+            "consulta": q["original"], "excluidos": termos_excluidos,
+            "escopo": len(escopo_ids),
+        })
 
     sbert_sims = [max(0.0, float(r["sbert_score"])) if r["sbert_score"] is not None else 0.0 for r in rows]
 
@@ -1948,10 +2339,12 @@ def api_search():
         for i, f in enumerate(rows):
             if f["tipo"] in _EXT_IMG and f["embedding_clip"] is not None:
                 try:
-                    img_vec = np.array([f["embedding_clip"]])
+                    img_vec = np.array([_vec_to_list(f["embedding_clip"])], dtype=float)
                     clip_sims[i] = float(cosine_similarity(clip_q_np, img_vec)[0][0])
-                except Exception:
-                    pass
+                except Exception as e:
+                    # Não engole em silêncio: sem CLIP, imagem sem descrição
+                    # nunca pontua e some da busca.
+                    print(f"[CLIP] falha ao comparar '{f['nome']}': {type(e).__name__}: {e}")
 
     # A similaridade CLIP texto↔imagem vive numa faixa estreita (~0.15 a 0.30),
     # bem diferente do SBERT, que usa [0, 1]. Misturar as duas escalas cruas
@@ -1960,6 +2353,38 @@ def api_search():
     # útil do CLIP é esticada para [0, 1] antes de entrar no blend. Os limiares
     # continuam usando o valor cru (clip_sims), que é onde foram calibrados.
     clip_norm = [max(0.0, min(1.0, (s - 0.15) / 0.15)) for s in clip_sims]
+
+    # ── EXCLUSÃO NO SINAL VISUAL ────────────────────────────────────────────
+    # Quem escreve "praia -pessoas" quer tirar as fotos COM gente, e a maioria
+    # delas não diz "pessoas" em lugar nenhum: a descrição fala de "família na
+    # areia" e o nome do arquivo é IMG_2481.jpg. Filtrar só por texto deixaria
+    # passar justamente as que motivaram o pedido.
+    #
+    # Aqui o termo excluído vira um vetor visual e a imagem é comparada com
+    # ele. O limiar é mais alto que o da busca normal (0,25 contra 0,15) de
+    # propósito: descartar por engano é pior que deixar passar. Quem pediu
+    # para excluir ainda vê o resultado e pode refinar de novo; o que sumiu
+    # sem motivo, a pessoa nunca fica sabendo que existia.
+    LIMIAR_EXCLUSAO_VISUAL = 0.25
+    excluidos_visualmente = set()
+    if termos_excluidos and CLIP_OK and SKLEARN_OK:
+        import numpy as np
+        for termo in termos_excluidos:
+            vec_termo = _gerar_embedding_clip_texto(termo)
+            if not vec_termo:
+                continue
+            termo_np = np.array([vec_termo])
+            for i, f in enumerate(rows):
+                if i in excluidos_visualmente:
+                    continue
+                if f["tipo"] not in _EXT_IMG or f["embedding_clip"] is None:
+                    continue
+                try:
+                    img_vec = np.array([_vec_to_list(f["embedding_clip"])], dtype=float)
+                    if float(cosine_similarity(termo_np, img_vec)[0][0]) >= LIMIAR_EXCLUSAO_VISUAL:
+                        excluidos_visualmente.add(i)
+                except Exception as e:
+                    print(f"[CLIP] falha ao excluir '{f['nome']}': {type(e).__name__}: {e}")
 
     # ── DESCRIÇÃO SOB DEMANDA (lazy) ────────────────────────────────────────
     # As imagens são indexadas só com embedding CLIP (sem descrição). Aqui,
@@ -2003,12 +2428,23 @@ def api_search():
         if len(w) >= 3:
             palavras_literais.update(_variantes_morfologicas(w))
 
+    excluidos_norm = [_normalizar(t) for t in termos_excluidos]
+
     def _filtrar_e_pontuar(threshold_sbert: float) -> list:
         out = []
-        for f, s_sbert, s_bm25, s_clip, s_visual in zip(
-                rows, sbert_sims, bm25_sims, clip_sims, clip_norm):
+        for i, (f, s_sbert, s_bm25, s_clip, s_visual) in enumerate(zip(
+                rows, sbert_sims, bm25_sims, clip_sims, clip_norm)):
             desc_local      = (f["descricao_ia"] or "").strip()
             desc_norm_local = _normalizar(desc_local)
+
+            # A exclusão vem antes de qualquer pontuação: o que o usuário
+            # mandou tirar não disputa posição, sai. Por texto ou por imagem —
+            # a foto da família na areia não diz "pessoas" em lugar nenhum.
+            if i in excluidos_visualmente:
+                continue
+            if excluidos_norm and _cai_na_exclusao(
+                    excluidos_norm, desc_norm_local, _normalizar(f["nome"])):
+                continue
             tem_texto     = s_sbert >= threshold_sbert
             tem_visual    = (f["tipo"] in _EXT_IMG and CLIP_OK and s_clip >= 0.25)
             tem_keyword   = s_bm25 >= 0.5 and bool(q["palavras_set"])
@@ -2018,15 +2454,20 @@ def api_search():
 
             eh_imagem_clip = f["tipo"] in _EXT_IMG and CLIP_OK and s_clip > 0
             if eh_imagem_clip and desc_local:
-                blended = W_SBERT_IMG * s_sbert + W_BM25_IMG * s_bm25 + W_CLIP_IMG * s_visual
+                contrib_visual  = W_CLIP_IMG * s_visual
+                contrib_textual = W_SBERT_IMG * s_sbert + W_BM25_IMG * s_bm25
+                blended = contrib_textual + contrib_visual
             elif eh_imagem_clip:
                 # Imagem ainda sem descrição (indexada só com CLIP): não faz
                 # sentido cobrar dela os pesos de texto que ela não tem como
                 # ganhar. O sinal visual responde sozinho, mas com teto, pra
                 # não passar na frente de um acerto textual bem descrito.
                 blended = min(0.70, 0.85 * s_visual)
+                contrib_visual, contrib_textual = blended, 0.0
             else:
-                blended = W_SBERT_DOC * s_sbert + W_BM25_DOC * s_bm25
+                contrib_visual  = 0.0
+                contrib_textual = W_SBERT_DOC * s_sbert + W_BM25_DOC * s_bm25
+                blended = contrib_textual
 
             desc      = f["descricao_ia"] or ""
             desc_norm = _normalizar(desc)
@@ -2034,7 +2475,14 @@ def api_search():
             score = _ajustar_score(float(blended), q, desc_norm, nome_norm)
             if score is None:
                 continue
-            out.append((f, desc, score, float(s_sbert)))
+
+            origem = _origem_do_resultado(
+                eh_imagem=bool(eh_imagem_clip),
+                peso_visual=float(contrib_visual),
+                peso_textual=float(contrib_textual),
+                nome_bateu=bool(q["normalizada"] and q["normalizada"] in nome_norm),
+            )
+            out.append((f, desc, score, float(s_sbert), origem))
         return out
 
     candidatos = _filtrar_e_pontuar(0.35)
@@ -2042,7 +2490,7 @@ def api_search():
         candidatos = _filtrar_e_pontuar(0.30)
 
     results = []
-    for f, desc, score, s_sbert in candidatos:
+    for f, desc, score, s_sbert, origem in candidatos:
         results.append({
             "id": f["id"], "nome": f["nome"], "caminho": f["caminho"],
             "tipo": f["tipo"], "descricao_ia": desc, "conteudo": desc,
@@ -2050,6 +2498,7 @@ def api_search():
             "data": f["data_adicionado"].isoformat() if f["data_adicionado"] else "",
             "favorito": bool(f["favorito"]),
             "score": round(score, 4),
+            "origem": origem,
             "_sbert": round(s_sbert, 4),   # usado pelo rerank pra proteger hits semânticos fortes
         })
 
@@ -2085,7 +2534,17 @@ def api_search():
         results = [r for r in results if _dentro_do_tamanho(r)]
 
     tempo = round(time.time() - t0, 3)
-    return jsonify({"resultados": results[:60], "tempo": tempo})
+    return jsonify({
+        "resultados": results[:60],
+        "tempo": tempo,
+        # O front redesenha a trilha de refinamentos a partir do que o servidor
+        # entendeu, e nao do que foi digitado. Se o parser separar "-pessoas"
+        # de um jeito e a tela mostrar de outro, o usuario remove um chip e a
+        # busca nao muda -- e ele fica sem entender por que.
+        "consulta": q["original"],
+        "excluidos": termos_excluidos,
+        "escopo": len(escopo_ids),
+    })
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2105,8 +2564,16 @@ def api_search_by_image():
         return jsonify({"error": "Não autenticado."}), 401
 
     if not CLIP_OK:
-        return jsonify({"erro": "Busca por imagem indisponível (modelo visual desligado). "
-                                "Reinicie o servidor com conexão à internet na primeira vez."})
+        if not _MODELOS_RESOLVIDOS.is_set():
+            return jsonify({
+                "carregando": True,
+                "erro": "Ainda estou preparando a busca por imagem. "
+                        "Tente de novo em instantes.",
+            }), 503
+        return jsonify({
+            "erro": "A busca por imagem não está disponível. Rode o rodar.bat "
+                    "uma vez com a internet conectada para baixar o que falta.",
+        }), 503
 
     data = request.get_json(force=True) or {}
     file_id = data.get("file_id")
@@ -2126,9 +2593,9 @@ def api_search_by_image():
         if not row or row["embedding_clip"] is None:
             return jsonify({"erro": "Essa imagem ainda não tem dados visuais. "
                                     "Rode 'Re-analisar' para gerá-los."})
-        # pgvector devolve numpy array; converte pra float puro (psycopg2 não
-        # adapta numpy.float32 na query de volta)
-        query_vec = [float(x) for x in row["embedding_clip"]]
+        # pgvector devolve um objeto Vector (não iterável); converte pra float
+        # puro (psycopg2 não adapta numpy.float32/Vector na query de volta)
+        query_vec = _vec_to_list(row["embedding_clip"])
 
     elif data_url:
         # Decodifica base64 → arquivo temporário → embedding CLIP → apaga
@@ -2378,6 +2845,52 @@ def _categorias_do_arquivo(descricao_ia: str) -> list[str]:
     return cats
 
 
+@app.route("/api/files/validos", methods=["POST"])
+def api_files_validos():
+    """
+    Dos ids enviados, quais ainda existem e são deste usuário.
+
+    Serve para a seleção restaurada ao recarregar a aba: entre um
+    carregamento e outro o usuário pode ter removido uma pasta do índice, e a
+    seleção guardada apontaria para arquivos que não existem mais. Contá-los
+    faria a barra dizer "12 imagens selecionadas" e a coleção receber 9.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    data = request.get_json(force=True) or {}
+    brutos = data.get("ids")
+    if not isinstance(brutos, list):
+        return jsonify({"error": "ids deve ser uma lista."}), 400
+
+    ids = []
+    for i in brutos[:5000]:
+        try:
+            ids.append(int(i))
+        except (TypeError, ValueError):
+            continue
+
+    if not ids:
+        return jsonify({"ids": []})
+
+    conn = get_db()
+    try:
+        linhas = conn.execute(
+            "SELECT id FROM files WHERE id = ANY(%s) AND user_id = %s",
+            (ids, uid),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    return jsonify({"ids": [r["id"] for r in linhas]})
+
+
+# O valor que o front manda para dizer "nenhuma pasta". Precisa ser uma palavra
+# e não uma lista vazia: lista vazia é indistinguível de "não escolhi nada".
+VALOR_NENHUMA_PASTA = "nenhuma"
+
+
 @app.route("/api/gallery")
 def api_gallery():
     """
@@ -2389,13 +2902,65 @@ def api_gallery():
     if not uid:
         return jsonify({"error": "Não autenticado."}), 401
 
+    # Quais pastas mostrar. São TRÊS estados, e confundir dois deles foi um
+    # erro que já custou uma correção:
+    #
+    #   parâmetro ausente  → todas. Quem nunca escolheu vê tudo, que é o que
+    #                        sempre aconteceu.
+    #   "nenhuma"          → nenhuma. Quem desmarcou tudo quer a home limpa,
+    #                        para usar só a busca. Antes isso voltava para
+    #                        "todas" e a escolha era ignorada.
+    #   "1,2"              → essas.
+    #
+    # A primeira versão usava lista vazia para "todas", e aí não havia como
+    # dizer "nenhuma" — a diferença entre "não escolhi" e "escolhi zero"
+    # precisa existir no protocolo, não só na cabeça de quem clicou.
+    bruto = (request.args.get("pastas") or "").strip()
+    mostrar_nenhuma = (bruto.lower() == VALOR_NENHUMA_PASTA)
+
+    pastas_pedidas = []
+    if not mostrar_nenhuma:
+        for pedaco in bruto.split(","):
+            pedaco = pedaco.strip()
+            if pedaco:
+                try:
+                    pastas_pedidas.append(int(pedaco))
+                except ValueError:
+                    continue
+
     conn = get_db()
-    rows = conn.execute(
-        "SELECT id, nome, caminho, tipo, descricao_ia, data_adicionado, favorito "
-        "FROM files WHERE user_id = %s AND processado = 1 AND tipo = ANY(%s) "
-        "ORDER BY data_adicionado DESC",
-        (uid, list(_EXT_IMG))
+
+    # As pastas indexadas, com quantas imagens cada uma tem. Vai junto da
+    # galeria de propósito: o seletor precisa dos nomes E dos números, e uma
+    # segunda chamada só para isso deixaria a tela montar em dois tempos.
+    pastas_rows = conn.execute(
+        """
+        SELECT p.id, p.path, p.name, COUNT(f.id) AS imagens
+        FROM folders p
+        LEFT JOIN files f
+               ON f.folder_id = p.id AND f.processado = 1 AND f.tipo = ANY(%s)
+        WHERE p.user_id = %s
+        GROUP BY p.id, p.path, p.name
+        ORDER BY p.added_at
+        """,
+        (list(_EXT_IMG), uid)
     ).fetchall()
+
+    # "Nenhuma" não consulta arquivo nenhum: seria trazer a biblioteca inteira
+    # do banco remoto para descartar tudo em seguida.
+    if mostrar_nenhuma:
+        rows = []
+    else:
+        sql = ("SELECT id, nome, caminho, tipo, descricao_ia, data_adicionado, favorito "
+               "FROM files WHERE user_id = %s AND processado = 1 AND tipo = ANY(%s)")
+        params = [uid, list(_EXT_IMG)]
+
+        if pastas_pedidas:
+            sql += " AND folder_id = ANY(%s)"
+            params.append(pastas_pedidas)
+
+        rows = conn.execute(sql + " ORDER BY data_adicionado DESC",
+                            tuple(params)).fetchall()
     conn.close()
 
     grupos = {k: [] for k in _CATEGORIAS_STATS}
@@ -2422,7 +2987,19 @@ def api_gallery():
     resultado = [{"categoria": c, "total": len(grupos[c]), "itens": grupos[c]}
                  for c in ordem if grupos[c]]
 
-    return jsonify({"grupos": resultado, "total_imagens": len(rows)})
+    return jsonify({
+        "grupos": resultado,
+        "total_imagens": len(rows),
+        "pastas": [{"id": p["id"], "nome": p["name"] or p["path"],
+                    "caminho": p["path"], "imagens": p["imagens"]}
+                   for p in pastas_rows],
+        "pastas_ativas": pastas_pedidas,
+        # O front redesenha o seletor a partir disto. Sem o campo, ele não teria
+        # como distinguir "todas" de "nenhuma" — nos dois casos `pastas_ativas`
+        # vem vazio.
+        "mostrando": ("nenhuma" if mostrar_nenhuma
+                      else ("algumas" if pastas_pedidas else "todas")),
+    })
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2501,40 +3078,79 @@ def api_collections():
         return jsonify({"error": "Não autenticado."}), 401
 
     if request.method == "GET":
+        # Como ordenar. Só nomes conhecidos entram na SQL — o valor vem da URL,
+        # e concatenar o que o cliente mandou seria injeção pela porta da frente.
+        ORDENS = {
+            "recentes": "c.criado_em DESC",
+            "antigas":  "c.criado_em ASC",
+            "nome":     "lower(c.nome) ASC",
+            "tamanho":  "COUNT(cf.file_id) DESC, lower(c.nome) ASC",
+        }
+        ordem = ORDENS.get((request.args.get("ordem") or "").strip(),
+                           ORDENS["recentes"])
+
         # Lista coleções com contagem e até 4 imagens de capa (mosaico)
         conn = get_db()
         rows = conn.execute(
-            """
-            SELECT c.id, c.nome, c.criado_em,
+            f"""
+            SELECT c.id, c.nome, c.criado_em, c.pasta_vinculada, c.modo_sync,
+                   c.capa_file_id, f.caminho AS capa_caminho,
                    COUNT(cf.file_id) AS total
             FROM collections c
             LEFT JOIN collection_files cf ON cf.collection_id = c.id
+            LEFT JOIN files f ON f.id = c.capa_file_id AND f.user_id = c.user_id
             WHERE c.user_id = %s
-            GROUP BY c.id, c.nome, c.criado_em
-            ORDER BY c.criado_em DESC
+            GROUP BY c.id, c.nome, c.criado_em, c.pasta_vinculada, c.modo_sync,
+                     c.capa_file_id, f.caminho
+            ORDER BY {ordem}
             """,
             (uid,)
         ).fetchall()
 
-        colecoes = []
-        for r in rows:
-            # Pega até 4 imagens da coleção pra montar a capa em mosaico
-            capas = conn.execute(
+        # Capas de TODAS as coleções numa consulta só.
+        #
+        # Antes havia um SELECT de capa por coleção, dentro do laço: 51 idas ao
+        # Postgres para 50 coleções. Como o banco é remoto (Supabase), o custo
+        # não era o plano de execução — era a latência de rede multiplicada.
+        #
+        # ROW_NUMBER() particiona por coleção e ordena por data; o filtro < 5
+        # no SELECT de fora corta nas 4 primeiras de cada uma. É o padrão de
+        # "top N por grupo", e o número de consultas passa a ser constante.
+        capas_por_colecao = {}
+        if rows:
+            for c in conn.execute(
                 """
-                SELECT f.caminho
-                FROM collection_files cf
-                JOIN files f ON f.id = cf.file_id
-                WHERE cf.collection_id = %s AND f.tipo = ANY(%s)
-                ORDER BY cf.adicionado_em DESC
-                LIMIT 4
+                SELECT colecao_id, caminho FROM (
+                    SELECT cf.collection_id AS colecao_id,
+                           f.caminho,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY cf.collection_id
+                               ORDER BY cf.adicionado_em DESC
+                           ) AS posicao
+                    FROM collection_files cf
+                    JOIN files f ON f.id = cf.file_id
+                    JOIN collections c ON c.id = cf.collection_id
+                    WHERE c.user_id = %s AND f.tipo = ANY(%s)
+                ) ranqueadas
+                WHERE posicao <= 4
+                ORDER BY colecao_id, posicao
                 """,
-                (r["id"], list(_EXT_IMG))
-            ).fetchall()
-            colecoes.append({
-                "id": r["id"], "nome": r["nome"], "total": r["total"],
-                "criado_em": r["criado_em"].isoformat() if r["criado_em"] else "",
-                "capas": [c["caminho"] for c in capas],
-            })
+                (uid, list(_EXT_IMG))
+            ).fetchall():
+                capas_por_colecao.setdefault(c["colecao_id"], []).append(c["caminho"])
+
+        colecoes = [{
+            "id": r["id"], "nome": r["nome"], "total": r["total"],
+            "criado_em": r["criado_em"].isoformat() if r["criado_em"] else "",
+            "capas": capas_por_colecao.get(r["id"], []),
+            # A capa escolhida vem separada do mosaico, não no lugar dele: se a
+            # imagem escolhida sair da biblioteca, `capa` fica vazia e o front
+            # volta ao mosaico sozinho, sem precisar de outra consulta.
+            "capa": r["capa_caminho"] or "",
+            "capa_file_id": r["capa_file_id"],
+            "pasta_vinculada": r["pasta_vinculada"],
+            "modo_sync": r["modo_sync"] or "manual",
+        } for r in rows]
         conn.close()
         return jsonify({"colecoes": colecoes})
 
@@ -2551,7 +3167,8 @@ def api_collections():
             (uid, nome)
         ).fetchone()
         conn.commit()
-        return jsonify({"status": "ok", "id": row["id"], "nome": nome})
+        return jsonify({"status": "ok", "id": row["id"], "nome": nome,
+                        "pasta_vinculada": None, "modo_sync": "manual"})
     except psycopg2.errors.UniqueViolation:
         conn.rollback()
         return jsonify({"error": "Você já tem uma coleção com esse nome."}), 409
@@ -2559,11 +3176,689 @@ def api_collections():
         conn.close()
 
 
-@app.route("/api/collections/<int:col_id>", methods=["GET", "DELETE"])
+_MODOS_SYNC = {"auto", "perguntar", "manual"}
+
+
+def _ultima_pasta_exportacao(uid) -> str:
+    """
+    Último diretório de exportação do usuário, se ainda existir.
+
+    Devolve "" quando a pasta sumiu (HD desconectado, pasta apagada) — o
+    seletor então abre no padrão do sistema, sem erro. Preferência que aponta
+    para o vazio não pode virar obstáculo.
+    """
+    if not uid:
+        return ""
+    try:
+        conn = get_db()
+        try:
+            row = conn.execute(
+                "SELECT config_json FROM users WHERE id = %s", (uid,)
+            ).fetchone()
+        finally:
+            conn.close()
+    except Exception:
+        return ""     # sem banco, o seletor ainda tem de abrir
+
+    cfg = _safe_json_loads(row["config_json"] if row else None, {}) or {}
+    caminho = (cfg.get("ultima_pasta_exportacao") or "").strip()
+    return caminho if caminho and os.path.isdir(caminho) else ""
+
+
+def _lembrar_pasta_exportacao(uid, destino: str) -> None:
+    """Guarda a pasta-mãe escolhida. Falha aqui não pode quebrar a exportação."""
+    if not uid or not destino:
+        return
+    try:
+        conn = get_db()
+        try:
+            row = conn.execute(
+                "SELECT config_json FROM users WHERE id = %s", (uid,)
+            ).fetchone()
+            cfg = _safe_json_loads(row["config_json"] if row else None, {}) or {}
+            if cfg.get("ultima_pasta_exportacao") == destino:
+                return                      # nada mudou, evita escrita à toa
+            cfg["ultima_pasta_exportacao"] = destino
+            conn.execute("UPDATE users SET config_json = %s WHERE id = %s",
+                         (json.dumps(cfg), uid))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as exc:
+        print(f"[EXPORT] não foi possível lembrar a pasta: {type(exc).__name__}: {exc}")
+
+
+def _sufixo_da_pasta(caminho: str, nome_colecao: str):
+    """
+    Complemento escolhido pelo usuário, ou None se a pasta não segue o padrão.
+
+    A pasta é `<nome da coleção>` ou `<nome da coleção>_<sufixo>`. Só o prefixo
+    é do sistema; o sufixo é do usuário e precisa sobreviver a um rename da
+    coleção — foi ele quem escolheu "backup" ou "praia".
+
+    Três respostas, e a distinção entre as duas últimas importa:
+
+        "backup"  → a pasta é `<prefixo>_backup`
+        ""        → a pasta é exatamente `<prefixo>`, sem complemento
+        None      → **não** deriva deste prefixo
+
+    Devolver "" para o caso None era um bug: com a coleção "teste" e as pastas
+    "testee" e "teste01" — nenhuma derivada de "teste" — as duas viravam
+    candidatas ao mesmo nome novo. A primeira renomeava, a segunda falhava com
+    `nome_em_uso`, e o usuário via metade do trabalho feito. Pasta que não
+    segue o padrão fica como está: renomeá-la seria inventar uma relação que
+    não existe.
+    """
+    base = os.path.basename(os.path.normpath(caminho))
+    prefixo = _sanitizar_nome(nome_colecao, padrao="")
+    if not prefixo:
+        return None
+    if base == prefixo:
+        return ""
+    if base.startswith(prefixo + "_"):
+        return base[len(prefixo) + 1:]
+    return None
+
+
+def _renomear_pasta_no_disco(antigo: str, novo_nome: str):
+    """
+    Renomeia a pasta mantendo-a no mesmo diretório-mãe.
+
+    Devolve `(novo_caminho, None)` ou `(None, motivo)`. Nunca sobrescreve: se o
+    destino já existe, recusa — mesclar duas pastas em silêncio perderia
+    arquivo.
+    """
+    antigo = os.path.normpath(antigo)
+    if not os.path.isdir(antigo):
+        return None, "nao_encontrada"
+
+    destino = os.path.join(os.path.dirname(antigo), novo_nome)
+    if os.path.normpath(destino).lower() == antigo.lower():
+        return antigo, None                      # já tem o nome pedido
+    if os.path.exists(destino):
+        return None, "nome_em_uso"
+
+    try:
+        os.rename(antigo, destino)
+        return destino, None
+    except PermissionError:
+        return None, "sem_permissao"             # pasta aberta no Explorer
+    except OSError as exc:
+        print(f"[PASTAS] rename '{antigo}' -> '{destino}': {type(exc).__name__}: {exc}")
+        return None, "erro_ao_renomear"
+
+
+def _repontar_pasta(conn, col_id: int, uid: int, antigo: str, novo: str) -> None:
+    """Atualiza o registro e o vínculo depois de a pasta mudar de nome."""
+    conn.execute(
+        "UPDATE collection_folders SET caminho = %s "
+        "WHERE collection_id = %s AND user_id = %s AND caminho = %s",
+        (novo, col_id, uid, antigo))
+    conn.execute(
+        "UPDATE collections SET pasta_vinculada = %s "
+        "WHERE id = %s AND user_id = %s AND pasta_vinculada = %s",
+        (novo, col_id, uid, antigo))
+
+
+def _registrar_pasta(conn, col_id: int, uid: int, caminho: str) -> None:
+    """
+    Guarda uma pasta gerada para a coleção, sem duplicar.
+
+    Toda pasta que o app cria passa por aqui. É esse registro que sustenta três
+    coisas: abrir a pasta depois, sincronizar novas imagens nela, e — ao
+    excluir a coleção — listar o que existe no disco para o usuário decidir.
+    Sem ele, uma exportação vira um retrato órfão (era o caso antes).
+    """
+    conn.execute(
+        "INSERT INTO collection_folders (collection_id, user_id, caminho) "
+        "VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+        (col_id, uid, os.path.normpath(caminho)),
+    )
+
+
+def _pastas_da_colecao(conn, col_id: int, uid: int):
+    """Caminhos já gerados para a coleção, do mais recente para o mais antigo."""
+    return [r["caminho"] for r in conn.execute(
+        "SELECT caminho FROM collection_folders "
+        "WHERE collection_id = %s AND user_id = %s ORDER BY criado_em DESC",
+        (col_id, uid),
+    ).fetchall()]
+
+
+def _pastas_que_recebem(conn, col_id: int, uid: int):
+    """
+    Pastas que devem receber as novas imagens da coleção.
+
+    É um conjunto, não um valor: o usuário pode espelhar a coleção em duas
+    pastas ao mesmo tempo, ou em nenhuma. Lista vazia significa "não enviar",
+    sem perder o registro das pastas já criadas.
+    """
+    return [r["caminho"] for r in conn.execute(
+        "SELECT caminho FROM collection_folders "
+        "WHERE collection_id = %s AND user_id = %s AND recebe = TRUE "
+        "ORDER BY criado_em",
+        (col_id, uid),
+    ).fetchall()]
+
+
+def _definir_pastas_que_recebem(conn, col_id: int, uid: int, caminhos) -> list:
+    """
+    Troca o conjunto de destinos. Só aceita pasta já registrada para a coleção.
+
+    Mantém `collections.pasta_vinculada` apontando para a primeira do conjunto
+    (ou NULL): as telas antigas e as mensagens de erro ainda leem esse campo, e
+    deixá-lo divergir do conjunto criaria duas verdades sobre o mesmo assunto.
+    """
+    registradas = {os.path.normpath(c) for c in _pastas_da_colecao(conn, col_id, uid)}
+    alvos = [c for c in (os.path.normpath(str(x).strip()) for x in caminhos)
+             if c in registradas]
+
+    conn.execute(
+        "UPDATE collection_folders SET recebe = FALSE "
+        "WHERE collection_id = %s AND user_id = %s", (col_id, uid))
+    if alvos:
+        conn.execute(
+            "UPDATE collection_folders SET recebe = TRUE "
+            "WHERE collection_id = %s AND user_id = %s AND caminho = ANY(%s)",
+            (col_id, uid, alvos))
+
+    conn.execute(
+        "UPDATE collections SET pasta_vinculada = %s WHERE id = %s AND user_id = %s",
+        (alvos[0] if alvos else None, col_id, uid))
+    return alvos
+
+
+def _atualizar_colecao(col_id: int, uid: int):
+    """
+    PATCH da coleção: nome, pasta vinculada e modo de sincronia.
+
+    Só toca os campos presentes no corpo — mandar `{"modo_sync": "auto"}` não
+    apaga a pasta já vinculada. Enviar `pasta_vinculada: null` desvincula de
+    propósito e devolve a coleção ao modo manual.
+    """
+    data = request.get_json(force=True) or {}
+    campos, valores = [], []
+
+    if "nome" in data:
+        nome = (data.get("nome") or "").strip()
+        if not nome:
+            return jsonify({"error": "Nome da coleção é obrigatório."}), 400
+        campos.append("nome = %s")
+        valores.append(nome)
+
+    # Capa escolhida a dedo. `null` volta ao mosaico automático, que é o padrão
+    # — a coleção tem uma foto que a representa na cabeça de quem a montou, e o
+    # mosaico raramente é essa foto.
+    if "capa_file_id" in data:
+        capa = data.get("capa_file_id")
+        if capa is None:
+            campos.append("capa_file_id = NULL")
+        else:
+            try:
+                capa = int(capa)
+            except (TypeError, ValueError):
+                return jsonify({"error": "Imagem de capa inválida."}), 400
+
+            # A imagem precisa ser do usuário E estar na coleção. Sem a segunda
+            # parte dava para pôr como capa qualquer arquivo do acervo, e a capa
+            # deixaria de representar a coleção.
+            conn_capa = get_db()
+            try:
+                pertence = conn_capa.execute(
+                    "SELECT 1 FROM collection_files cf "
+                    "JOIN files f ON f.id = cf.file_id "
+                    "WHERE cf.collection_id = %s AND cf.file_id = %s "
+                    "AND f.user_id = %s",
+                    (col_id, capa, uid),
+                ).fetchone()
+            finally:
+                conn_capa.close()
+
+            if not pertence:
+                return jsonify({
+                    "error": "Escolha uma imagem que esteja nesta coleção."
+                }), 400
+
+            campos.append("capa_file_id = %s")
+            valores.append(capa)
+
+    # `renomear_pastas` acompanha a troca de nome: o prefixo das pastas segue a
+    # coleção, o sufixo escolhido pelo usuário fica. Precisa acontecer AQUI,
+    # junto do UPDATE, porque só neste ponto o backend conhece os dois nomes —
+    # depois de gravar, o antigo se perde e não há como separar prefixo de
+    # sufixo com segurança.
+    renomear_pastas = bool(data.get("renomear_pastas")) and "nome" in data
+    renomeadas, falhas_pasta, ignoradas = [], [], []
+
+    # `criar_pasta_em` é o caminho normal: o usuário escolhe a pasta-mãe e o
+    # backend cria a subpasta da coleção dentro dela — mesma sanitização e
+    # mesma resolução de colisão da exportação, para não haver duas lógicas.
+    pasta_criada = None
+    if data.get("criar_pasta_em"):
+        destino = os.path.normpath(str(data["criar_pasta_em"]).strip())
+        if not os.path.isdir(destino):
+            return jsonify({"error": "A pasta escolhida não existe mais."}), 400
+
+        conn_nome = get_db()
+        try:
+            row = conn_nome.execute(
+                "SELECT nome FROM collections WHERE id = %s AND user_id = %s",
+                (col_id, uid),
+            ).fetchone()
+        finally:
+            conn_nome.close()
+        if not row:
+            return jsonify({"error": "Coleção não encontrada."}), 404
+
+        alvo = _pasta_disponivel(destino, _sanitizar_nome(row["nome"],
+                                                          padrao=f"colecao_{col_id}"))
+        try:
+            os.makedirs(alvo)
+        except PermissionError:
+            return jsonify({"error": f"Não foi possível gravar em {destino}. "
+                                     "Escolha outra pasta ou verifique as permissões."}), 403
+        except OSError as exc:
+            print(f"[VINCULO] erro ao criar '{alvo}': {type(exc).__name__}: {exc}")
+            return jsonify({"error": f"Não foi possível criar a pasta em {destino}. "
+                                     "Escolha outra pasta."}), 400
+
+        pasta_criada = alvo
+        _lembrar_pasta_exportacao(uid, destino)
+        campos.append("pasta_vinculada = %s")
+        valores.append(alvo)
+
+        conn_reg = get_db()
+        try:
+            _registrar_pasta(conn_reg, col_id, uid, alvo)
+            conn_reg.commit()
+        finally:
+            conn_reg.close()
+
+    elif "pasta_vinculada" in data:
+        pasta = data.get("pasta_vinculada")
+        if pasta is None or not str(pasta).strip():
+            # Desvincular: sem pasta, sincronizar automaticamente não faz sentido
+            campos.append("pasta_vinculada = NULL")
+            campos.append("modo_sync = 'manual'")
+        else:
+            pasta = os.path.normpath(str(pasta).strip())
+            if not os.path.isdir(pasta):
+                return jsonify({"error": "A pasta escolhida não existe mais."}), 400
+            campos.append("pasta_vinculada = %s")
+            valores.append(pasta)
+
+    if "modo_sync" in data:
+        modo = (data.get("modo_sync") or "").strip()
+        if modo not in _MODOS_SYNC:
+            return jsonify({"error": "Modo de sincronia inválido."}), 400
+        campos.append("modo_sync = %s")
+        valores.append(modo)
+
+    # Conjunto de pastas que recebem as novas imagens. Lista vazia é escolha
+    # válida: para de enviar sem perder o registro das pastas já criadas.
+    novos_destinos = None
+    if "pastas_que_recebem" in data:
+        bruto = data.get("pastas_que_recebem")
+        if not isinstance(bruto, list):
+            return jsonify({"error": "pastas_que_recebem deve ser uma lista."}), 400
+        novos_destinos = bruto
+
+    if not campos and novos_destinos is None:
+        return jsonify({"error": "Nada para atualizar."}), 400
+
+    conn = get_db()
+    try:
+        dono = conn.execute(
+            "SELECT id FROM collections WHERE id = %s AND user_id = %s", (col_id, uid)
+        ).fetchone()
+        if not dono:
+            return jsonify({"error": "Coleção não encontrada."}), 404
+
+        # O nome antigo só existe até o UPDATE. Lê-lo aqui é o que permite
+        # separar prefixo de sufixo depois.
+        nome_antigo = None
+        if renomear_pastas:
+            linha = conn.execute(
+                "SELECT nome FROM collections WHERE id = %s AND user_id = %s",
+                (col_id, uid)).fetchone()
+            nome_antigo = linha["nome"] if linha else None
+
+        try:
+            if campos:
+                valores.extend([col_id, uid])
+                conn.execute(
+                    f"UPDATE collections SET {', '.join(campos)} "
+                    "WHERE id = %s AND user_id = %s",
+                    tuple(valores),
+                )
+            # Pasta recém-criada por `criar_pasta_em` já entra como destino —
+            # foi para isso que o usuário a criou.
+            if pasta_criada and novos_destinos is None:
+                atuais = _pastas_que_recebem(conn, col_id, uid)
+                _definir_pastas_que_recebem(conn, col_id, uid, atuais + [pasta_criada])
+            elif novos_destinos is not None:
+                _definir_pastas_que_recebem(conn, col_id, uid, novos_destinos)
+            conn.commit()
+        except psycopg2.errors.UniqueViolation:
+            conn.rollback()
+            return jsonify({"error": "Você já tem uma coleção com esse nome."}), 409
+
+        # Depois do commit: o disco acompanha o nome novo. Falha aqui não
+        # desfaz o rename da coleção — são operações independentes, e reverter
+        # o nome por causa de uma pasta aberta no Explorer seria pior.
+        if renomear_pastas and nome_antigo and nome_antigo != nome:
+            for antigo in _pastas_da_colecao(conn, col_id, uid):
+                sufixo = _sufixo_da_pasta(antigo, nome_antigo)
+                if sufixo is None:
+                    # Não deriva do nome antigo — provavelmente criada sob
+                    # outro nome, ou renomeada à mão. Renomeá-la inventaria
+                    # uma relação que não existe, e duas pastas assim
+                    # disputariam o mesmo nome novo.
+                    ignoradas.append(os.path.basename(antigo))
+                    continue
+                base = _sanitizar_nome(nome, padrao=f"colecao_{col_id}")
+                novo_nome = f"{base}_{sufixo}" if sufixo else base
+                novo, motivo = _renomear_pasta_no_disco(antigo, novo_nome)
+                if novo:
+                    _repontar_pasta(conn, col_id, uid, antigo, novo)
+                    renomeadas.append({"de": os.path.basename(antigo),
+                                       "para": os.path.basename(novo)})
+                else:
+                    falhas_pasta.append({"pasta": os.path.basename(antigo),
+                                         "motivo": motivo})
+            conn.commit()
+
+        atual = conn.execute(
+            "SELECT id, nome, pasta_vinculada, modo_sync FROM collections "
+            "WHERE id = %s AND user_id = %s",
+            (col_id, uid),
+        ).fetchone()
+        destinos = _pastas_que_recebem(conn, col_id, uid)
+    finally:
+        conn.close()
+
+    return jsonify({
+        "status": "ok",
+        "id": atual["id"],
+        "nome": atual["nome"],
+        "pasta_vinculada": atual["pasta_vinculada"],
+        "pastas_que_recebem": destinos,
+        "modo_sync": atual["modo_sync"],
+        "pastas_renomeadas": renomeadas,
+        "pastas_com_falha": falhas_pasta,
+        "pastas_ignoradas": ignoradas,
+    })
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Lixeira — desfazer exclusões
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# Excluir uma coleção apagava trabalho que não volta: o agrupamento que a
+# pessoa montou à mão, e o vínculo com as pastas que ela gerou no disco. Um
+# clique errado custava tudo isso sem recurso.
+#
+# A abordagem é guardar um RETRATO do que foi apagado, e não marcar a linha
+# original como excluída. Marcar exigiria `AND excluido_em IS NULL` em cada
+# uma das ~22 consultas que leem coleção; esquecer uma não quebra nada de
+# forma visível — ela só passa a enxergar coleção excluída, e o usuário
+# consegue adicionar foto a uma coleção que está na lixeira. Com o retrato, a
+# linha some de verdade e nenhuma consulta precisa saber da lixeira.
+
+# Depois disso o retrato é descartado. É bem mais que os 8 segundos do botão
+# "desfazer": o botão é para o arrependimento imediato, a lixeira é para o
+# arrependimento de quinta-feira.
+DIAS_NA_LIXEIRA = 30
+
+
+def _guardar_na_lixeira(conn, uid: int, tipo: str, rotulo: str, conteudo: dict) -> int:
+    row = conn.execute(
+        "INSERT INTO lixeira (user_id, tipo, rotulo, conteudo) "
+        "VALUES (%s, %s, %s, %s) RETURNING id",
+        (uid, tipo, rotulo, json.dumps(conteudo)),
+    ).fetchone()
+    return row["id"]
+
+
+def _retrato_da_colecao(conn, uid: int, col_id: int) -> dict | None:
+    """
+    Tudo que é preciso para reconstruir a coleção exatamente como estava.
+
+    O id entra no retrato de propósito: restaurar com um id novo faria a
+    coleção voltar como se fosse outra, e qualquer coisa que apontasse para a
+    antiga passaria a apontar para o nada.
+    """
+    col = conn.execute(
+        "SELECT id, nome, criado_em, pasta_vinculada, modo_sync "
+        "FROM collections WHERE id = %s AND user_id = %s",
+        (col_id, uid),
+    ).fetchone()
+    if not col:
+        return None
+
+    arquivos = conn.execute(
+        "SELECT file_id, adicionado_em FROM collection_files WHERE collection_id = %s",
+        (col_id,),
+    ).fetchall()
+    pastas = conn.execute(
+        "SELECT caminho, recebe, criado_em FROM collection_folders "
+        "WHERE collection_id = %s AND user_id = %s",
+        (col_id, uid),
+    ).fetchall()
+
+    return {
+        "id": col["id"],
+        "nome": col["nome"],
+        "criado_em": col["criado_em"].isoformat() if col["criado_em"] else None,
+        "pasta_vinculada": col["pasta_vinculada"],
+        "modo_sync": col["modo_sync"] or "manual",
+        "arquivos": [{"file_id": a["file_id"],
+                      "adicionado_em": a["adicionado_em"].isoformat()
+                      if a["adicionado_em"] else None} for a in arquivos],
+        "pastas": [{"caminho": f["caminho"], "recebe": bool(f["recebe"]),
+                    "criado_em": f["criado_em"].isoformat()
+                    if f["criado_em"] else None} for f in pastas],
+    }
+
+
+def _restaurar_colecao(conn, uid: int, retrato: dict) -> tuple[bool, str]:
+    """
+    Recria a coleção. Devolve (deu_certo, motivo).
+
+    Reinsere com o id original. O id vem de uma sequence e já foi usado, então
+    é sempre menor que o próximo valor dela — não há risco de colidir com uma
+    coleção futura, e não é preciso mexer na sequence.
+    """
+    ja_existe = conn.execute(
+        "SELECT id FROM collections WHERE user_id = %s AND lower(nome) = %s",
+        (uid, (retrato["nome"] or "").lower()),
+    ).fetchone()
+    if ja_existe:
+        return False, ("Você criou outra coleção com esse nome depois de excluir "
+                       "esta. Renomeie a atual e tente restaurar de novo.")
+
+    conn.execute(
+        "INSERT INTO collections (id, user_id, nome, criado_em, pasta_vinculada, modo_sync) "
+        "VALUES (%s, %s, %s, COALESCE(%s::timestamptz, NOW()), %s, %s)",
+        (retrato["id"], uid, retrato["nome"], retrato.get("criado_em"),
+         retrato.get("pasta_vinculada"), retrato.get("modo_sync") or "manual"),
+    )
+
+    # Arquivo que o usuário removeu da biblioteca no meio do caminho não existe
+    # mais para ser reapontado. A coleção volta sem ele, o que é melhor que
+    # falhar a restauração inteira por causa de uma foto.
+    ids = [a["file_id"] for a in retrato.get("arquivos", [])]
+    if ids:
+        vivos = {r["id"] for r in conn.execute(
+            "SELECT id FROM files WHERE id = ANY(%s) AND user_id = %s", (ids, uid)
+        ).fetchall()}
+        for a in retrato["arquivos"]:
+            if a["file_id"] in vivos:
+                conn.execute(
+                    "INSERT INTO collection_files (collection_id, file_id, adicionado_em) "
+                    "VALUES (%s, %s, COALESCE(%s::timestamptz, NOW())) "
+                    "ON CONFLICT DO NOTHING",
+                    (retrato["id"], a["file_id"], a.get("adicionado_em")),
+                )
+
+    for f in retrato.get("pastas", []):
+        conn.execute(
+            "INSERT INTO collection_folders (collection_id, user_id, caminho, recebe, criado_em) "
+            "VALUES (%s, %s, %s, %s, COALESCE(%s::timestamptz, NOW())) "
+            "ON CONFLICT DO NOTHING",
+            (retrato["id"], uid, f["caminho"], f.get("recebe", False),
+             f.get("criado_em")),
+        )
+
+    return True, ""
+
+
+def _restaurar_itens(conn, uid: int, retrato: dict) -> tuple[bool, str]:
+    """Devolve à coleção os arquivos que foram tirados dela."""
+    col = conn.execute(
+        "SELECT id FROM collections WHERE id = %s AND user_id = %s",
+        (retrato["collection_id"], uid),
+    ).fetchone()
+    if not col:
+        return False, "A coleção foi excluída depois. Restaure a coleção primeiro."
+
+    ids = [a["file_id"] for a in retrato.get("arquivos", [])]
+    vivos = set()
+    if ids:
+        vivos = {r["id"] for r in conn.execute(
+            "SELECT id FROM files WHERE id = ANY(%s) AND user_id = %s", (ids, uid)
+        ).fetchall()}
+
+    for a in retrato.get("arquivos", []):
+        if a["file_id"] in vivos:
+            conn.execute(
+                "INSERT INTO collection_files (collection_id, file_id, adicionado_em) "
+                "VALUES (%s, %s, COALESCE(%s::timestamptz, NOW())) "
+                "ON CONFLICT DO NOTHING",
+                (retrato["collection_id"], a["file_id"], a.get("adicionado_em")),
+            )
+    return True, ""
+
+
+def _expurgar_lixeira(conn, uid: int) -> int:
+    """Descarta o que passou do prazo. Roda junto de qualquer uso da lixeira."""
+    apagados = conn.execute(
+        "DELETE FROM lixeira WHERE user_id = %s "
+        "AND excluido_em < NOW() - make_interval(days => %s) RETURNING id",
+        (uid, DIAS_NA_LIXEIRA),
+    ).fetchall()
+    return len(apagados)
+
+
+@app.route("/api/lixeira", methods=["GET"])
+def api_lixeira():
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    conn = get_db()
+    try:
+        _expurgar_lixeira(conn, uid)
+        conn.commit()
+        itens = conn.execute(
+            "SELECT id, tipo, rotulo, excluido_em, conteudo FROM lixeira "
+            "WHERE user_id = %s ORDER BY excluido_em DESC",
+            (uid,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    def _quantos(item):
+        conteudo = item["conteudo"] or {}
+        if isinstance(conteudo, str):
+            conteudo = _safe_json_loads(conteudo, {}) or {}
+        return len(conteudo.get("arquivos") or [])
+
+    return jsonify({
+        "dias": DIAS_NA_LIXEIRA,
+        "itens": [{
+            "id": i["id"],
+            "tipo": i["tipo"],
+            "rotulo": i["rotulo"],
+            "imagens": _quantos(i),
+            "excluido_em": i["excluido_em"].isoformat() if i["excluido_em"] else "",
+        } for i in itens],
+    })
+
+
+@app.route("/api/lixeira/<int:item_id>/restaurar", methods=["POST"])
+def api_lixeira_restaurar(item_id):
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    conn = get_db()
+    try:
+        item = conn.execute(
+            "SELECT id, tipo, rotulo, conteudo FROM lixeira WHERE id = %s AND user_id = %s",
+            (item_id, uid),
+        ).fetchone()
+        if not item:
+            return jsonify({"error": "Este item não está mais na lixeira."}), 404
+
+        conteudo = item["conteudo"]
+        if isinstance(conteudo, str):
+            conteudo = _safe_json_loads(conteudo, {}) or {}
+
+        if item["tipo"] == "colecao":
+            ok, motivo = _restaurar_colecao(conn, uid, conteudo)
+        elif item["tipo"] == "itens":
+            ok, motivo = _restaurar_itens(conn, uid, conteudo)
+        else:
+            ok, motivo = False, "Não sei restaurar este tipo de item."
+
+        if not ok:
+            conn.rollback()
+            return jsonify({"error": motivo}), 409
+
+        # Só sai da lixeira depois que a restauração deu certo. Apagar antes
+        # deixaria o usuário sem a coleção E sem o retrato dela.
+        conn.execute("DELETE FROM lixeira WHERE id = %s AND user_id = %s", (item_id, uid))
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    return jsonify({"status": "ok", "rotulo": item["rotulo"], "tipo": item["tipo"]})
+
+
+@app.route("/api/lixeira/<int:item_id>", methods=["DELETE"])
+def api_lixeira_descartar(item_id):
+    """Descarta um item da lixeira de vez. Daqui não volta."""
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    conn = get_db()
+    try:
+        apagado = conn.execute(
+            "DELETE FROM lixeira WHERE id = %s AND user_id = %s RETURNING id",
+            (item_id, uid),
+        ).fetchone()
+        conn.commit()
+    finally:
+        conn.close()
+
+    if not apagado:
+        return jsonify({"error": "Este item não está mais na lixeira."}), 404
+    return jsonify({"status": "ok"})
+
+
+@app.route("/api/collections/<int:col_id>", methods=["GET", "DELETE", "PATCH"])
 def api_collection_detail(col_id):
     uid = _uid()
     if not uid:
         return jsonify({"error": "Não autenticado."}), 401
+
+    if request.method == "PATCH":
+        return _atualizar_colecao(col_id, uid)
 
     conn = get_db()
     # Confirma que a coleção é do usuário
@@ -2575,10 +3870,21 @@ def api_collection_detail(col_id):
         return jsonify({"error": "Coleção não encontrada."}), 404
 
     if request.method == "DELETE":
+        # O retrato é tirado ANTES do DELETE: depois dele o ON DELETE CASCADE
+        # já levou os arquivos e as pastas da coleção junto, e não há mais o
+        # que fotografar.
+        retrato = _retrato_da_colecao(conn, uid, col_id)
+        lixeira_id = None
+        if retrato:
+            lixeira_id = _guardar_na_lixeira(
+                conn, uid, "colecao", retrato["nome"], retrato)
+
         conn.execute("DELETE FROM collections WHERE id = %s AND user_id = %s", (col_id, uid))
+        _expurgar_lixeira(conn, uid)
         conn.commit()
         conn.close()
-        return jsonify({"status": "ok"})
+        return jsonify({"status": "ok", "lixeira_id": lixeira_id,
+                        "nome": retrato["nome"] if retrato else ""})
 
     # GET — arquivos da coleção (formato igual ao de busca/favoritos)
     rows = conn.execute(
@@ -2613,42 +3919,1457 @@ def api_collection_files(col_id):
         return jsonify({"error": "Não autenticado."}), 401
 
     data = request.get_json(force=True) or {}
-    file_id = data.get("file_id")
-    if not file_id:
+    # Aceita "file_id" (um arquivo, formato original) ou "file_ids" (lote).
+    # O singular continua valendo para não quebrar quem já chama assim.
+    if data.get("file_ids") is not None:
+        brutos = data.get("file_ids")
+        if not isinstance(brutos, list):
+            return jsonify({"error": "file_ids deve ser uma lista."}), 400
+    else:
+        brutos = [data.get("file_id")] if data.get("file_id") else []
+
+    # Normaliza para inteiros únicos, preservando a ordem de chegada
+    file_ids, vistos = [], set()
+    for b in brutos:
+        try:
+            n = int(b)
+        except (TypeError, ValueError):
+            return jsonify({"error": "Identificador de arquivo inválido."}), 400
+        if n not in vistos:
+            vistos.add(n)
+            file_ids.append(n)
+
+    if not file_ids:
         return jsonify({"error": "file_id é obrigatório."}), 400
 
     conn = get_db()
-    # Confirma posse da coleção E do arquivo
-    dono = conn.execute(
-        "SELECT id FROM collections WHERE id = %s AND user_id = %s", (col_id, uid)
-    ).fetchone()
-    arq = conn.execute(
-        "SELECT id FROM files WHERE id = %s AND user_id = %s", (file_id, uid)
-    ).fetchone()
-    if not dono or not arq:
-        conn.close()
-        return jsonify({"error": "Coleção ou arquivo não encontrado."}), 404
-
-    if request.method == "DELETE":
-        conn.execute(
-            "DELETE FROM collection_files WHERE collection_id = %s AND file_id = %s",
-            (col_id, file_id)
-        )
-        conn.commit()
-        conn.close()
-        return jsonify({"status": "ok", "acao": "removido"})
-
-    # POST — adicionar (ignora se já existe)
     try:
-        conn.execute(
-            "INSERT INTO collection_files (collection_id, file_id) VALUES (%s, %s) "
-            "ON CONFLICT DO NOTHING",
-            (col_id, file_id)
-        )
+        # Confirma posse da coleção E de todos os arquivos
+        dono = conn.execute(
+            "SELECT id FROM collections WHERE id = %s AND user_id = %s", (col_id, uid)
+        ).fetchone()
+        if not dono:
+            return jsonify({"error": "Coleção ou arquivo não encontrado."}), 404
+
+        proprios = conn.execute(
+            "SELECT id FROM files WHERE id = ANY(%s) AND user_id = %s", (file_ids, uid)
+        ).fetchall()
+        ids_validos = [r["id"] for r in proprios]
+        if not ids_validos:
+            return jsonify({"error": "Coleção ou arquivo não encontrado."}), 404
+
+        if request.method == "DELETE":
+            # Os NOMES vão na resposta porque, depois do DELETE, não há mais
+            # como o frontend saber que arquivo era — e é pelo nome que a
+            # cópia é localizada na pasta espelho.
+            nomes = [r["nome"] for r in conn.execute(
+                "SELECT nome FROM files WHERE id = ANY(%s) AND user_id = %s",
+                (ids_validos, uid)
+            ).fetchall()]
+
+            # Retrato antes do DELETE, pelo mesmo motivo da exclusão da
+            # coleção: depois não há mais o que fotografar. Guarda a data de
+            # adição para que o arquivo volte para o mesmo lugar na ordem, e
+            # não para o topo como se tivesse acabado de entrar.
+            no_momento = conn.execute(
+                "SELECT file_id, adicionado_em FROM collection_files "
+                "WHERE collection_id = %s AND file_id = ANY(%s)",
+                (col_id, ids_validos)
+            ).fetchall()
+            nome_col = conn.execute(
+                "SELECT nome FROM collections WHERE id = %s AND user_id = %s",
+                (col_id, uid)
+            ).fetchone()
+
+            lixeira_id = None
+            if no_momento:
+                quantos = len(no_momento)
+                rotulo = (f"{quantos} imagem de \u201c{nome_col['nome']}\u201d"
+                          if quantos == 1
+                          else f"{quantos} imagens de \u201c{nome_col['nome']}\u201d")
+                lixeira_id = _guardar_na_lixeira(conn, uid, "itens", rotulo, {
+                    "collection_id": col_id,
+                    "colecao": nome_col["nome"] if nome_col else "",
+                    "arquivos": [{"file_id": r["file_id"],
+                                  "adicionado_em": r["adicionado_em"].isoformat()
+                                  if r["adicionado_em"] else None}
+                                 for r in no_momento],
+                })
+
+            conn.execute(
+                "DELETE FROM collection_files WHERE collection_id = %s AND file_id = ANY(%s)",
+                (col_id, ids_validos)
+            )
+            _expurgar_lixeira(conn, uid)
+            conn.commit()
+
+            vinc = conn.execute(
+                "SELECT modo_sync FROM collections WHERE id = %s", (col_id,)
+            ).fetchone()
+            return jsonify({"status": "ok", "acao": "removido",
+                            "removidos": len(ids_validos),
+                            "nomes_removidos": nomes,
+                            "lixeira_id": lixeira_id,
+                            "modo_sync": (dict(vinc).get("modo_sync") if vinc else None) or "manual",
+                            "pastas_que_recebem": _pastas_que_recebem(conn, col_id, uid)})
+
+        # POST — adicionar. O ON CONFLICT deixa o banco garantir a ausência de
+        # duplicata; o RETURNING diz quantas linhas realmente entraram, para a
+        # interface poder dizer "3 adicionadas, 2 já estavam".
+        inseridos = conn.execute(
+            "INSERT INTO collection_files (collection_id, file_id) "
+            "SELECT %s, unnest(%s::int[]) "
+            "ON CONFLICT DO NOTHING RETURNING file_id",
+            (col_id, ids_validos)
+        ).fetchall()
         conn.commit()
-        return jsonify({"status": "ok", "acao": "adicionado"})
+        n_add = len(inseridos)
+
+        # Devolve o estado de sincronia junto: sem isto o frontend precisaria
+        # de um GET extra a cada adição só para saber se deve copiar.
+        vinculo = conn.execute(
+            "SELECT pasta_vinculada, modo_sync FROM collections WHERE id = %s",
+            (col_id,)
+        ).fetchone()
+
+        # Acesso tolerante de propósito: init_db() apenas registra falhas de DDL
+        # em vez de abortar, então o app pode estar rodando sem as colunas de
+        # vínculo. Sem isto, uma migração falha derrubaria TODA adição a
+        # coleção com HTTP 500 — em vez de só desativar a sincronia.
+        vinc = dict(vinculo) if vinculo else {}
+        return jsonify({
+            "status": "ok",
+            "acao": "adicionado",
+            "adicionados": n_add,
+            "ja_existiam": len(ids_validos) - n_add,
+            "ids_adicionados": [r["file_id"] for r in inseridos],
+            "pasta_vinculada": vinc.get("pasta_vinculada"),
+            "modo_sync": vinc.get("modo_sync") or "manual",
+        })
     finally:
         conn.close()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Exportação de coleção para uma pasta local
+# ──────────────────────────────────────────────────────────────────────────────
+# Exportar aqui é COPIAR arquivo local → pasta local: as imagens indexadas já
+# estão no disco do usuário (files.caminho), e o backend roda na máquina dele.
+# Não há download, não há URL, não há rede envolvida na cópia.
+# Especificação: docs/features/12-colecoes-exportacao.md
+
+_export_jobs = {}                  # job_id → estado do job
+_export_lock = threading.Lock()
+
+# Windows: caracteres proibidos em nome de arquivo/pasta e nomes reservados.
+_CHARS_INVALIDOS = r'<>:"/\|?*'
+_NOMES_RESERVADOS = (
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
+
+
+def _sanitizar_nome(nome: str, padrao: str = "sem_nome", limite: int = 120) -> str:
+    """
+    Converte um texto qualquer num nome válido de arquivo/pasta no Windows.
+
+    Função pura: não toca o disco. As regras do Windows são as mais restritivas
+    entre os sistemas suportados, então o resultado também é válido em Linux e
+    macOS. Ver RF-038 a RF-040.
+    """
+    limpo = "".join(
+        "_" if (c in _CHARS_INVALIDOS or ord(c) < 32) else c
+        for c in (nome or "")
+    )
+    # Windows não aceita nome terminando em ponto ou espaço
+    limpo = limpo.strip().rstrip(". ")
+
+    # Nome reservado é inválido inclusive com extensão (CON.jpg)
+    if limpo.split(".")[0].upper() in _NOMES_RESERVADOS:
+        limpo = f"_{limpo}"
+
+    if len(limpo) > limite:
+        limpo = limpo[:limite].rstrip(". ")
+
+    # Um nome que virou só separadores ("///:::" → "______") é tecnicamente
+    # válido, mas não diz nada a quem for abrir a pasta. Sem nenhum caractere
+    # alfanumérico sobrando, o padrão é mais útil (RF-039).
+    if not any(c.isalnum() for c in limpo):
+        return padrao
+
+    return limpo
+
+
+def _nome_disponivel(pasta: str, nome_arquivo: str) -> str:
+    """
+    Devolve um nome livre dentro de `pasta`, sufixando _1, _2… se preciso.
+
+    Colisão é o caso comum, não a exceção: files tem UNIQUE(user_id, caminho),
+    não UNIQUE(user_id, nome) — duas pastas monitoradas podem ter IMG_0001.jpg.
+    Nunca sobrescreve (RF-042, RF-043).
+    """
+    base, ext = os.path.splitext(nome_arquivo)
+    base = _sanitizar_nome(base, padrao="arquivo")
+    ext = _sanitizar_nome(ext, padrao="")
+
+    candidato = f"{base}{ext}"
+    i = 1
+    while os.path.exists(os.path.join(pasta, candidato)):
+        candidato = f"{base}_{i}{ext}"
+        i += 1
+    return candidato
+
+
+def _pasta_disponivel(destino: str, nome_pasta: str, sufixo: str = "") -> str:
+    """
+    Caminho de pasta ainda inexistente, preservando o nome da coleção.
+
+    O nome da coleção é sempre o prefixo — é o que permite ao usuário
+    reconhecer no Explorer de qual coleção veio a pasta, e ao sistema
+    relacionar as duas. O que varia é o sufixo:
+
+        "Natureza"            1ª exportação
+        "Natureza_2"          2ª (sufixo automático)
+        "Natureza_praia"      sufixo escolhido pelo usuário
+
+    Colisão continua sendo tratada: se "Natureza_praia" já existir, tenta
+    "Natureza_praia_2". Nunca sobrescreve nada (RF-041, RF-043).
+    """
+    if sufixo:
+        base = f"{nome_pasta}_{_sanitizar_nome(sufixo, padrao='2')}"
+        candidato = os.path.join(destino, base)
+        if not os.path.exists(candidato):
+            return candidato
+        # Sufixo escolhido já em uso: numera a partir dele
+        i = 2
+        while os.path.exists(os.path.join(destino, f"{base}_{i}")):
+            i += 1
+        return os.path.join(destino, f"{base}_{i}")
+
+    candidato = os.path.join(destino, nome_pasta)
+    i = 2                       # a primeira é sem número; a próxima é _2
+    while os.path.exists(candidato):
+        candidato = os.path.join(destino, f"{nome_pasta}_{i}")
+        i += 1
+    return candidato
+
+
+def _dentro_das_pastas(caminho: str, pastas_monitoradas) -> bool:
+    """
+    Mesma regra anti-path-traversal de /api/file (RF-045, RNF-015).
+
+    Exige o separador no fim para 'C:\\foo' não casar com 'C:\\foobar'.
+    """
+    alvo = os.path.abspath(caminho).lower()
+    for p in pastas_monitoradas:
+        base = os.path.abspath(p).lower()
+        if alvo == base or alvo.startswith(base + os.sep):
+            return True
+    return False
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Opções de exportação
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# Exportava-se a coleção inteira, com os nomes originais, tamanho original e
+# tudo numa pasta só. Serve para levar as fotos para um pendrive; não serve
+# para entregar um trabalho, mandar por e-mail ou organizar um arquivo.
+
+# Um nome de arquivo em disco não pode crescer sem limite, e o Windows ainda
+# tem o teto de 260 caracteres para o caminho inteiro.
+LIMITE_NOME_EXPORTADO = 120
+
+# Menor que isto a imagem deixa de servir para qualquer coisa; maior que o
+# original não faz sentido reamostrar para cima.
+LARGURA_MIN_EXPORT = 100
+LARGURA_MAX_EXPORT = 10000
+
+
+def _filtrar_por_tipo(arquivos, modo: str):
+    """
+    Só imagens, só documentos, ou tudo.
+
+    Uma coleção mista — as fotos e o PDF do orçamento — vira duas entregas
+    diferentes conforme quem vai receber.
+    """
+    if modo == "imagens":
+        return [a for a in arquivos if (a["tipo"] or "").lower() in _EXT_IMG]
+    if modo == "documentos":
+        return [a for a in arquivos
+                if (a["tipo"] or "").lower() not in (_EXT_IMG | _EXT_VID | _EXT_AUD)]
+    return list(arquivos)
+
+
+def _nome_exportado(padrao: str, nome_original: str, posicao: int,
+                    nome_colecao: str, data) -> str:
+    """
+    Aplica o padrão de renomeação em lote.
+
+    Padrão vazio mantém o nome original, que é o comportamento de sempre.
+
+    Marcadores aceitos, e o porquê de cada um:
+      {nome}    nome original sem extensão — para prefixar sem perder o que era
+      {n}       posição, com zeros à esquerda — mantém a ordem no Explorer
+      {colecao} nome da coleção
+      {data}    data de adição, AAAA-MM-DD
+
+    A extensão NUNCA vem do padrão: trocá-la não converte o arquivo, só faz o
+    sistema abrir com o programa errado.
+    """
+    base, extensao = os.path.splitext(nome_original)
+    if not padrao:
+        return nome_original
+
+    quando = ""
+    if data is not None:
+        try:
+            quando = data.strftime("%Y-%m-%d")
+        except AttributeError:
+            quando = str(data)[:10]
+
+    novo = (padrao
+            .replace("{nome}", base)
+            .replace("{n}", f"{posicao:03d}")
+            .replace("{colecao}", nome_colecao or "")
+            .replace("{data}", quando))
+
+    novo = _sanitizar_nome(novo, padrao=base or "arquivo",
+                           limite=LIMITE_NOME_EXPORTADO)
+    return novo + extensao
+
+
+def _subpasta_por_data(data) -> str:
+    """
+    Em que subpasta o arquivo cai quando a organização por data está ligada.
+
+    Ano/mês, e não o dia: uma pasta por dia produz centenas de pastas com uma
+    foto dentro, que é pior que não organizar. Arquivo sem data conhecida vai
+    para "sem-data" em vez de ficar solto na raiz, misturado com as pastas.
+    """
+    if data is None:
+        return "sem-data"
+    try:
+        return data.strftime("%Y-%m")
+    except AttributeError:
+        texto = str(data)
+        return texto[:7] if len(texto) >= 7 else "sem-data"
+
+
+def _copiar_redimensionando(origem: str, alvo: str, largura_max: int) -> bool:
+    """
+    Copia a imagem reduzida a `largura_max` de largura. Devolve se reduziu.
+
+    Imagem menor que o limite é copiada intacta: reprocessar recomprime o JPEG
+    e piora a qualidade sem economizar nada.
+
+    Só a largura é pedida — a altura acompanha para não distorcer.
+    """
+    try:
+        with _PILImage.open(origem) as img:
+            if img.width <= largura_max:
+                shutil.copy2(origem, alvo)
+                return False
+
+            altura = max(1, round(img.height * largura_max / img.width))
+            reduzida = img.resize((largura_max, altura), _PILImage.LANCZOS)
+
+            # RGBA em JPEG estoura; converter mantém o formato pedido pelo
+            # nome do arquivo, que é o que o usuário vai receber.
+            if alvo.lower().endswith((".jpg", ".jpeg")) and reduzida.mode != "RGB":
+                reduzida = reduzida.convert("RGB")
+
+            reduzida.save(alvo)
+            return True
+    except Exception as exc:
+        # Não engole: sem o fallback, uma imagem que o leitor não abre sairia
+        # da exportação em silêncio.
+        print(f"[EXPORT] não deu para redimensionar '{origem}': "
+              f"{type(exc).__name__}: {exc}")
+        shutil.copy2(origem, alvo)
+        return False
+
+
+def _validar_opcoes_export(data: dict) -> tuple[dict, str | None]:
+    """Lê e confere as opções. Devolve (opcoes, erro)."""
+    opcoes = {
+        "tipos": (data.get("tipos") or "tudo").strip().lower(),
+        "padrao_nome": (data.get("padrao_nome") or "").strip(),
+        "largura_max": data.get("largura_max"),
+        "subpastas_por_data": bool(data.get("subpastas_por_data")),
+    }
+
+    if opcoes["tipos"] not in {"tudo", "imagens", "documentos"}:
+        return opcoes, "Tipo de arquivo desconhecido."
+
+    if opcoes["largura_max"] not in (None, ""):
+        try:
+            largura = int(opcoes["largura_max"])
+        except (TypeError, ValueError):
+            return opcoes, "A largura precisa ser um número."
+        if not (LARGURA_MIN_EXPORT <= largura <= LARGURA_MAX_EXPORT):
+            return opcoes, (f"A largura precisa ficar entre {LARGURA_MIN_EXPORT} "
+                            f"e {LARGURA_MAX_EXPORT} pixels.")
+        if not PIL_OK:
+            # Avisar agora é melhor que exportar em tamanho original e deixar
+            # o usuário descobrir depois que nada foi reduzido.
+            return opcoes, ("Não é possível redimensionar neste computador. "
+                            "Exporte sem reduzir o tamanho.")
+        opcoes["largura_max"] = largura
+    else:
+        opcoes["largura_max"] = None
+
+    return opcoes, None
+
+
+def _worker_exportacao(job_id: str, itens, destino_pasta: str, opcoes=None):
+    """Copia os arquivos da coleção, um a um, atualizando o progresso."""
+
+    opcoes = opcoes or {}
+    largura_max = opcoes.get("largura_max")
+    por_data = opcoes.get("subpastas_por_data")
+
+    for item in itens:
+        with _export_lock:
+            job = _export_jobs.get(job_id)
+            if not job or job["cancelar"]:
+                break
+
+        origem = item["caminho"]
+        motivo = None
+        try:
+            if not item["autorizado"]:
+                motivo = "fora_das_pastas"
+            elif not os.path.isfile(origem):
+                motivo = "nao_encontrado"
+            else:
+                # A subpasta é criada na hora do primeiro arquivo que cai nela:
+                # criar todas de antemão deixaria pastas vazias para os meses
+                # cujos arquivos falharem.
+                pasta_do_item = destino_pasta
+                if por_data:
+                    pasta_do_item = os.path.join(destino_pasta,
+                                                 _subpasta_por_data(item.get("data")))
+                    os.makedirs(pasta_do_item, exist_ok=True)
+
+                nome_saida = item.get("nome_saida") or item["nome"]
+                alvo = os.path.join(pasta_do_item,
+                                    _nome_disponivel(pasta_do_item, nome_saida))
+
+                eh_imagem = (item.get("tipo") or "").lower() in _EXT_IMG
+                if largura_max and eh_imagem:
+                    _copiar_redimensionando(origem, alvo, largura_max)
+                else:
+                    shutil.copy2(origem, alvo)   # copy2 preserva timestamps (RF-046)
+        except PermissionError:
+            motivo = "sem_permissao"
+        except OSError as exc:
+            # ENOSPC (disco cheio) é fatal: continuar só produz mais falhas.
+            if getattr(exc, "errno", None) == 28:
+                with _export_lock:
+                    j = _export_jobs.get(job_id)
+                    if j:
+                        j["estado"] = "erro"
+                        j["erro"] = "disco_cheio"
+                print(f"[EXPORT] disco cheio ao copiar '{origem}'")
+                return
+            motivo = "erro_leitura"
+            print(f"[EXPORT] falha em '{origem}': {type(exc).__name__}: {exc}")
+
+        with _export_lock:
+            job = _export_jobs.get(job_id)
+            if not job:
+                return
+            if motivo:
+                job["falhas"].append({"nome": item["nome"], "motivo": motivo})
+            else:
+                job["copiados"] += 1
+
+    with _export_lock:
+        job = _export_jobs.get(job_id)
+        if job and job["estado"] == "executando":
+            job["estado"] = "cancelado" if job["cancelar"] else "concluido"
+        registro = dict(job) if job else None
+
+    # O histórico é gravado aqui, no fim do trabalho, e não no endpoint: só
+    # neste ponto se sabe quantos foram copiados e o que falhou.
+    if registro:
+        _registrar_exportacao(registro)
+
+
+def _registrar_exportacao(job: dict) -> None:
+    """
+    Guarda o resultado da exportação. Falhar aqui não pode derrubar o worker.
+
+    O resultado sumia junto com o modal: quem exportou 200 fotos, viu "8
+    falharam" e fechou a janela ficava sem saber quais eram nem para onde tinha
+    exportado.
+    """
+    conn = get_db()
+    try:
+        conn.execute(
+            "INSERT INTO exportacoes "
+            "(user_id, collection_id, colecao, pasta, total, copiados, falhas, estado) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+            (job["user_id"], job["collection_id"], job["colecao"], job["pasta"],
+             job["total"], job["copiados"], json.dumps(job["falhas"]),
+             job["estado"]),
+        )
+        conn.commit()
+    except Exception as exc:
+        print(f"[EXPORT] não foi possível registrar no histórico: {exc}")
+        conn.rollback()
+    finally:
+        conn.close()
+
+
+@app.route("/api/exportacoes")
+def api_exportacoes():
+    """
+    As últimas exportações: o que foi, quando, para onde e o que falhou.
+
+    Limite de 30: o histórico existe para responder "o que aconteceu naquela
+    vez", não para ser um livro-caixa. Passado disso ninguém rola.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    conn = get_db()
+    try:
+        linhas = conn.execute(
+            "SELECT id, collection_id, colecao, pasta, total, copiados, falhas, "
+            "estado, quando FROM exportacoes "
+            "WHERE user_id = %s ORDER BY quando DESC LIMIT 30",
+            (uid,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    saida = []
+    for r in linhas:
+        falhas = r["falhas"]
+        if isinstance(falhas, str):
+            falhas = _safe_json_loads(falhas, []) or []
+        saida.append({
+            "id": r["id"],
+            "collection_id": r["collection_id"],
+            "colecao": r["colecao"],
+            "pasta": r["pasta"],
+            "total": r["total"],
+            "copiados": r["copiados"],
+            "falhas": falhas,
+            "estado": r["estado"],
+            "quando": r["quando"].isoformat() if r["quando"] else "",
+            # A pasta pode ter sido movida ou apagada depois. Dizer isso agora
+            # evita um botão "abrir pasta" que não abre nada.
+            "pasta_existe": os.path.isdir(r["pasta"]) if r["pasta"] else False,
+        })
+
+    return jsonify({"exportacoes": saida})
+
+
+@app.route("/api/exportacoes/<int:export_id>/repetir", methods=["POST"])
+def api_exportacao_repetir(export_id):
+    """
+    Tenta de novo só os arquivos que falharam, na mesma pasta.
+
+    O resumo já dizia o que falhou e por quê, mas agir sobre isso significava
+    refazer a exportação inteira — copiando de novo as 192 que já tinham dado
+    certo, para alcançar as 8 que não.
+
+    Só faz sentido para falhas que o tempo pode ter resolvido: arquivo em uso
+    por outro programa, disco de rede fora do ar. Arquivo que não existe mais
+    não vai reaparecer, e insistir nele só produziria a mesma falha.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    conn = get_db()
+    try:
+        reg = conn.execute(
+            "SELECT id, collection_id, colecao, pasta, falhas FROM exportacoes "
+            "WHERE id = %s AND user_id = %s",
+            (export_id, uid),
+        ).fetchone()
+        if not reg:
+            conn.close()
+            return jsonify({"error": "Exportação não encontrada."}), 404
+
+        falhas = reg["falhas"]
+        if isinstance(falhas, str):
+            falhas = _safe_json_loads(falhas, []) or []
+
+        # `nao_encontrado` fica de fora: o arquivo sumiu do disco e tentar de
+        # novo daria exatamente a mesma coisa. Para esse caso existe a outra
+        # ação, de limpar a coleção.
+        nomes = [f["nome"] for f in falhas
+                 if f.get("motivo") != "nao_encontrado"]
+        if not nomes:
+            conn.close()
+            return jsonify({
+                "error": "Não há o que tentar de novo. Os arquivos que faltaram "
+                         "não estão mais no computador."
+            }), 400
+
+        if not os.path.isdir(reg["pasta"]):
+            conn.close()
+            return jsonify({
+                "error": "A pasta desta exportação não existe mais."
+            }), 400
+
+        arquivos = conn.execute(
+            """
+            SELECT f.nome, f.caminho, f.tipo, f.data_adicionado
+            FROM collection_files cf
+            JOIN files f ON f.id = cf.file_id
+            WHERE cf.collection_id = %s AND f.user_id = %s AND f.nome = ANY(%s)
+            """,
+            (reg["collection_id"], uid, nomes),
+        ).fetchall()
+
+        pastas = [r["path"] for r in conn.execute(
+            "SELECT path FROM folders WHERE user_id = %s", (uid,)
+        ).fetchall()]
+    finally:
+        conn.close()
+
+    if not arquivos:
+        return jsonify({
+            "error": "Esses arquivos não estão mais na coleção."
+        }), 400
+
+    itens = [
+        {"nome": a["nome"], "caminho": a["caminho"], "tipo": a["tipo"],
+         "data": a["data_adicionado"], "nome_saida": a["nome"],
+         "autorizado": _dentro_das_pastas(a["caminho"], pastas)}
+        for a in arquivos
+    ]
+
+    import uuid
+    job_id = uuid.uuid4().hex
+    with _export_lock:
+        _export_jobs[job_id] = {
+            "user_id": uid, "collection_id": reg["collection_id"],
+            "colecao": reg["colecao"], "pasta": reg["pasta"],
+            "total": len(itens), "copiados": 0, "falhas": [],
+            "estado": "executando", "cancelar": False, "erro": None,
+            "criado_em": time.time(),
+        }
+
+    threading.Thread(target=_worker_exportacao,
+                     args=(job_id, itens, reg["pasta"], {}), daemon=True).start()
+
+    return jsonify({"status": "ok", "job_id": job_id, "total": len(itens),
+                    "pasta": reg["pasta"]})
+
+
+@app.route("/api/exportacoes/<int:export_id>/limpar_sumidos", methods=["POST"])
+def api_exportacao_limpar_sumidos(export_id):
+    """
+    Tira da coleção os arquivos que não estão mais no disco.
+
+    Arquivo apagado depois de entrar na coleção continua contando no total,
+    aparecendo na busca e falhando em toda exportação — sem nunca dizer que já
+    não existe. Aqui a exportação que descobriu o problema oferece a limpeza.
+
+    A remoção passa pela lixeira, como qualquer outra: se o arquivo estiver
+    num disco desconectado e não apagado, dá para desfazer.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    conn = get_db()
+    try:
+        reg = conn.execute(
+            "SELECT id, collection_id, colecao, falhas FROM exportacoes "
+            "WHERE id = %s AND user_id = %s",
+            (export_id, uid),
+        ).fetchone()
+        if not reg:
+            return jsonify({"error": "Exportação não encontrada."}), 404
+        if not reg["collection_id"]:
+            return jsonify({"error": "Esta coleção não existe mais."}), 400
+
+        falhas = reg["falhas"]
+        if isinstance(falhas, str):
+            falhas = _safe_json_loads(falhas, []) or []
+
+        nomes = [f["nome"] for f in falhas if f.get("motivo") == "nao_encontrado"]
+        if not nomes:
+            return jsonify({
+                "error": "Nenhum arquivo desta exportação sumiu do computador."
+            }), 400
+
+        candidatos = conn.execute(
+            """
+            SELECT f.id, f.nome, f.caminho, cf.adicionado_em
+            FROM collection_files cf
+            JOIN files f ON f.id = cf.file_id
+            WHERE cf.collection_id = %s AND f.user_id = %s AND f.nome = ANY(%s)
+            """,
+            (reg["collection_id"], uid, nomes),
+        ).fetchall()
+
+        # Confere no disco AGORA, e não confia no que a exportação registrou:
+        # entre uma coisa e outra o HD externo pode ter sido reconectado, e
+        # tirar da coleção um arquivo que voltou seria destruir trabalho.
+        sumidos = [c for c in candidatos if not os.path.isfile(c["caminho"])]
+        if not sumidos:
+            return jsonify({
+                "status": "ok", "removidos": 0,
+                "mensagem": "Os arquivos voltaram a aparecer. Nada foi removido.",
+            })
+
+        ids = [c["id"] for c in sumidos]
+        rotulo = (f"{len(ids)} imagem de \u201c{reg['colecao']}\u201d" if len(ids) == 1
+                  else f"{len(ids)} imagens de \u201c{reg['colecao']}\u201d")
+        lixeira_id = _guardar_na_lixeira(conn, uid, "itens", rotulo, {
+            "collection_id": reg["collection_id"],
+            "colecao": reg["colecao"],
+            "arquivos": [{"file_id": c["id"],
+                          "adicionado_em": c["adicionado_em"].isoformat()
+                          if c["adicionado_em"] else None} for c in sumidos],
+        })
+
+        conn.execute(
+            "DELETE FROM collection_files WHERE collection_id = %s AND file_id = ANY(%s)",
+            (reg["collection_id"], ids),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({
+        "status": "ok",
+        "removidos": len(ids),
+        "nomes": [c["nome"] for c in sumidos],
+        "lixeira_id": lixeira_id,
+    })
+
+
+@app.route("/api/collections/<int:col_id>/export", methods=["POST"])
+def api_collection_export(col_id):
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    data = request.get_json(force=True) or {}
+    destino = (data.get("destino") or "").strip()
+    if not destino:
+        return jsonify({"error": "Escolha uma pasta de destino."}), 400
+
+    destino = os.path.normpath(destino)
+    if not os.path.isdir(destino):
+        return jsonify({"error": "A pasta escolhida não existe mais."}), 400
+
+    conn = get_db()
+    try:
+        col = conn.execute(
+            "SELECT id, nome FROM collections WHERE id = %s AND user_id = %s",
+            (col_id, uid)
+        ).fetchone()
+        if not col:
+            return jsonify({"error": "Coleção não encontrada."}), 404
+
+        arquivos = conn.execute(
+            """
+            SELECT f.nome, f.caminho, f.tipo, f.data_adicionado
+            FROM collection_files cf
+            JOIN files f ON f.id = cf.file_id
+            WHERE cf.collection_id = %s AND f.user_id = %s
+            ORDER BY cf.adicionado_em DESC
+            """,
+            (col_id, uid)
+        ).fetchall()
+
+        pastas = [r["path"] for r in conn.execute(
+            "SELECT path FROM folders WHERE user_id = %s", (uid,)
+        ).fetchall()]
+    finally:
+        conn.close()
+
+    if not arquivos:
+        return jsonify({"error": "Esta coleção está vazia. "
+                                 "Adicione imagens antes de exportar."}), 400
+
+    opcoes, erro_opcoes = _validar_opcoes_export(data)
+    if erro_opcoes:
+        return jsonify({"error": erro_opcoes}), 400
+
+    arquivos = _filtrar_por_tipo(arquivos, opcoes["tipos"])
+    if not arquivos:
+        # A coleção tem conteúdo, mas nada do tipo pedido. Dizer "coleção
+        # vazia" aqui seria mentira e mandaria o usuário procurar o problema
+        # no lugar errado.
+        rotulo = ("Nenhuma imagem" if opcoes["tipos"] == "imagens"
+                  else "Nenhum documento")
+        return jsonify({
+            "error": f"{rotulo} nesta coleção. Escolha outro tipo de arquivo."
+        }), 400
+
+    # Uma exportação por coleção de cada vez (RF-057)
+    with _export_lock:
+        for j in _export_jobs.values():
+            if (j["user_id"] == uid and j["collection_id"] == col_id
+                    and j["estado"] == "executando"):
+                return jsonify({"error": "Esta coleção já está sendo exportada."}), 409
+
+    # Cria a pasta ANTES de começar: se não der, nada é copiado (RF-054)
+    nome_pasta = _sanitizar_nome(col["nome"], padrao=f"colecao_{col_id}")
+    pasta_final = _pasta_disponivel(destino, nome_pasta,
+                                    sufixo=str(data.get("sufixo") or "").strip())
+    try:
+        os.makedirs(pasta_final)
+    except PermissionError:
+        return jsonify({"error": f"Não foi possível gravar em {destino}. "
+                                 "Escolha outra pasta ou verifique as permissões."}), 403
+    except OSError as exc:
+        print(f"[EXPORT] erro ao criar '{pasta_final}': {type(exc).__name__}: {exc}")
+        return jsonify({"error": f"Não foi possível criar a pasta da coleção em "
+                                 f"{destino}. Escolha outra pasta."}), 400
+
+    # Registra a pasta. Sem isto, exportar era um retrato sem memória: as
+    # imagens adicionadas DEPOIS não tinham para onde ir, e o usuário só
+    # descobria ao abrir a pasta e não achar as novas.
+    #
+    # O VÍNCULO é decisão à parte. Numa segunda exportação, quem escolhe qual
+    # pasta recebe as próximas imagens é o usuário — assumir a mais recente
+    # mudaria o destino sem ele pedir. `vincular` vem do frontend:
+    #   ausente → só vincula se ainda não houver pasta vinculada
+    #   true    → passa a apontar para esta
+    #   false   → mantém o vínculo atual
+    _lembrar_pasta_exportacao(uid, destino)
+
+    conn = get_db()
+    try:
+        _registrar_pasta(conn, col_id, uid, pasta_final)
+        vincular = data.get("vincular")
+        if vincular is True:
+            conn.execute(
+                "UPDATE collections SET pasta_vinculada = %s, "
+                "modo_sync = CASE WHEN modo_sync = 'manual' THEN 'perguntar' "
+                "                 ELSE modo_sync END "
+                "WHERE id = %s AND user_id = %s",
+                (pasta_final, col_id, uid),
+            )
+        elif vincular is None:
+            conn.execute(
+                "UPDATE collections SET pasta_vinculada = %s, modo_sync = 'perguntar' "
+                "WHERE id = %s AND user_id = %s AND pasta_vinculada IS NULL",
+                (pasta_final, col_id, uid),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    itens = [
+        {"nome": a["nome"], "caminho": a["caminho"], "tipo": a["tipo"],
+         "data": a["data_adicionado"],
+         # O nome de saída é resolvido AQUI, não no worker: a numeração
+         # ({n}) precisa da posição na lista já filtrada, e o worker vê um
+         # item de cada vez.
+         "nome_saida": _nome_exportado(opcoes["padrao_nome"], a["nome"], i,
+                                       col["nome"], a["data_adicionado"]),
+         "autorizado": _dentro_das_pastas(a["caminho"], pastas)}
+        for i, a in enumerate(arquivos, start=1)
+    ]
+
+    import uuid
+    job_id = uuid.uuid4().hex
+    with _export_lock:
+        _export_jobs[job_id] = {
+            "user_id": uid, "collection_id": col_id, "colecao": col["nome"],
+            "pasta": pasta_final, "total": len(itens), "copiados": 0,
+            "falhas": [], "estado": "executando", "cancelar": False, "erro": None,
+            "criado_em": time.time(),
+        }
+
+    threading.Thread(
+        target=_worker_exportacao, args=(job_id, itens, pasta_final, opcoes),
+        daemon=True
+    ).start()
+
+    return jsonify({"status": "ok", "job_id": job_id,
+                    "total": len(itens), "pasta": pasta_final})
+
+
+@app.route("/api/collections/<int:col_id>/folders", methods=["GET"])
+def api_collection_folders(col_id):
+    """
+    Pastas que o app gerou para esta coleção, com o estado de cada uma.
+
+    Alimenta o diálogo de exclusão: o usuário precisa VER o que existe no disco
+    antes de decidir o que apagar. `existe` distingue a pasta que ainda está lá
+    daquela que o usuário já removeu por fora — apagar já não se aplica.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    conn = get_db()
+    try:
+        col = conn.execute(
+            "SELECT id FROM collections WHERE id = %s AND user_id = %s",
+            (col_id, uid),
+        ).fetchone()
+        if not col:
+            return jsonify({"error": "Coleção não encontrada."}), 404
+        caminhos = _pastas_da_colecao(conn, col_id, uid)
+        recebem = {os.path.normpath(c) for c in _pastas_que_recebem(conn, col_id, uid)}
+    finally:
+        conn.close()
+
+    pastas = []
+    for c in caminhos:
+        existe = os.path.isdir(c)
+        recebe = os.path.normpath(c) in recebem
+        pastas.append({
+            "caminho": c,
+            "nome": os.path.basename(c),
+            "existe": existe,
+            "recebe": recebe,
+            # `vinculada` mantido para não quebrar quem já lê esse campo
+            "vinculada": recebe,
+            "arquivos": len(os.listdir(c)) if existe else 0,
+        })
+    return jsonify({"pastas": pastas})
+
+
+@app.route("/api/collections/<int:col_id>/folders", methods=["PATCH"])
+def api_collection_folder_rename(col_id):
+    """
+    Troca o complemento do nome de uma pasta gerada.
+
+    O prefixo continua sendo o nome da coleção — é o que liga a pasta à
+    coleção no Explorer. O usuário controla só o que vem depois:
+
+        Ferias        →  sufixo ""        (a primeira exportação)
+        Ferias_backup →  sufixo "backup"
+        Ferias_praia  →  sufixo "praia"
+
+    Renomear no disco não é destrutivo, mas mexe em arquivo do usuário: só
+    aceita caminho registrado para esta coleção, e nunca sobrescreve pasta
+    existente — mesclar duas em silêncio perderia arquivo.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    data = request.get_json(force=True) or {}
+    caminho = os.path.normpath(str(data.get("caminho") or "").strip())
+    if not caminho or caminho == ".":
+        return jsonify({"error": "Informe a pasta."}), 400
+    if "sufixo" not in data:
+        return jsonify({"error": "Informe o novo complemento."}), 400
+
+    sufixo = _sanitizar_nome(str(data.get("sufixo") or "").strip(), padrao="")
+
+    conn = get_db()
+    try:
+        col = conn.execute(
+            "SELECT id, nome FROM collections WHERE id = %s AND user_id = %s",
+            (col_id, uid)).fetchone()
+        if not col:
+            return jsonify({"error": "Coleção não encontrada."}), 404
+
+        registradas = {os.path.normpath(c) for c in _pastas_da_colecao(conn, col_id, uid)}
+        if caminho not in registradas:
+            return jsonify({"error": "Pasta não autorizada."}), 403
+
+        base = _sanitizar_nome(col["nome"], padrao=f"colecao_{col_id}")
+        novo_nome = f"{base}_{sufixo}" if sufixo else base
+
+        novo, motivo = _renomear_pasta_no_disco(caminho, novo_nome)
+        if not novo:
+            msgs = {
+                "nao_encontrada": "Essa pasta não está mais no lugar.",
+                "nome_em_uso": f'Já existe uma pasta chamada "{novo_nome}" nesse local.',
+                "sem_permissao": "Não foi possível renomear — feche a pasta no "
+                                 "Explorer e tente de novo.",
+                "erro_ao_renomear": "Não foi possível renomear a pasta.",
+            }
+            return jsonify({"error": msgs.get(motivo, msgs["erro_ao_renomear"])}), 409
+
+        _repontar_pasta(conn, col_id, uid, caminho, novo)
+        conn.commit()
+    finally:
+        conn.close()
+
+    return jsonify({"status": "ok", "caminho": novo,
+                    "nome": os.path.basename(novo), "sufixo": sufixo})
+
+
+@app.route("/api/collections/<int:col_id>/folders", methods=["DELETE"])
+def api_collection_folders_delete(col_id):
+    """
+    Apaga do disco pastas geradas para esta coleção — as que o usuário escolher.
+
+    Operação destrutiva e irreversível: não há lixeira. Por isso três travas:
+
+    1. **Lista fechada.** Só apaga caminho registrado em `collection_folders`
+       para ESTE usuário e ESTA coleção. Um caminho arbitrário no corpo é
+       recusado, mesmo que exista no disco.
+    2. **Escolha explícita.** Exige `caminhos` no corpo. Não existe "apagar
+       todas" implícito — quem quer todas manda todas.
+    3. **Confirmação obrigatória.** Exige `confirmar: true`. O frontend só
+       manda isso depois da segunda etapa do diálogo.
+
+    A coleção NÃO é excluída aqui. São operações separadas de propósito: dá
+    para apagar a pasta e manter a coleção, e vice-versa.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    data = request.get_json(force=True) or {}
+    if data.get("confirmar") is not True:
+        return jsonify({"error": "Confirmação obrigatória para apagar pastas."}), 400
+
+    pedidos = data.get("caminhos")
+    if not isinstance(pedidos, list) or not pedidos:
+        return jsonify({"error": "Escolha ao menos uma pasta."}), 400
+
+    conn = get_db()
+    try:
+        col = conn.execute(
+            "SELECT id FROM collections WHERE id = %s AND user_id = %s", (col_id, uid)
+        ).fetchone()
+        if not col:
+            return jsonify({"error": "Coleção não encontrada."}), 404
+        registradas = {os.path.normpath(c) for c in _pastas_da_colecao(conn, col_id, uid)}
+    finally:
+        conn.close()
+
+    apagadas, falhas = [], []
+    for bruto in pedidos:
+        alvo = os.path.normpath(str(bruto).strip())
+
+        # Trava 1: o caminho tem de ter sido gerado pelo app, para esta coleção.
+        if alvo not in registradas:
+            falhas.append({"caminho": alvo, "motivo": "nao_autorizada"})
+            continue
+
+        if not os.path.isdir(alvo):
+            # Já não está lá: some do registro, sem alarde.
+            conn = get_db()
+            try:
+                conn.execute(
+                    "DELETE FROM collection_folders WHERE collection_id = %s "
+                    "AND user_id = %s AND caminho = %s", (col_id, uid, alvo))
+                conn.commit()
+            finally:
+                conn.close()
+            continue
+
+        try:
+            shutil.rmtree(alvo)
+        except PermissionError:
+            falhas.append({"caminho": alvo, "motivo": "sem_permissao"})
+            continue
+        except OSError as exc:
+            print(f"[PASTAS] erro ao apagar '{alvo}': {type(exc).__name__}: {exc}")
+            falhas.append({"caminho": alvo, "motivo": "erro_ao_apagar"})
+            continue
+
+        apagadas.append(alvo)
+        conn = get_db()
+        try:
+            conn.execute(
+                "DELETE FROM collection_folders WHERE collection_id = %s "
+                "AND user_id = %s AND caminho = %s", (col_id, uid, alvo))
+            # A linha some junto com a pasta, então ela sai do conjunto de
+            # destinos automaticamente. Só o espelho em `collections` precisa
+            # de ajuste — e apenas se apontava para a pasta apagada.
+            restantes = _pastas_que_recebem(conn, col_id, uid)
+            conn.execute(
+                "UPDATE collections SET pasta_vinculada = %s "
+                "WHERE id = %s AND user_id = %s AND pasta_vinculada = %s",
+                (restantes[0] if restantes else None, col_id, uid, alvo))
+            conn.commit()
+        finally:
+            conn.close()
+
+    return jsonify({"status": "ok", "apagadas": apagadas, "falhas": falhas})
+
+
+def _remover_das_pastas(col_id: int, uid: int):
+    """
+    Apaga das pastas espelho as cópias dos arquivos informados.
+
+    Apaga arquivo do disco, então vale o mesmo rigor do resto:
+
+    1. **Só dentro das pastas registradas** para esta coleção. O nome recebido
+       é sanitizado e reduzido a `basename` — `..\\..\\algo` não escapa.
+    2. **Só a cópia.** O original nas pastas monitoradas nunca é tocado: as
+       duas árvores são distintas e só a pasta espelho entra no laço.
+    3. **Nunca apaga diretório.** Se o nome casar com uma subpasta, é ignorado.
+
+    Diferente da exclusão de pastas, não exige confirmação no corpo: quem
+    chama já confirmou ao remover da coleção, e o que se apaga é uma cópia
+    gerada pelo próprio app — não um arquivo do usuário.
+    """
+    data = request.get_json(force=True) or {}
+    nomes = data.get("nomes")
+    if not isinstance(nomes, list) or not nomes:
+        return jsonify({"error": "Informe os nomes a remover."}), 400
+
+    conn = get_db()
+    try:
+        col = conn.execute(
+            "SELECT id FROM collections WHERE id = %s AND user_id = %s", (col_id, uid)
+        ).fetchone()
+        if not col:
+            return jsonify({"error": "Coleção não encontrada."}), 404
+        destinos = [c for c in _pastas_que_recebem(conn, col_id, uid) if os.path.isdir(c)]
+    finally:
+        conn.close()
+
+    if not destinos:
+        return jsonify({"status": "ok", "apagados": 0, "falhas": [], "pastas": []})
+
+    # basename + sanitização: o nome vem do banco, mas tratá-lo como caminho
+    # confiável seria assumir que ninguém adulterou a requisição.
+    alvos = []
+    for n in nomes:
+        limpo = os.path.basename(_sanitizar_nome(str(n), padrao=""))
+        if limpo:
+            alvos.append(limpo)
+
+    apagados, falhas = 0, []
+    for pasta in destinos:
+        for nome in alvos:
+            caminho = os.path.join(pasta, nome)
+            # Confere que o resultado continua DENTRO da pasta espelho
+            if os.path.dirname(os.path.abspath(caminho)) != os.path.abspath(pasta):
+                continue
+            if not os.path.isfile(caminho):     # inexistente ou é diretório
+                continue
+            try:
+                os.remove(caminho)
+                apagados += 1
+            except PermissionError:
+                falhas.append({"nome": nome, "motivo": "sem_permissao",
+                               "pasta": os.path.basename(pasta)})
+            except OSError as exc:
+                print(f"[SYNC-DEL] '{caminho}': {type(exc).__name__}: {exc}")
+                falhas.append({"nome": nome, "motivo": "erro_ao_apagar",
+                               "pasta": os.path.basename(pasta)})
+
+    return jsonify({"status": "ok", "apagados": apagados,
+                    "falhas": falhas, "pastas": destinos})
+
+
+@app.route("/api/collections/<int:col_id>/sync_status")
+def api_collection_sync_status(col_id):
+    """
+    Compara a coleção com o conteúdo de cada pasta espelho.
+
+    Responde a pergunta que o modo manual deixa em aberto: *quais* imagens já
+    foram copiadas e quais ainda não. Sem isto, quem copia manualmente não tem
+    como saber onde parou — só o número total de arquivos na pasta.
+
+    Três listas por pasta:
+      na_pasta  — está na coleção E na pasta
+      faltando  — está na coleção, não está na pasta
+      extras    — está na pasta, não está mais na coleção (removida depois)
+
+    `extras` é o que revela cópia órfã: o arquivo saiu da coleção mas ficou no
+    disco. Em modo manual isso é esperado; em auto, indica falha de remoção.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    conn = get_db()
+    try:
+        col = conn.execute(
+            "SELECT id, modo_sync FROM collections WHERE id = %s AND user_id = %s",
+            (col_id, uid),
+        ).fetchone()
+        if not col:
+            return jsonify({"error": "Coleção não encontrada."}), 404
+
+        arquivos = conn.execute(
+            """
+            SELECT f.id, f.nome
+            FROM collection_files cf
+            JOIN files f ON f.id = cf.file_id
+            WHERE cf.collection_id = %s AND f.user_id = %s
+            ORDER BY f.nome
+            """,
+            (col_id, uid),
+        ).fetchall()
+        caminhos = _pastas_da_colecao(conn, col_id, uid)
+        recebem = {os.path.normpath(c) for c in _pastas_que_recebem(conn, col_id, uid)}
+    finally:
+        conn.close()
+
+    # O nome no destino é o sanitizado — comparar com o nome cru daria
+    # "faltando" para todo arquivo cujo nome tenha caractere inválido.
+    da_colecao = [{"id": a["id"], "nome": a["nome"],
+                   "no_disco": _sanitizar_nome(a["nome"], padrao="arquivo")}
+                  for a in arquivos]
+
+    pastas = []
+    for c in caminhos:
+        if not os.path.isdir(c):
+            pastas.append({"caminho": c, "nome": os.path.basename(c), "existe": False,
+                           "recebe": os.path.normpath(c) in recebem,
+                           "na_pasta": [], "faltando": [], "extras": []})
+            continue
+
+        try:
+            no_disco = {n for n in os.listdir(c) if os.path.isfile(os.path.join(c, n))}
+        except OSError:
+            no_disco = set()
+
+        na_pasta = [a for a in da_colecao if a["no_disco"] in no_disco]
+        faltando = [a for a in da_colecao if a["no_disco"] not in no_disco]
+        esperados = {a["no_disco"] for a in da_colecao}
+        extras = sorted(n for n in no_disco if n not in esperados)
+
+        pastas.append({
+            "caminho": c, "nome": os.path.basename(c), "existe": True,
+            "recebe": os.path.normpath(c) in recebem,
+            "na_pasta": [{"id": a["id"], "nome": a["nome"]} for a in na_pasta],
+            "faltando": [{"id": a["id"], "nome": a["nome"]} for a in faltando],
+            "extras": extras,
+        })
+
+    return jsonify({"total_colecao": len(da_colecao),
+                    "modo_sync": col["modo_sync"] or "manual",
+                    "pastas": pastas})
+
+
+@app.route("/api/collections/<int:col_id>/sync", methods=["POST", "DELETE"])
+def api_collection_sync(col_id):
+    """
+    Copia arquivos da coleção para TODAS as pastas marcadas como destino.
+
+    O destino é um conjunto: o usuário pode espelhar a coleção em duas pastas
+    ao mesmo tempo. Cada arquivo é copiado uma vez por pasta.
+
+    Diferente de /export em dois pontos que importam:
+
+    1. Escreve dentro das pastas existentes — não cria `Nome_2`. A pasta
+       vinculada é um espelho estável da coleção; criar outra a cada adição
+       derrotaria o propósito.
+    2. Aceita `file_ids` para copiar só o que acabou de entrar. Sem isso,
+       adicionar uma foto a uma coleção de 300 recopiaria as 300.
+
+    Arquivo que já existe no destino é pulado (`ja_existiam`), não duplicado
+    com sufixo: aqui a intenção é espelhar, não acumular versões.
+
+    DELETE faz o caminho inverso: apaga da pasta as cópias dos arquivos
+    informados por `nomes`. Espelhar é nos dois sentidos — sem isso, remover
+    da coleção deixaria a pasta divergindo para sempre.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    if request.method == "DELETE":
+        return _remover_das_pastas(col_id, uid)
+
+    data = request.get_json(force=True) or {}
+    brutos = data.get("file_ids")
+
+    conn = get_db()
+    try:
+        col = conn.execute(
+            "SELECT id, nome, modo_sync FROM collections "
+            "WHERE id = %s AND user_id = %s",
+            (col_id, uid),
+        ).fetchone()
+        if not col:
+            return jsonify({"error": "Coleção não encontrada."}), 404
+
+        destinos = _pastas_que_recebem(conn, col_id, uid)
+        if not destinos:
+            return jsonify({"error": "Esta coleção não tem pasta recebendo imagens."}), 400
+
+        # Uma pasta pode ter sumido do disco sem as outras terem sumido: só
+        # aborta se NENHUMA sobrou. Perder um destino não pode impedir a cópia
+        # nos demais.
+        sumidas = [d for d in destinos if not os.path.isdir(d)]
+        destinos = [d for d in destinos if os.path.isdir(d)]
+        if not destinos:
+            nomes = ", ".join(f'"{os.path.basename(d)}"' for d in sumidas)
+            return jsonify({
+                "error": f'A pasta {nomes} não está mais no lugar. '
+                         "Escolha outra pasta para receber as imagens."
+            }), 409
+
+        if brutos is None:
+            sql = """
+                SELECT f.nome, f.caminho
+                FROM collection_files cf
+                JOIN files f ON f.id = cf.file_id
+                WHERE cf.collection_id = %s AND f.user_id = %s
+                ORDER BY cf.adicionado_em DESC
+            """
+            params = (col_id, uid)
+        else:
+            if not isinstance(brutos, list):
+                return jsonify({"error": "file_ids deve ser uma lista."}), 400
+            try:
+                ids = [int(b) for b in brutos]
+            except (TypeError, ValueError):
+                return jsonify({"error": "Identificador de arquivo inválido."}), 400
+            if not ids:
+                return jsonify({"status": "ok", "copiados": 0, "ja_existiam": 0,
+                                "falhas": [], "pastas": destinos,
+                                "pasta": destinos[0]})
+            sql = """
+                SELECT f.nome, f.caminho
+                FROM collection_files cf
+                JOIN files f ON f.id = cf.file_id
+                WHERE cf.collection_id = %s AND f.user_id = %s AND f.id = ANY(%s)
+            """
+            params = (col_id, uid, ids)
+
+        arquivos = conn.execute(sql, params).fetchall()
+        pastas = [r["path"] for r in conn.execute(
+            "SELECT path FROM folders WHERE user_id = %s", (uid,)
+        ).fetchall()]
+    finally:
+        conn.close()
+
+    copiados, ja_existiam, falhas = 0, 0, []
+    for a in arquivos:
+        origem = a["caminho"]
+
+        # Validações do arquivo valem para todos os destinos: falham uma vez,
+        # não uma por pasta — senão o resumo contaria a mesma falha N vezes.
+        if not _dentro_das_pastas(origem, pastas):
+            falhas.append({"nome": a["nome"], "motivo": "fora_das_pastas"})
+            continue
+        if not os.path.isfile(origem):
+            falhas.append({"nome": a["nome"], "motivo": "nao_encontrado"})
+            continue
+
+        nome_destino = _sanitizar_nome(a["nome"], padrao="arquivo")
+        for pasta in destinos:
+            alvo = os.path.join(pasta, nome_destino)
+            if os.path.exists(alvo):
+                ja_existiam += 1
+                continue
+            try:
+                shutil.copy2(origem, alvo)
+                copiados += 1
+            except PermissionError:
+                falhas.append({"nome": a["nome"], "motivo": "sem_permissao",
+                               "pasta": os.path.basename(pasta)})
+            except OSError as exc:
+                print(f"[SYNC] '{origem}' → '{alvo}': {type(exc).__name__}: {exc}")
+                falhas.append({"nome": a["nome"], "motivo": "erro_escrita",
+                               "pasta": os.path.basename(pasta)})
+
+    return jsonify({"status": "ok", "copiados": copiados,
+                    "ja_existiam": ja_existiam, "falhas": falhas,
+                    "pastas": destinos, "pasta": destinos[0]})
+
+
+def _job_do_usuario(job_id, uid):
+    """Devolve o job se ele existir E pertencer ao usuário; senão None."""
+    job = _export_jobs.get(job_id)
+    return job if job and job["user_id"] == uid else None
+
+
+@app.route("/api/collections/export/<job_id>")
+def api_collection_export_status(job_id):
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    with _export_lock:
+        job = _job_do_usuario(job_id, uid)
+        if not job:
+            return jsonify({"error": "Exportação não encontrada."}), 404
+        # Descarta jobs terminados há mais de 5 min, para o dict não crescer
+        # indefinidamente (RNF do risco R-05).
+        agora = time.time()
+        for jid, j in list(_export_jobs.items()):
+            if j["estado"] != "executando" and agora - j["criado_em"] > 300:
+                _export_jobs.pop(jid, None)
+        return jsonify({
+            "estado": job["estado"], "copiados": job["copiados"],
+            "total": job["total"], "falhas": job["falhas"],
+            "pasta": job["pasta"], "colecao": job["colecao"], "erro": job["erro"],
+        })
+
+
+@app.route("/api/collections/export/<job_id>/cancel", methods=["POST"])
+def api_collection_export_cancel(job_id):
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    with _export_lock:
+        job = _job_do_usuario(job_id, uid)
+        if not job:
+            return jsonify({"error": "Exportação não encontrada."}), 404
+        # Cooperativo: o worker checa a flag entre arquivos. A cópia em
+        # andamento termina — interromper no meio deixaria arquivo truncado.
+        job["cancelar"] = True
+        return jsonify({"status": "ok", "copiados": job["copiados"]})
+
+
+@app.route("/api/open_folder")
+def api_open_folder():
+    """
+    Abre no Explorer uma pasta criada por exportação desta sessão.
+
+    Diferente de /api/open_location, valida o caminho. São autorizadas duas
+    origens, ambas criadas pelo próprio app a pedido do usuário:
+
+    1. pasta de uma exportação desta sessão (`_export_jobs`, em memória);
+    2. qualquer pasta já gerada para o usuário (`collection_folders`, no banco).
+
+    A segunda é o caso do botão "Abrir pasta exportada" — e precisa vir do
+    banco porque o registro sobrevive a reinícios, ao contrário dos jobs.
+    Sem essa lista fechada, a rota viraria um "abra qualquer caminho do
+    disco" (RF-059).
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    caminho = os.path.normpath(unquote(request.args.get("path", "")).strip())
+
+    with _export_lock:
+        autorizado = any(
+            j["user_id"] == uid and os.path.normpath(j["pasta"]) == caminho
+            for j in _export_jobs.values()
+        )
+
+    if not autorizado:
+        conn = get_db()
+        try:
+            registradas = conn.execute(
+                "SELECT caminho FROM collection_folders WHERE user_id = %s", (uid,)
+            ).fetchall()
+        finally:
+            conn.close()
+        autorizado = any(
+            os.path.normpath(r["caminho"]) == caminho for r in registradas
+        )
+
+    if not autorizado:
+        return jsonify({"error": "Pasta não autorizada."}), 403
+
+    if not os.path.isdir(caminho):
+        return jsonify({"error": "Pasta não encontrada."}), 404
+
+    if os.name != "nt":
+        return jsonify({"error": "Disponível apenas no Windows."}), 501
+
+    subprocess.Popen(["explorer", caminho])
+    return jsonify({"status": "ok"})
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2681,10 +5402,15 @@ def api_status():
         if conn is not None:
             conn.close()
 
+    pendentes = _queue.qsize()
+    ritmo = _ritmo_observado()
+
     with _lock:
         return jsonify({
             "status":                    _status,
-            "arquivos_pendentes":        _queue.qsize(),
+            "arquivos_pendentes":        pendentes,
+            "restante_texto":            _texto_do_restante(pendentes, ritmo),
+            "segundos_por_arquivo":      round(ritmo, 2),
             "arquivos_processados_sessao": count,
         })
 
@@ -2802,6 +5528,59 @@ def api_debug_scores():
 # Análise forçada
 # ──────────────────────────────────────────────────────────────────────────────
 
+@app.route("/api/health")
+def api_health():
+    """
+    Diz se o programa já está inteiro de pé. Não exige sessão.
+
+    O front consulta isto enquanto os modelos carregam, para avisar que a
+    busca ainda vai demorar alguns segundos em vez de deixar o usuário digitar
+    e receber um erro seco. Fica fora da autenticação de propósito: a tela de
+    login aparece antes de qualquer sessão existir, e é justamente ali que a
+    espera acontece.
+    """
+    modelos = estado_dos_modelos()
+    return jsonify({
+        "servidor": "ok",
+        "modelos": modelos,
+        "busca_pronta": busca_pronta(),
+        "carregando": not _MODELOS_RESOLVIDOS.is_set(),
+    })
+
+
+@app.route("/api/resumo_indexacao")
+def api_resumo_indexacao():
+    """
+    O resumo da última indexação, para reabrir depois.
+
+    Só o mais recente: guardar histórico de todas as rodadas seria um arquivo
+    morto — ninguém volta na indexação de três semanas atrás. O que faz falta
+    é a última, quando a pergunta "cadê minhas fotos?" aparece.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    conn = get_db()
+    try:
+        linha = conn.execute(
+            "SELECT conteudo, fim FROM resumos_indexacao "
+            "WHERE user_id = %s ORDER BY fim DESC LIMIT 1",
+            (uid,),
+        ).fetchone()
+    finally:
+        conn.close()
+
+    if not linha:
+        return jsonify({"resumo": None})
+
+    conteudo = linha["conteudo"]
+    if isinstance(conteudo, str):
+        conteudo = _safe_json_loads(conteudo, {}) or {}
+
+    return jsonify({"resumo": conteudo})
+
+
 @app.route("/api/analyze_folders", methods=["POST"])
 def api_analyze_folders():
     uid = _uid()
@@ -2813,6 +5592,8 @@ def api_analyze_folders():
         "SELECT path FROM folders WHERE user_id = %s", (uid,)
     ).fetchall()
     conn.close()
+
+    _resumo_iniciar(uid)
 
     for f in folders:
         threading.Thread(target=_scan_folder, args=(f["path"], uid), daemon=True).start()
@@ -3036,17 +5817,45 @@ def api_clear_cache():
 
 @app.route("/api/open_location")
 def api_open_location():
+    """
+    Abre o Explorer com o arquivo selecionado.
+
+    Só abre arquivo dentro de uma pasta monitorada do usuário. Antes bastava
+    o caminho existir: `?path=C:\\Users\\x\\.ssh\\id_rsa` abria o Explorer ali,
+    e o próprio `/api/file` — que serve o mesmo tipo de recurso — já recusava
+    isso. A rota era a única porta sem tranca.
+
+    A validação usa `realpath`, não `normpath`: um symlink dentro da pasta
+    monitorada apontando para fora passaria pela comparação textual, porque o
+    caminho *escrito* fica dentro. Resolver primeiro elimina essa classe.
+    """
     uid = _uid()
     if not uid:
         return jsonify({"error": "Não autenticado."}), 401
 
-    filepath = unquote(request.args.get("path", "")).strip()
-    filepath = os.path.normpath(filepath)
+    bruto = unquote(request.args.get("path", "")).strip()
+    if not bruto:
+        return jsonify({"error": "Caminho não informado."}), 400
+
+    filepath = os.path.realpath(bruto)
+
+    conn = get_db()
+    try:
+        pastas = [r["path"] for r in conn.execute(
+            "SELECT path FROM folders WHERE user_id = %s", (uid,)
+        ).fetchall()]
+    finally:
+        conn.close()
+
+    if not _dentro_das_pastas(filepath, pastas):
+        return jsonify({"error": "Arquivo fora das pastas monitoradas."}), 403
 
     if not os.path.exists(filepath):
         return jsonify({"error": "Arquivo não encontrado."}), 404
 
-    # Abre o Explorer com o arquivo selecionado
+    if os.name != "nt":
+        return jsonify({"error": "Disponível apenas no Windows."}), 501
+
     subprocess.Popen(["explorer", "/select,", filepath])
     return jsonify({"status": "ok"})
 
@@ -3059,6 +5868,313 @@ _EXT_ALL = (
     _EXT_IMG | _EXT_VID | _EXT_AUD |
     {"pdf", "docx", "doc", "txt", "odt", "csv", "xlsx"}
 )
+
+
+def _blacklist_do_usuario(config_json) -> list[str]:
+    r"""
+    Pastas que o usuário mandou ignorar, normalizadas para comparação.
+
+    Devolve caminhos em minúsculas porque o Windows não diferencia caixa: sem
+    isso, ignorar "C:\Temp" deixaria passar tudo que estivesse em "c:\temp".
+    """
+    cfg = _safe_json_loads(config_json, {}) or {}
+    return [
+        os.path.normpath(p.strip()).lower()
+        for p in (cfg.get("pastas_ignoradas") or "").split(",")
+        if p.strip()
+    ]
+
+
+def _esta_na_blacklist(caminho: str, blacklist: list[str]) -> bool:
+    cam = os.path.normpath(caminho).lower()
+    return any(cam.startswith(b) for b in blacklist)
+
+
+def _percorrer_arquivos(pasta: str, blacklist: list[str],
+                        ignorados: list | None = None):
+    """
+    Gera (caminho, nome, extensão) de cada arquivo indexável sob `pasta`.
+
+    A varredura e a verificação de alterações precisam enxergar exatamente o
+    mesmo conjunto de arquivos. Enquanto eram dois laços separados, bastava um
+    deles ganhar um filtro para a verificação passar a acusar como "novo" algo
+    que a varredura ignorava de propósito — e o usuário veria um número que
+    nunca zerava.
+
+    `ignorados`, se vier, recebe um item por arquivo pulado por não ser de um
+    tipo que o Search+ abre. Quem monta o resumo da indexação precisa dessa
+    contagem, e este laço é o único lugar que a conhece — contar de novo por
+    fora significaria varrer o disco duas vezes.
+    """
+    for root, _, filenames in os.walk(pasta):
+        # Pula diretórios inteiros que estão na blacklist
+        if _esta_na_blacklist(root, blacklist):
+            continue
+        for fname in filenames:
+            ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
+            if ext not in _EXT_ALL:
+                if ignorados is not None:
+                    ignorados.append(fname)
+                continue
+
+            fpath = os.path.join(root, fname)
+            if _esta_na_blacklist(fpath, blacklist):
+                continue
+
+            yield fpath, fname, ext
+
+
+def _assinatura_no_disco(caminho: str) -> tuple[float | None, int | None]:
+    """
+    (mtime, tamanho) do arquivo, ou (None, None) se não der para ler.
+
+    Um arquivo pode sumir entre listar a pasta e consultar seus dados, e um
+    arquivo aberto por outro programa pode recusar o stat. Nos dois casos a
+    resposta honesta é "não sei" — devolver 0 faria a verificação seguinte
+    entender que o arquivo encolheu para zero byte e reprocessá-lo à toa.
+    """
+    try:
+        st = os.stat(caminho)
+        return st.st_mtime, st.st_size
+    except OSError:
+        return None, None
+
+
+def _mudou_no_disco(mtime_gravado, tamanho_gravado, mtime_atual, tamanho_atual) -> bool:
+    """
+    Decide se o arquivo mudou desde a última vez que o Search+ o leu.
+
+    Arquivo indexado antes destas colunas existirem tem assinatura NULL. NULL
+    aqui é "nunca soube como era", não "não mudou": acusar alteração nesse caso
+    mandaria a biblioteca inteira do usuário para a fila da IA na primeira
+    verificação, cobrando uma reanálise completa por uma coluna nova. Esses
+    ganham a assinatura em silêncio e passam a ser comparáveis da próxima vez.
+    """
+    if mtime_gravado is None and tamanho_gravado is None:
+        return False
+    if mtime_atual is None:
+        return False        # não deu para ler agora; não dá para afirmar nada
+
+    if tamanho_gravado is not None and tamanho_atual != tamanho_gravado:
+        return True
+
+    # Tolerância de 2s no mtime: FAT32 e pendrives guardam a hora com resolução
+    # de 2 segundos, e copiar a mesma foto para lá e de volta desloca o mtime
+    # sem que um byte tenha mudado.
+    if mtime_gravado is not None and abs(mtime_atual - mtime_gravado) > 2:
+        return True
+
+    return False
+
+
+def _verificar_pasta(uid: int, folder_id: int, caminho_pasta: str) -> dict:
+    """
+    Compara o que está no disco com o que está indexado, e concilia os dois.
+
+    Existe porque a indexação é um retrato do momento em que a pasta foi
+    varrida. O usuário continua mexendo nos arquivos depois: renomeia, edita,
+    apaga, esvazia a lixeira. Até agora o Search+ só sabia somar — arquivo novo
+    entrava, mas arquivo editado nunca era relido (a varredura pula tudo que
+    está `processado = 1`) e arquivo apagado continuava aparecendo na busca
+    para sempre.
+
+    Três resultados, e nenhum deles apaga nada:
+
+    - novo:        está no disco, não está no banco  → indexa
+    - modificado:  assinatura mudou                  → reindexa (a descrição
+                   antiga descreve um arquivo que não existe mais)
+    - ausente:     está no banco, sumiu do disco     → marca, não apaga
+
+    O ausente não vira DELETE de propósito. O caminho mais comum de um arquivo
+    "sumir" é um HD externo desconectado ou uma pasta de rede fora do ar — e
+    apagar o registro jogaria fora a descrição da IA, os embeddings e a
+    participação do arquivo em coleções, tudo por causa de um cabo solto.
+    Marcado, ele volta sozinho quando o arquivo reaparece.
+    """
+    conn = get_db()
+    cfg_row = conn.execute(
+        "SELECT config_json FROM users WHERE id = %s", (uid,)
+    ).fetchone()
+    indexados = conn.execute(
+        "SELECT id, caminho, nome, mtime, tamanho, ausente_em "
+        "FROM files WHERE user_id = %s AND folder_id = %s",
+        (uid, folder_id),
+    ).fetchall()
+    conn.close()
+
+    blacklist = _blacklist_do_usuario(cfg_row["config_json"] if cfg_row else None)
+
+    # O Windows não diferencia caixa: o mesmo arquivo pode estar gravado como
+    # "C:\Fotos\A.JPG" e voltar do os.walk como "C:\Fotos\a.jpg". Comparar cru
+    # marcaria o arquivo como ausente e novo ao mesmo tempo.
+    por_caminho = {os.path.normpath(r["caminho"]).lower(): r for r in indexados}
+    vistos = set()
+
+    novos, modificados, voltaram = [], [], []
+
+    for fpath, fname, ext in _percorrer_arquivos(caminho_pasta, blacklist):
+        chave = os.path.normpath(fpath).lower()
+        vistos.add(chave)
+        registro = por_caminho.get(chave)
+        mtime, tamanho = _assinatura_no_disco(fpath)
+
+        if registro is None:
+            novos.append({"caminho": fpath, "nome": fname, "tipo": ext,
+                          "mtime": mtime, "tamanho": tamanho})
+            continue
+
+        if _mudou_no_disco(registro["mtime"], registro["tamanho"], mtime, tamanho):
+            modificados.append({"id": registro["id"], "caminho": fpath,
+                                "nome": fname, "tipo": ext,
+                                "mtime": mtime, "tamanho": tamanho})
+        elif registro["ausente_em"]:
+            voltaram.append({"id": registro["id"], "caminho": fpath,
+                             "nome": registro["nome"]})
+        elif registro["mtime"] is None:
+            # Indexado antes das colunas de assinatura existirem. Não é
+            # alteração — é a primeira vez que dá para registrar como ele está.
+            modificados.append({"id": registro["id"], "caminho": fpath,
+                                "nome": fname, "tipo": ext, "mtime": mtime,
+                                "tamanho": tamanho, "so_assinatura": True})
+
+    ausentes = [
+        {"id": r["id"], "caminho": r["caminho"], "nome": r["nome"]}
+        for chave, r in por_caminho.items()
+        if chave not in vistos and not r["ausente_em"]
+    ]
+
+    return {"novos": novos, "modificados": modificados,
+            "ausentes": ausentes, "voltaram": voltaram}
+
+
+def _aplicar_verificacao(uid: int, folder_id: int, achados: dict) -> None:
+    """
+    Grava o resultado da conciliação e enfileira o que precisa de IA.
+
+    O que muda de estado no banco:
+
+    - novo         → INSERT com a assinatura já gravada, e vai para a fila
+    - modificado   → assinatura atualizada; se o conteúdo mudou de verdade,
+                     descrição e embedding SBERT são zerados e ele volta à fila
+    - ausente      → ganha `ausente_em`; nada é apagado
+    - voltou       → perde o `ausente_em`
+    """
+    agora = datetime.now(timezone.utc).isoformat()
+    conn = get_db()
+    try:
+        for n in achados["novos"]:
+            try:
+                conn.execute(
+                    """INSERT INTO files
+                       (folder_id, user_id, nome, caminho, tipo,
+                        data_adicionado, favorito, processado, mtime, tamanho)
+                       VALUES (%s, %s, %s, %s, %s, %s, 0, 0, %s, %s)""",
+                    (folder_id, uid, n["nome"], n["caminho"], n["tipo"],
+                     agora, n["mtime"], n["tamanho"]),
+                )
+                conn.commit()
+            except psycopg2.errors.UniqueViolation:
+                # O arquivo pertence a outra pasta indexada (pastas aninhadas,
+                # ou o scan automático chegou primeiro). Já está no banco.
+                conn.rollback()
+
+        for m in achados["modificados"]:
+            if m.get("so_assinatura"):
+                # Só preenche a assinatura que faltava. Zerar a descrição aqui
+                # mandaria a biblioteca inteira para a fila da IA na primeira
+                # verificação depois da atualização.
+                conn.execute(
+                    "UPDATE files SET mtime = %s, tamanho = %s "
+                    "WHERE id = %s AND user_id = %s",
+                    (m["mtime"], m["tamanho"], m["id"], uid),
+                )
+            else:
+                conn.execute(
+                    "UPDATE files SET mtime = %s, tamanho = %s, processado = 0, "
+                    "descricao_ia = '', embedding = NULL, ausente_em = NULL "
+                    "WHERE id = %s AND user_id = %s",
+                    (m["mtime"], m["tamanho"], m["id"], uid),
+                )
+        conn.commit()
+
+        if achados["ausentes"]:
+            conn.execute(
+                "UPDATE files SET ausente_em = %s WHERE user_id = %s AND id = ANY(%s)",
+                (agora, uid, [a["id"] for a in achados["ausentes"]]),
+            )
+        if achados["voltaram"]:
+            conn.execute(
+                "UPDATE files SET ausente_em = NULL WHERE user_id = %s AND id = ANY(%s)",
+                (uid, [v["id"] for v in achados["voltaram"]]),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+    para_fila = list(achados["novos"]) + [
+        m for m in achados["modificados"] if not m.get("so_assinatura")
+    ]
+    for f in para_fila:
+        _queue.put({"path": f["caminho"], "nome": f["nome"], "ext": f["tipo"],
+                    "uid": uid, "folder_id": folder_id})
+
+
+@app.route("/api/folders/<int:folder_id>/verificar", methods=["POST"])
+def api_verificar_pasta(folder_id):
+    """
+    Confere uma pasta indexada contra o disco e devolve o que mudou.
+
+    Síncrono de propósito: o usuário clicou em "verificar alterações" e está
+    olhando para a tela esperando um número. Uma resposta "estou verificando,
+    volte depois" devolveria a ele a mesma dúvida que o fez clicar. O trabalho
+    caro (descrever com IA) continua indo para a fila em segundo plano.
+    """
+    uid = _uid()
+    if not uid:
+        return jsonify({"error": "Não autenticado."}), 401
+
+    conn = get_db()
+    pasta = conn.execute(
+        "SELECT id, path FROM folders WHERE id = %s AND user_id = %s",
+        (folder_id, uid),
+    ).fetchone()
+    conn.close()
+
+    if not pasta:
+        return jsonify({"error": "Pasta não encontrada."}), 404
+
+    if not os.path.isdir(pasta["path"]):
+        # A pasta inteira sumiu. Marcar todos os arquivos como ausentes seria
+        # tecnicamente correto e péssimo na prática: um HD externo desconectado
+        # apagaria a pasta inteira da busca de uma vez. Melhor avisar e não
+        # tocar em nada.
+        return jsonify({
+            "error": "Não foi possível abrir esta pasta. Ela pode ter sido "
+                     "movida, renomeada, ou estar num disco desconectado.",
+            "pasta_sumiu": True,
+        }), 409
+
+    achados = _verificar_pasta(uid, pasta["id"], pasta["path"])
+    _aplicar_verificacao(uid, pasta["id"], achados)
+
+    # `so_assinatura` é contabilidade interna — o usuário não mudou esse
+    # arquivo, o Search+ só passou a saber como ele estava.
+    modificados = [m for m in achados["modificados"] if not m.get("so_assinatura")]
+
+    return jsonify({
+        "status": "ok",
+        "pasta": pasta["path"],
+        "novos": [n["nome"] for n in achados["novos"]],
+        "modificados": [m["nome"] for m in modificados],
+        "ausentes": [a["nome"] for a in achados["ausentes"]],
+        "voltaram": [v["nome"] for v in achados["voltaram"]],
+        "resumo": {
+            "novos": len(achados["novos"]),
+            "modificados": len(modificados),
+            "ausentes": len(achados["ausentes"]),
+            "voltaram": len(achados["voltaram"]),
+        },
+    })
 
 
 def _scan_folder(folder_path: str, uid: int) -> None:
@@ -3077,58 +6193,44 @@ def _scan_folder(folder_path: str, uid: int) -> None:
     ).fetchone()
     conn.close()
 
-    cfg = _safe_json_loads(cfg_row["config_json"] if cfg_row else None, {}) or {}
-    blacklist = [
-        os.path.normpath(p.strip()).lower()
-        for p in (cfg.get("pastas_ignoradas") or "").split(",")
-        if p.strip()
-    ]
+    blacklist = _blacklist_do_usuario(cfg_row["config_json"] if cfg_row else None)
 
-    def _esta_na_blacklist(caminho: str) -> bool:
-        cam = os.path.normpath(caminho).lower()
-        return any(cam.startswith(b) for b in blacklist)
+    ignorados: list[str] = []
+    for fpath, fname, ext in _percorrer_arquivos(folder_path, blacklist, ignorados):
+        conn = get_db()
+        existing = conn.execute(
+            "SELECT processado FROM files WHERE user_id = %s AND caminho = %s",
+            (uid, fpath),
+        ).fetchone()
 
-    for root, _, filenames in os.walk(folder_path):
-        # Pula diretórios inteiros que estão na blacklist
-        if _esta_na_blacklist(root):
-            continue
-        for fname in filenames:
-            ext = fname.rsplit(".", 1)[-1].lower() if "." in fname else ""
-            if ext not in _EXT_ALL:
-                continue
-
-            fpath = os.path.join(root, fname)
-            if _esta_na_blacklist(fpath):
-                continue
-
-            conn = get_db()
-            existing = conn.execute(
-                "SELECT processado FROM files WHERE user_id = %s AND caminho = %s",
-                (uid, fpath),
-            ).fetchone()
-
-
-
-            if existing and existing["processado"]:
-                conn.close()
-                continue
-
-            if not existing:
-                try:
-                    conn.execute(
-                        """INSERT INTO files
-                           (folder_id, user_id, nome, caminho, tipo,
-                            data_adicionado, favorito, processado)
-                           VALUES (%s, %s, %s, %s, %s, %s, 0, 0)""",
-                        (folder_id, uid, fname, fpath, ext,
-                         datetime.now(timezone.utc).isoformat()),
-                    )
-                    conn.commit()
-                except psycopg2.errors.UniqueViolation:
-                    conn.rollback()
+        if existing and existing["processado"]:
             conn.close()
+            continue
 
-            _queue.put({"path": fpath, "nome": fname, "ext": ext, "uid": uid, "folder_id": folder_id})
+        if not existing:
+            # A assinatura vai junto do INSERT: é aqui que o arquivo ganha a
+            # linha de base contra a qual o "verificar alterações" vai comparar
+            # depois. Sem ela o arquivo entra cego e a primeira verificação não
+            # teria como saber se ele mudou.
+            mtime, tamanho = _assinatura_no_disco(fpath)
+            try:
+                conn.execute(
+                    """INSERT INTO files
+                       (folder_id, user_id, nome, caminho, tipo,
+                        data_adicionado, favorito, processado, mtime, tamanho)
+                       VALUES (%s, %s, %s, %s, %s, %s, 0, 0, %s, %s)""",
+                    (folder_id, uid, fname, fpath, ext,
+                     datetime.now(timezone.utc).isoformat(), mtime, tamanho),
+                )
+                conn.commit()
+            except psycopg2.errors.UniqueViolation:
+                conn.rollback()
+        conn.close()
+
+        _queue.put({"path": fpath, "nome": fname, "ext": ext, "uid": uid,
+                    "folder_id": folder_id, "pasta": folder_path})
+
+    _resumo_contar_ignorados(uid, folder_id, folder_path, len(ignorados))
 
     with _lock:
         if _queue.empty():
@@ -3199,8 +6301,234 @@ def _get_precomputed_clip_embs(category: str) -> list:
     return embs
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Resumo da indexação
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# Ao terminar, o app dizia "Indexação concluída!" e pronto. Quem apontou uma
+# pasta com 4.000 arquivos e viu 3.200 indexados não tinha como saber o que
+# houve com os outros 800 — nem se houve. A pergunta "cadê minhas fotos?"
+# aparecia semanas depois, sem nada para responder.
+#
+# Três desfechos, e cada um pede uma reação diferente de quem lê:
+#   indexado  — nada a fazer
+#   ignorado  — o Search+ não abre esse tipo de arquivo; nada quebrou
+#   com erro  — o arquivo devia ter entrado e não entrou; aqui vale investigar
+#
+# Separar "ignorado" de "erro" é o ponto. Juntos, viram "800 problemas" e a
+# pessoa vai procurar defeito onde não há: um .zip no meio das fotos não é
+# falha do programa.
+
+# Quantos nomes de arquivo com erro guardar por pasta. A lista existe para
+# investigar, não para inventariar: com 4.000 nomes ninguém lê nenhum, e o
+# JSON incha à toa. A contagem total continua exata.
+LIMITE_ERROS_LISTADOS = 50
+
+_resumo_aberto: dict[int, dict] = {}
+_lock_resumo = threading.Lock()
+
+
+def _resumo_iniciar(uid: int) -> None:
+    """Zera o acumulado e marca o começo. Chamado ao disparar a análise."""
+    with _lock_resumo:
+        _resumo_aberto[uid] = {
+            "inicio": datetime.now(timezone.utc).isoformat(),
+            "pastas": {},
+        }
+
+
+def _resumo_pasta(uid: int, folder_id, caminho: str) -> dict | None:
+    """A entrada da pasta dentro do resumo aberto. None se não há resumo."""
+    dados = _resumo_aberto.get(uid)
+    if dados is None:
+        return None
+    chave = str(folder_id) if folder_id is not None else caminho
+    return dados["pastas"].setdefault(chave, {
+        "caminho": caminho, "indexados": 0, "ignorados": 0,
+        "erros": 0, "arquivos_com_erro": [],
+    })
+
+
+def _resumo_contar_ignorados(uid: int, folder_id, caminho: str, quantos: int) -> None:
+    if quantos <= 0:
+        return
+    with _lock_resumo:
+        pasta = _resumo_pasta(uid, folder_id, caminho)
+        if pasta is not None:
+            pasta["ignorados"] += quantos
+
+
+def _resumo_registrar_arquivo(uid: int, folder_id, caminho_pasta: str,
+                              nome: str, motivo: str = "") -> None:
+    """
+    Um arquivo terminou. `motivo` vazio significa que deu certo.
+
+    O nome da pasta pode não ser conhecido aqui (o worker só tem o folder_id),
+    e tudo bem: a entrada já foi criada pelo scan, que conhecia.
+    """
+    with _lock_resumo:
+        pasta = _resumo_pasta(uid, folder_id, caminho_pasta)
+        if pasta is None:
+            return
+        if motivo:
+            pasta["erros"] += 1
+            if len(pasta["arquivos_com_erro"]) < LIMITE_ERROS_LISTADOS:
+                pasta["arquivos_com_erro"].append({"nome": nome, "motivo": motivo})
+        else:
+            pasta["indexados"] += 1
+
+
+def _resumo_fechar(uid: int) -> dict | None:
+    """Tira o resumo do ar e devolve pronto para gravar."""
+    with _lock_resumo:
+        dados = _resumo_aberto.pop(uid, None)
+    if dados is None:
+        return None
+
+    pastas = list(dados["pastas"].values())
+    return {
+        "inicio": dados["inicio"],
+        "fim": datetime.now(timezone.utc).isoformat(),
+        "pastas": pastas,
+        "totais": {
+            "indexados": sum(p["indexados"] for p in pastas),
+            "ignorados": sum(p["ignorados"] for p in pastas),
+            "erros": sum(p["erros"] for p in pastas),
+        },
+    }
+
+
+def _gravar_resumo(uid: int) -> None:
+    """
+    Fecha e persiste. Chamado quando a fila esvazia.
+
+    Guardar em banco e não em memória é o que permite reabrir o resumo depois:
+    quem estava com a janela fechada quando a indexação acabou perdia a
+    informação inteira, que é justamente quando ela faz mais falta.
+    """
+    resumo = _resumo_fechar(uid)
+    if not resumo:
+        return
+    # Indexação que não olhou arquivo nenhum não rende resumo — seria uma
+    # linha vazia atrapalhando a lista.
+    if not resumo["pastas"]:
+        return
+
+    conn = get_db()
+    try:
+        conn.execute(
+            "INSERT INTO resumos_indexacao (user_id, inicio, fim, conteudo) "
+            "VALUES (%s, %s::timestamptz, %s::timestamptz, %s)",
+            (uid, resumo["inicio"], resumo["fim"], json.dumps(resumo)),
+        )
+        conn.commit()
+    except Exception as exc:
+        print(f"[Resumo] não foi possível gravar: {exc}")
+        conn.rollback()
+    finally:
+        conn.close()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Ritmo observado da indexação
+# ──────────────────────────────────────────────────────────────────────────────
+#
+# A barra dizia "N na fila". Isso não responde à pergunta que a pessoa tem na
+# cabeça: dá tempo de almoçar? Um número de arquivos só vira tempo se houver
+# uma taxa, e a taxa fixa de 0,5s por arquivo erra por ordens de grandeza —
+# um SSD com JPEG pequeno e um HD externo com PDF de 300 páginas não têm o
+# mesmo ritmo, e nem a mesma máquina tem o mesmo ritmo o dia inteiro.
+#
+# Aqui a taxa é medida enquanto a indexação acontece.
+
+# Janela do histórico. Trinta arquivos são suficientes para atravessar uma
+# sequência ruim (uma pasta de vídeos no meio de fotos) sem que a estimativa
+# fique presa a um começo atípico por muito tempo.
+_JANELA_RITMO = 30
+
+# Abaixo disso a amostra não diz nada: dois arquivos rápidos anunciariam "1
+# minuto" para uma pasta de dez mil. Até chegar aqui, vale o padrão.
+_MINIMO_PARA_CONFIAR = 5
+
+# Quanto custa um arquivo antes de haver medição. Mesmo valor que a estimativa
+# de antes de indexar usa, para as duas telas não se contradizerem.
+SEGUNDOS_POR_ARQUIVO_PADRAO = 0.5
+
+_duracoes = deque(maxlen=_JANELA_RITMO)
+_lock_ritmo = threading.Lock()
+
+
+def _registrar_duracao(segundos: float) -> None:
+    """Guarda quanto custou um arquivo. Chamado pelo worker a cada item."""
+    if segundos <= 0:
+        return
+    with _lock_ritmo:
+        _duracoes.append(segundos)
+
+
+def _ritmo_observado() -> float:
+    """
+    Segundos por arquivo, medidos.
+
+    Usa a MEDIANA, não a média. Um único PDF de 300 páginas no meio de mil
+    fotos multiplica a média e a estimativa salta de "2 minutos" para "40
+    minutos" por causa de um arquivo — exatamente a oscilação que o item pede
+    para eliminar. A mediana ignora o outlier e continua descrevendo o ritmo
+    típico, que é o que responde "dá tempo de almoçar?".
+    """
+    with _lock_ritmo:
+        amostra = list(_duracoes)
+
+    if len(amostra) < _MINIMO_PARA_CONFIAR:
+        return SEGUNDOS_POR_ARQUIVO_PADRAO
+
+    amostra.sort()
+    meio = len(amostra) // 2
+    if len(amostra) % 2:
+        return amostra[meio]
+    return (amostra[meio - 1] + amostra[meio]) / 2
+
+
+def _texto_do_restante(pendentes: int, segundos_por_arquivo: float) -> str:
+    """
+    A estimativa como a pessoa lê, não como o servidor calcula.
+
+    Arredonda para valores graúdos de propósito. "≈ 11 min" virando "≈ 12 min"
+    e voltando a cada atualização é ruído: ninguém planeja o intervalo do café
+    com um minuto de precisão, e o número mudando sozinho passa a impressão de
+    que o programa não sabe o que está fazendo.
+    """
+    if pendentes <= 0:
+        return ""
+
+    restante = pendentes * segundos_por_arquivo
+    if restante < 60:
+        return "quase terminando"
+
+    minutos = restante / 60
+    if minutos < 10:
+        return f"≈ {round(minutos)} min restantes"
+    if minutos < 60:
+        return f"≈ {int(round(minutos / 5) * 5)} min restantes"
+
+    horas = minutos / 60
+    if horas < 2:
+        return "≈ 1 hora restante"
+    return f"≈ {round(horas)} horas restantes"
+
+
 def _process_worker() -> None:
     global _processed, _status
+
+    # Sem esperar, os primeiros arquivos da fila seriam indexados enquanto os
+    # modelos ainda carregam: entrariam sem embedding e ficariam invisíveis
+    # para a busca, sem nenhum sinal de que algo deu errado. O usuário só
+    # descobriria procurando por uma foto que ele sabe que está lá.
+    #
+    # O timeout é uma rede de segurança: se a carga travar, o worker volta a
+    # rodar e faz o que der (extrair texto, registrar o arquivo) em vez de
+    # ficar parado para sempre.
+    _MODELOS_RESOLVIDOS.wait(timeout=600)
 
     # Contador de itens consecutivos descartados por janela. Quando bate o
     # tamanho da fila, dormimos uma vez e zeramos — evita o ciclo
@@ -3214,17 +6542,24 @@ def _process_worker() -> None:
             with _lock:
                 _status = "Ocioso"
             fora_da_janela_consecutivos = 0
+            # Fila vazia é o único sinal confiável de que a indexação acabou:
+            # o scan é assíncrono e não sabe quando o worker terminou o que
+            # ele enfileirou.
+            for uid_aberto in list(_resumo_aberto):
+                _gravar_resumo(uid_aberto)
             continue
 
-        fpath     = item["path"]
-        fname     = item["nome"]
-        ext       = item["ext"]
-        uid       = item["uid"]
-        folder_id = item.get("folder_id")
+        fpath       = item["path"]
+        fname       = item["nome"]
+        ext         = item["ext"]
+        uid         = item["uid"]
+        folder_id   = item.get("folder_id")
+        pasta_do_item = item.get("pasta", "")
 
         # Todo o processamento de UM item fica dentro deste try: sem ele, uma
         # exceção aqui matava a thread e a indexação parava para sempre — com o
         # status exibindo "Ocioso", sem nenhum sinal de que algo quebrou.
+        comecou_em = time.time()
         try:
             # ── Buscar config da pasta ──
             prioridades, perfil, janela = _get_folder_config(folder_id, uid)
@@ -3305,6 +6640,20 @@ def _process_worker() -> None:
                 # UPDATE vazava uma conexão até esgotar o pool.
                 conn.close()
 
+            # Só conta o arquivo que realmente foi processado. O que voltou
+            # para a fila por estar fora da janela de horário não gastou tempo
+            # de processamento nenhum, e entraria como "arquivo instantâneo",
+            # puxando a estimativa para baixo e prometendo o que não dá.
+            _registrar_duracao(time.time() - comecou_em)
+
+            # `processado = 0` aqui significa que o arquivo passou pelo motor e
+            # não pôde ser indexado: imagem que o leitor não abriu, documento
+            # que só rendeu o nome. Vai para o resumo como erro, porque é
+            # exatamente o caso de "devia ter entrado e não entrou".
+            _resumo_registrar_arquivo(
+                uid, folder_id, pasta_do_item, fname,
+                motivo="" if processado_flag else "não foi possível ler o conteúdo")
+
             with _lock:
                 _processed += 1
 
@@ -3312,6 +6661,8 @@ def _process_worker() -> None:
 
         except Exception as exc:
             print(f"[WORKER] Falha ao processar '{fname}': {type(exc).__name__}: {exc}")
+            _resumo_registrar_arquivo(uid, folder_id, pasta_do_item, fname,
+                                      motivo=f"{type(exc).__name__}: {exc}")
             try:
                 _queue.task_done()
             except ValueError:

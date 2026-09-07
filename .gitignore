@@ -1,6 +1,8 @@
 # Credenciais (Supabase, etc) - NUNCA COMMITAR
 .env
 backend/.env
+# Chave de sessao gerada no primeiro boot (assina o cookie de login)
+backend/.secret_key
 
 # Ferramentas de assistente (não versionar)
 .claude/
