@@ -93,7 +93,7 @@ body {
 }
 
 /* TÍTULOS BRANCOS E CENTRALIZAÇÃO GLOBAL */
-.section-title-white { color: var(--text-primary); font-weight: 800; text-align: center;}
+.section-title-white { color: var(--text-primary); font-weight: 800; text-align: center; font-size: 1.5rem; letter-spacing: -0.5px; margin: 30px 0 10px; }
 .text-center { text-align: center !important; }
 .text-left { text-align: left !important; }
 
@@ -339,11 +339,10 @@ body {
 .document-icon-wrapper { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; background-color: var(--bg-deep); }
 .document-icon-wrapper svg { width: 70px; height: 70px; fill: var(--text-secondary); }
 .card-content { padding: 20px; flex: 1; display: flex; flex-direction: column; }
-.card-content h3 { margin: 0 0 15px; font-size: 1.05rem; color: var(--text-primary); font-weight: 600; word-break: break-all; }
-.tags { display: flex; gap: 8px; margin-bottom: 15px; }
-.badge { padding: 4px 10px; border-radius: 6px; font-size: 0.75rem; font-weight: 800; letter-spacing: 0.5px; }
+.card-content h3 { margin: 0 0 12px; font-size: 1.05rem; color: var(--text-primary); font-weight: 600; word-break: break-word; line-height: 1.35; }
+.tags { display: flex; gap: 8px; margin-bottom: 12px; }
+.badge { padding: 3px 9px; border-radius: 6px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.5px; }
 .badge.type { background-color: var(--border-light); color: var(--text-secondary); }
-.badge.score { background-color: rgba(79, 209, 197, 0.1); color: var(--telemetry); border: 1px solid rgba(79, 209, 197, 0.3); }
 .trecho-preview { font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 10px; flex: 1; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;}
 .highlight { background-color: rgba(234, 82, 247, 0.3); color: #fff; padding: 2px 4px; border-radius: 4px; }
 
@@ -1005,4 +1004,84 @@ body {
     background: rgba(255,255,255,0.03);
     border: 1px solid var(--border-light);
     border-radius: 12px;
+}
+
+/* Itens do modal de escolha de coleção (substitui o prompt nativo) */
+.escolher-colecao-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 14px 16px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border-light);
+    border-radius: 10px;
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    font-weight: 600;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+.escolher-colecao-item:hover {
+    background: rgba(168,85,247,0.14);
+    border-color: var(--accent-primary);
+}
+.escolher-colecao-count {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    font-weight: 400;
+}
+
+/* ============================================
+   RESPONSIVIDADE (mobile / tablet)
+   ============================================ */
+@media (max-width: 768px) {
+    /* Logo e busca menores */
+    .main-logo { font-size: 4rem; margin-top: 15px; }
+    .search-box { flex-direction: row; flex-wrap: wrap; gap: 8px; padding: 0 12px; }
+    .search-box input { font-size: 1rem; padding: 16px 18px; }
+    .search-btn { padding: 0 24px !important; font-size: 1.1rem !important; }
+
+    /* Top bar e menu */
+    .top-bar { padding: 12px 16px; }
+    .menu-lateral { width: 85vw; }
+
+    /* Grids de resultados e cards menores */
+    .results-grid, .recent-grid {
+        grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+        gap: 14px;
+    }
+    .recent-img { height: 130px; }
+
+    /* Modais ocupam quase a tela toda */
+    .modal-content {
+        max-width: 94vw !important;
+        width: 94vw;
+        max-height: 88vh;
+        overflow-y: auto;
+    }
+
+    /* Filtros avançados empilham */
+    .filtros-avancados { grid-template-columns: 1fr 1fr; }
+
+    /* Painel lateral de detalhe ocupa a tela */
+    .side-panel { width: 100% !important; max-width: 100%; }
+
+    /* Sidebar de personalização cabe na tela */
+    .sidebar-modal { width: 90vw !important; max-width: 90vw; }
+}
+
+@media (max-width: 480px) {
+    .main-logo { font-size: 3rem; }
+    .search-box { flex-direction: column; }
+    .search-box input, .search-btn, .search-btn-img { width: 100%; }
+    .filter-bar { flex-wrap: wrap; gap: 6px; }
+    .filtros-avancados { grid-template-columns: 1fr; }
+    .results-grid, .recent-grid {
+        grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+        gap: 10px;
+    }
+    /* Estatísticas do perfil empilham */
+    .toast { min-width: auto; max-width: 90vw; }
 }

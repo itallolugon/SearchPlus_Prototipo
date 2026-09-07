@@ -1,0 +1,117 @@
+============================================================
+   SEARCH+ — COMO RODAR NO SEU COMPUTADOR
+   (Guia passo a passo — leia com calma, é fácil)
+============================================================
+
+O que é: o Search+ é um app que busca suas imagens e documentos
+pelo CONTEÚDO, usando inteligência artificial. Você descreve o que
+procura ("cachorro na grama") e ele acha.
+
+Você vai precisar de:
+  - Um computador com Windows
+  - Internet (o app usa IA na nuvem)
+  - Uns 15 minutos na primeira vez
+
+------------------------------------------------------------
+  PASSO 1 — INSTALAR O PYTHON (só na primeira vez)
+------------------------------------------------------------
+
+O app é feito em Python. Se você nunca instalou, faça assim:
+
+1. Abra o site:  https://www.python.org/downloads/
+2. Clique no botão amarelo "Download Python" (pega a versão mais nova)
+3. Abra o arquivo que baixou.
+4. ⚠️ MUITO IMPORTANTE: na primeira tela, MARQUE a caixinha
+   "Add Python to PATH" (fica embaixo). Se esquecer disso, não funciona.
+5. Clique em "Install Now" e espere terminar.
+
+Pra conferir se deu certo:
+  - Aperte a tecla Windows, digite "cmd" e abra o "Prompt de Comando"
+  - Digite:  py --version
+  - Se aparecer algo tipo "Python 3.14", está instalado. ✅
+
+------------------------------------------------------------
+  PASSO 2 — COPIAR A PASTA DO PROJETO
+------------------------------------------------------------
+
+1. Copie a pasta "SearchPlus_Prototipo" do pendrive/drive para o seu
+   computador (ex: para a Área de Trabalho ou para Documentos).
+2. NÃO rode direto do pendrive — copie pro PC primeiro (fica mais rápido).
+
+------------------------------------------------------------
+  PASSO 3 — INSTALAR O QUE O APP PRECISA (só na primeira vez)
+------------------------------------------------------------
+
+1. Abra a pasta "SearchPlus_Prototipo" que você copiou.
+2. Na barra de endereço da pasta (em cima, onde mostra o caminho),
+   clique, apague tudo, digite  cmd  e aperte Enter.
+   → Isso abre o Prompt de Comando já dentro da pasta certa.
+3. Copie e cole este comando (e aperte Enter):
+
+   py -m pip install -r backend/requirements.txt
+
+4. Espere. Vai baixar várias coisas (uns 5 minutos). É normal aparecer
+   muito texto. Quando parar e voltar a piscar o cursor, terminou. ✅
+
+------------------------------------------------------------
+  PASSO 4 — LIGAR O APP
+------------------------------------------------------------
+
+1. Dentro da pasta "SearchPlus_Prototipo", procure o arquivo:
+
+   rodar.bat
+
+2. Dê DOIS CLIQUES nele.
+3. Vai abrir uma janela preta com textos — NÃO FECHE essa janela
+   (ela é o "motor" do app; fechar desliga tudo).
+4. Na PRIMEIRA vez, ele baixa os modelos de IA (uns 1,6 GB) — pode
+   demorar uns minutos. Tenha paciência, é só na primeira vez.
+5. Quando aparecer  "Search+ Backend iniciado!"  e o navegador abrir
+   sozinho em  http://127.0.0.1:5000  — está funcionando! 🎉
+
+   (Se o navegador não abrir sozinho, abra o Chrome/Edge e digite
+    na barra de endereço:  127.0.0.1:5000  )
+
+------------------------------------------------------------
+  PASSO 5 — USAR
+------------------------------------------------------------
+
+1. Crie uma conta (ou entre com uma que já exista).
+2. Clique pra adicionar uma PASTA do seu computador que tenha imagens.
+3. Escolha o modo (Relâmpago = rápido / Profundo = mais detalhado) e
+   confirme. As imagens são indexadas.
+4. Na barra de busca, escreva o que procura em português normal:
+   - "cachorro na grama"
+   - "documento de nota fiscal"
+   - "foto de comida"
+5. A IA acha pra você!
+
+   Dica: a PRIMEIRA busca por um assunto novo demora um pouco
+   (a IA está "olhando" as imagens). As buscas seguintes são rápidas.
+
+------------------------------------------------------------
+  PRA DESLIGAR
+------------------------------------------------------------
+
+É só fechar a janela preta (a do "motor"). Pronto.
+Pra ligar de novo: dê dois cliques no  rodar.bat  outra vez.
+(Não precisa repetir os passos 1 e 3 — só na primeira vez.)
+
+------------------------------------------------------------
+  DEU ALGUM PROBLEMA?
+------------------------------------------------------------
+
+• "py não é reconhecido" → o Python não foi instalado com a caixinha
+  "Add Python to PATH" marcada. Reinstale o Python marcando ela.
+
+• A janela preta abre e fecha na hora → provavelmente faltou o Passo 3
+  (instalar as dependências). Refaça o Passo 3.
+
+• "Erro de conexão" no app → confira se o computador está com internet.
+
+• Não abre nada no navegador → abra manualmente e digite na barra:
+  127.0.0.1:5000
+
+============================================================
+  Qualquer dúvida, chama o Itallo. Bom uso do Search+! 🔍
+============================================================

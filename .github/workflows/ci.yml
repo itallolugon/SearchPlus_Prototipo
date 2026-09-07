@@ -1,0 +1,246 @@
+name: CI
+
+# Gatilhos: toda PR, todo push na principal, e execução manual pelo botão
+# "Run workflow" na aba Actions.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Permissão mínima: o pipeline só lê o repositório. Nenhum job publica nada.
+permissions:
+  contents: read
+
+# Uma PR que recebe vários pushes cancela a execução anterior em vez de
+# enfileirar builds que já nasceram obsoletos.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHON_VERSION: "3.12"
+  PYTHONIOENCODING: "utf-8"
+
+jobs:
+  # ───────────────────────────────────────────────────────────────────────────
+  qualidade:
+    name: Lint e formatação
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Instalar ferramentas
+        run: python -m pip install --upgrade pip ruff
+
+      - name: Lint do código de teste (bloqueante)
+        run: ruff check tests/
+
+      - name: Formatação do código de teste (bloqueante)
+        run: ruff format --check tests/
+
+      # backend/ é código legado e compartilhado com produção; o AGENTS.md pede
+      # que não seja alterado por conveniência. O lint roda para dar visibilidade
+      # dos achados, sem barrar a entrega de quem não os introduziu.
+      - name: Lint do backend (informativo)
+        continue-on-error: true
+        run: ruff check backend/
+
+  # ───────────────────────────────────────────────────────────────────────────
+  testes:
+    name: Testes e cobertura
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Instalar dependências
+        # O backend inteiro não é necessário: os testes stubam os modelos de IA
+        # e o pool de conexões. Instalar torch/sentence-transformers custaria
+        # ~2 GB e vários minutos por execução, sem cobrir uma linha a mais.
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            flask flask-cors psycopg2-binary pgvector python-dotenv bcrypt \
+            numpy scikit-learn rank_bm25 Pillow python-docx PyMuPDF anthropic \
+            pytest pytest-cov
+
+      - name: Testes unitários e de integração
+        run: python -m pytest tests -m "not requires_db" --cov --cov-report=term --cov-report=xml --cov-report=html --junitxml=relatorios/junit.xml
+
+      - name: Guardar relatórios
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relatorios-de-teste
+          path: |
+            relatorios/junit.xml
+            coverage.xml
+            htmlcov/
+          retention-days: 14
+
+  # ───────────────────────────────────────────────────────────────────────────
+  testes-com-banco:
+    name: Integração com Postgres
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        # Imagem com pgvector já embutido: o schema declara CREATE EXTENSION vector.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: searchplus
+          POSTGRES_PASSWORD: searchplus_ci
+          POSTGRES_DB: searchplus_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U searchplus"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Instalar dependências
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install \
+            flask flask-cors psycopg2-binary pgvector python-dotenv bcrypt \
+            numpy scikit-learn rank_bm25 Pillow python-docx PyMuPDF anthropic \
+            pytest pytest-cov
+
+      - name: Testes contra Postgres efêmero
+        # Banco descartável do container, nunca o de produção. A URL fica aqui
+        # porque não é segredo: sobe e morre com o job.
+        env:
+          SEARCHPLUS_TEST_DATABASE_URL: postgresql://searchplus:searchplus_ci@localhost:5432/searchplus_test
+        run: python -m pytest tests -m requires_db -v
+
+  # ───────────────────────────────────────────────────────────────────────────
+  build:
+    name: Verificação de build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      # O projeto não tem etapa de build: o backend roda como script e o
+      # frontend é HTML/CSS/JS servido direto, sem bundler. O equivalente útil é
+      # garantir que todo Python compila e que o frontend não perdeu um arquivo.
+      - name: Compilar todos os módulos Python
+        run: python -m compileall -q backend/ tests/
+
+      - name: Conferir os arquivos do frontend
+        run: |
+          set -e
+          for arquivo in index.html style.css script.js landing/index.html; do
+            test -f "$arquivo" || { echo "faltando: $arquivo"; exit 1; }
+          done
+          echo "frontend íntegro"
+
+      - name: Verificação de tipos (informativa)
+        # O projeto não usa type hints de forma sistemática; mypy roda para dar
+        # sinal, não para barrar.
+        continue-on-error: true
+        run: |
+          python -m pip install --upgrade pip mypy
+          python -m mypy backend/app.py --ignore-missing-imports
+
+  # ───────────────────────────────────────────────────────────────────────────
+  carga-smoke:
+    name: Smoke de carga
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Só faz sentido se o código já passou nos testes.
+    needs: [testes]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Instalar dependências
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install flask flask-cors locust
+
+      # Carga contra o mock: sem Postgres, sem modelo e sem chamada paga à
+      # Anthropic. Mede o overhead do Flask e valida que o script de carga
+      # continua funcionando. Os perfis `load` e `stress` NÃO rodam aqui — são
+      # manuais, contra ambiente dedicado.
+      - name: Subir o servidor mock
+        run: |
+          python backend/mock_server.py &
+          for _ in $(seq 1 30); do
+            curl -sf http://127.0.0.1:5001/api/status >/dev/null && break
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:5001/api/status >/dev/null
+
+      - name: Executar smoke
+        env:
+          SEARCHPLUS_LOAD_PROFILE: smoke
+        run: |
+          mkdir -p relatorios
+          python -m locust -f tests/load/locustfile.py --headless \
+            --host http://127.0.0.1:5001 \
+            -u 5 -r 1 -t 30s \
+            --html relatorios/carga-smoke.html --only-summary
+
+      - name: Guardar relatório de carga
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: relatorio-de-carga
+          path: relatorios/carga-smoke.html
+          retention-days: 14
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Portão único: facilita exigir um só check obrigatório na proteção de branch.
+  # Deploy NÃO é feito aqui — não há infraestrutura definida no repositório.
+  # Ver docs/TESTING.md, seção "Deploy", para o que precisa existir antes.
+  portao:
+    name: Portão de qualidade
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [qualidade, testes, build, carga-smoke]
+    if: always()
+    steps:
+      - name: Conferir os resultados
+        run: |
+          echo "qualidade....: ${{ needs.qualidade.result }}"
+          echo "testes.......: ${{ needs.testes.result }}"
+          echo "build........: ${{ needs.build.result }}"
+          echo "carga-smoke..: ${{ needs.carga-smoke.result }}"
+          if [ "${{ needs.qualidade.result }}" != "success" ] || \
+             [ "${{ needs.testes.result }}" != "success" ] || \
+             [ "${{ needs.build.result }}" != "success" ] || \
+             [ "${{ needs.carga-smoke.result }}" != "success" ]; then
+            echo "::error::portão fechado — corrija os jobs acima antes de mesclar"
+            exit 1
+          fi
+          echo "portão aberto"

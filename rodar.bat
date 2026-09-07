@@ -3,7 +3,7 @@ title Search+ - Servidor
 cd /d "%~dp0"
 
 echo ============================================================
-echo   SEARCH+ - INICIANDO SERVIDOR (com busca visual / CLIP)
+echo   SEARCH+ - INICIANDO SERVIDOR (IA via Claude + busca CLIP)
 echo ============================================================
 echo.
 
@@ -19,14 +19,8 @@ if "%PYCMD%"=="" (
     exit /b 1
 )
 
-REM Liga o Ollama em segundo plano (se instalado e ainda nao estiver rodando)
-where ollama >nul 2>&1 && (
-    tasklist /FI "IMAGENAME eq ollama.exe" 2>nul | find /I "ollama.exe" >nul || (
-        echo Iniciando Ollama em segundo plano...
-        start /b "" ollama serve >nul 2>&1
-        timeout /t 3 /nobreak >nul
-    )
-)
+REM A descricao de imagens e o re-rank da busca usam a API do Claude.
+REM A chave fica em backend\.env (ANTHROPIC_API_KEY). Precisa de internet.
 
 REM SEARCHPLUS_OFFLINE=0 permite baixar os modelos CLIP na primeira vez.
 REM Depois disso eles ficam em cache e carregam sozinhos.
