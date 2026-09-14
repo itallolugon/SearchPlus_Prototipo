@@ -6,9 +6,17 @@
     <title>Search+</title>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=Inter:wght@400;600;700&family=Poppins:wght@400;600;700&family=Montserrat:wght@400;600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=2026_claude_ui">
+    <link rel="stylesheet" href="style.css?v=2026_remodel">
 </head>
-<body>
+<!-- ==========================================================================
+     ESTILO DOS BOTOES DA BUSCA — troque o numero e recarregue:
+       1  vidro        cristal neutro, so o brilho da aresta (padrao)
+       2  aurora       vidro com o degrade da marca por dentro
+       3  embutido     os dois icones dentro do campo, sem caixa propria
+       4  contorno     circulo vazado com anel degrade
+       5  capsula      os dois icones numa capsula unica colada ao campo
+     ========================================================================== -->
+<body data-busca="1">
 <!-- Conjunto de icones.
 
      Todos desenhados no mesmo grid de 24x24 e no mesmo peso de traco: e o
@@ -59,85 +67,49 @@
   <symbol id="ic-urbano" viewBox="0 0 24 24"><rect x="3.4" y="9.2" width="7" height="10.8" rx="1.2"/><rect x="13.6" y="4" width="7" height="16" rx="1.2"/><path d="M5.9 12.4h2M5.9 15.8h2M16.1 7.4h2M16.1 10.8h2M16.1 14.2h2"/></symbol>
 </svg>
 
-    <div id="viewPerfilModal" class="modal" style="display:none; position:fixed; inset:0; z-index:9999; background:rgba(7, 10, 19, 0.95); backdrop-filter:blur(12px); align-items:center; justify-content:center;">
-    <div class="pro-container" style="background:var(--surface); width:480px; border-radius:24px; border:1px solid var(--border-light); position:relative; overflow:hidden; box-shadow:0 25px 50px -12px rgba(0,0,0,0.5);">
-        
-        <div id="viewBanner" style="height:180px; background-size:cover; background-position:center; position:relative; background-color:#121212;">
-            <div style="position:absolute; inset:0; background:linear-gradient(to bottom, transparent, rgba(0,0,0,0.4));"></div>
-            <span onclick="fecharViewPerfil()" style="position:absolute; right:20px; top:15px; cursor:pointer; color:white; font-size:24px; z-index:10;">&times;</span>
-        </div>
-
-        <div style="padding:0 32px 32px 32px; display:flex; flex-direction:column; align-items:center; transform:translateY(-60px);">
-            <div class="avatar-ring" style="width:120px; height:120px; border-radius:50%; border:4px solid var(--surface); background:#000; position:relative; overflow:hidden; box-shadow:0 10px 15px -3px rgba(0,0,0,0.4);">
-                <img id="viewAvatar" src="" style="width:100%; height:100%; object-fit:cover;">
+    <!-- PERFIL -->
+    <div id="viewPerfilModal" class="modal" style="z-index: 9999;">
+        <div class="profile-card">
+            <div id="viewBanner" class="profile-banner">
+                <button class="sheet-close on-banner" onclick="fecharViewPerfil()" aria-label="Fechar">&times;</button>
             </div>
 
-            <h2 id="viewProfileName" style="margin:16px 0 4px 0; font-size:1.75rem; color:var(--text-primary); letter-spacing:-0.5px;">Lorenzo Osorio</h2>
-            <p id="viewProfileHandle" style="margin:0; color:var(--accent-primary); font-weight:700; font-size:1rem;">@handle</p>
-            <p id="viewProfileCargo" style="margin:6px 0 0 0; color:var(--text-secondary); font-size:0.85rem; font-weight:600;"></p>
-            <p id="viewProfileLocal" style="margin:2px 0 0 0; color:var(--text-secondary); font-size:0.8rem;"></p>
-            <p id="viewProfileBio" style="margin:12px 0; text-align:center; color:var(--text-secondary); font-size:0.95rem; line-height:1.5;">Explorando os dados do Search+.</p>
+            <div class="profile-body">
+                <div class="avatar-ring"><img id="viewAvatar" src="" alt=""></div>
 
-            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; width:100%; gap:12px; margin-top:24px; padding-top:24px; border-top:1px solid var(--border-light);">
-                <div style="text-align:center;"><b id="statPastas" style="display:block; font-size:1.2rem;">0</b><small style="color:var(--text-secondary); font-size:0.7rem; text-transform:uppercase;">Pastas</small></div>
-                <div style="text-align:center;"><b id="statArquivos" style="display:block; font-size:1.2rem;">0</b><small style="color:var(--text-secondary); font-size:0.7rem; text-transform:uppercase;">Arquivos</small></div>
-                <div style="text-align:center;"><b id="statTempo" style="display:block; font-size:1.2rem;">Hoje</b><small style="color:var(--text-secondary); font-size:0.7rem; text-transform:uppercase;">Atividade</small></div>
+                <h2 id="viewProfileName" class="profile-name">Lorenzo Osorio</h2>
+                <p id="viewProfileHandle" class="profile-handle">@handle</p>
+                <p id="viewProfileCargo" class="profile-role"></p>
+                <p id="viewProfileLocal" class="profile-local"></p>
+                <p id="viewProfileBio" class="profile-bio">Explorando os dados do Search+.</p>
+
+                <div class="profile-stats">
+                    <div class="stat-tile"><b id="statPastas">0</b><small>Pastas</small></div>
+                    <div class="stat-tile"><b id="statArquivos">0</b><small>Arquivos</small></div>
+                    <div class="stat-tile"><b id="statTempo">Hoje</b><small>Atividade</small></div>
+                </div>
+
+                <!-- Estatisticas do acervo (categorias da IA) -->
+                <div id="statsAcervo" class="profile-acervo" style="display: none;">
+                    <span class="eyebrow">Seu acervo</span>
+                    <div id="statsCategorias"></div>
+                </div>
+
+                <button class="action-btn gradient-btn profile-cta" onclick="abrirEditPerfil()">Editar perfil completo</button>
             </div>
-
-            <!-- Estatísticas do acervo (categorias da IA) -->
-            <div id="statsAcervo" style="width:100%; margin-top:20px; display:none;">
-                <p style="color:var(--text-secondary); font-size:0.7rem; text-transform:uppercase; margin:0 0 10px 0; letter-spacing:1px;">Seu acervo</p>
-                <div id="statsCategorias" style="display:flex; flex-direction:column; gap:8px;"></div>
-            </div>
-
-            <button class="gradient-btn" onclick="abrirEditPerfil()" style="width:100%; margin-top:24px; padding:16px; font-weight:800; text-transform:uppercase; letter-spacing:1px; cursor:pointer;">Editar Perfil Completo</button>
         </div>
     </div>
-</div>
-
 
     <div id="appBackground">
         <img id="realBgImage" src="" style="width: 100%; height: 100%; object-fit: cover; display: none;">
     </div>
 
-    <!-- Navegação lateral (aberta pelo menu hamburguer) -->
-    <div id="menuOverlay" class="menu-overlay" onclick="fecharMenuLateral()"></div>
-    <nav id="menuLateral" class="menu-lateral">
-        <div class="menu-lateral-header">
-            <span class="gradient-text" style="font-family:'Bebas Neue',sans-serif; font-size:1.8rem;">SEARCH+</span>
-            <span class="close-btn" onclick="fecharMenuLateral()" style="position:static; font-size:26px; cursor:pointer;">&times;</span>
-        </div>
-        <div class="menu-lateral-itens">
-            <span class="menu-lateral-secao">Navegação</span>
-            <button class="menu-item" onclick="fecharMenuLateral(); voltarParaHomeSmooth()">Início</button>
-            <button class="menu-item" onclick="fecharMenuLateral(); abrirColecoes()">Coleções</button>
-            <button class="menu-item" onclick="fecharMenuLateral(); abrirFavoritos()">Favoritos</button>
-            <div class="menu-lateral-divider"></div>
-            <span class="menu-lateral-secao">Biblioteca</span>
-            <button class="menu-item" onclick="fecharMenuLateral(); abrirModalPastas()">Pastas do computador</button>
-            <button class="menu-item" onclick="fecharMenuLateral(); reAnalizarArquivos()">Analisar de novo</button>
-            <!-- Resultado da ultima analise: e sobre a biblioteca, e nao
-                 registro de atividade, entao fica aqui e nao em Historico. -->
-            <button class="menu-item" onclick="fecharMenuLateral(); abrirResumoIndexacao()">Última análise</button>
-            <div class="menu-lateral-divider"></div>
-
-            <!-- Estas duas estavam dentro de Configuracoes, na aba
-                 "Desempenho". Sao CONTEUDO do usuario, nao preferencia:
-                 configuracao guarda escolha, conteudo mora onde se navega.
-                 Ninguem procura a lixeira embaixo de "Modo de Uso de
-                 Hardware". -->
-            <span class="menu-lateral-secao">Histórico</span>
-            <button class="menu-item" onclick="fecharMenuLateral(); abrirHistoricoExport()">Exportações</button>
-            <button class="menu-item" onclick="fecharMenuLateral(); abrirLixeira()">Lixeira</button>
-            <div class="menu-lateral-divider"></div>
-            <button class="menu-item" onclick="fecharMenuLateral(); abrirAjuda()">Ajuda</button>
-        </div>
-    </nav>
-
+    <!-- A navegacao lateral da direita saiu: era o mesmo conteudo do trilho
+         da esquerda em outro lugar. "Re-analisar" foi pro trilho. -->
     <div id="authOverlay" class="auth-overlay">
+        <h1 class="gradient-text login-logo">SEARCH<span style="color: var(--accent-primary);">+</span></h1>
+        <p id="authSubtitle" style="color: var(--text-secondary); margin-bottom: 30px;">Entre para chegar no seu acervo.</p>
         <div class="auth-box figma-login-box">
-            <h1 class="gradient-text login-logo">SEARCH<span style="color: var(--accent-primary);">+</span></h1>
-            <p id="authSubtitle" style="color: var(--text-secondary); margin-bottom: 30px;">Identifique-se para acessar o motor de IA.</p>
 
             <div class="auth-tabs">
                 <button id="tabLogin" class="auth-tab active" onclick="toggleAuthMode('login')">Entrar</button>
@@ -145,32 +117,36 @@
             </div>
 
             <div id="loginForm" class="auth-form" style="display: block;">
-                <input type="text" id="loginUser" placeholder="Usuário" onkeypress="if(event.key === 'Enter') fazerLogin()">
-                <input type="password" id="loginPass" placeholder="Senha" onkeypress="if(event.key === 'Enter') fazerLogin()">
+                <input type="text" id="loginUser" autocomplete="username" placeholder="Usuário" aria-label="Usuário" onkeypress="if(event.key === 'Enter') fazerLogin()">
+                <input type="password" id="loginPass" autocomplete="current-password" placeholder="Senha" aria-label="Senha" onkeypress="if(event.key === 'Enter') fazerLogin()">
                 <div style="display: flex; align-items: center; justify-content: flex-start; margin-bottom: 15px;">
                     <input type="checkbox" id="lembrarLogin" style="width: auto; margin: 0 10px 0 0;">
                     <label for="lembrarLogin" style="color: var(--text-secondary); font-size: 0.85rem;">Lembrar meu usuário</label>
                 </div>
-                <button class="action-btn gradient-btn" onclick="fazerLogin()" style="width: 100%; margin: 0; padding: 15px; font-size: 1.1rem;">Acessar Sistema</button>
+                <button class="action-btn gradient-btn" onclick="fazerLogin()" style="width: 100%; margin: 0; padding: 15px; font-size: 1.1rem;">Entrar</button>
             </div>
 
             <div id="registerForm" class="auth-form" style="display: none;">
-                <input type="text" id="regUser" placeholder="Novo Usuário" onkeypress="if(event.key === 'Enter') fazerCadastro()">
-                <input type="text" id="regHandle" placeholder="Seu @ (ex: lontr4)" onkeypress="if(event.key === 'Enter') fazerCadastro()">
-                <input type="password" id="regPass" placeholder="Nova Senha" onkeypress="if(event.key === 'Enter') fazerCadastro()">
-                <button class="action-btn gradient-btn" onclick="fazerCadastro()" style="width: 100%; margin: 15px 0 0 0; padding: 15px; font-size: 1.1rem;">Cadastrar e Entrar</button>
+                <input type="text" id="regUser" autocomplete="username" placeholder="Novo Usuário" aria-label="Novo usuário" onkeypress="if(event.key === 'Enter') fazerCadastro()">
+                <input type="text" id="regHandle" placeholder="Seu @ (ex: lontr4)" aria-label="Seu @" onkeypress="if(event.key === 'Enter') fazerCadastro()">
+                <input type="password" id="regPass" autocomplete="new-password" placeholder="Nova Senha" aria-label="Nova senha" onkeypress="if(event.key === 'Enter') fazerCadastro()">
+                <button class="action-btn gradient-btn" onclick="fazerCadastro()" style="width: 100%; margin: 15px 0 0 0; padding: 15px; font-size: 1.1rem;">Criar conta e entrar</button>
             </div>
         </div>
     </div>
 
     <div id="onboardingOverlay" class="auth-overlay" style="display: none;">
-        <div class="auth-box onboarding-box" style="max-width: 900px; padding: 50px;">
+        <div class="auth-box onboarding-box" style="max-width: 900px;">
             
             <div id="onboardingStep1">
-                <h2 class="section-title-white text-center" style="font-size: 3.5rem; margin: 0;">Bem vindo ao <span class="gradient-text" style="font-size: 4.5rem; line-height: 1;">SEARCH+</span></h2>
-                <p class="text-center" style="color: var(--text-secondary); margin-bottom: 30px; font-size: 1.1rem;">Para a Inteligência Artificial começar a trabalhar, informe as pastas do seu computador que ela deve monitorar.</p>
+                <div class="ob-head">
+                    <span class="ob-step"><i class="on"></i><i></i> Passo 1 de 2</span>
+                    <h2 class="ob-title">Bem-vindo ao <span class="gradient-text">SEARCH+</span></h2>
+                    <p class="ob-sub">Informe as pastas que o Search+ deve acompanhar. Ele lê o conteúdo dos arquivos, não só o nome.</p>
+                </div>
+
                 
-                <div id="onboardingFoldersList" class="folder-list" style="max-height: 200px; background: rgba(0,0,0,0.2); padding: 15px; border-radius: 8px; border: 1px solid var(--border-light);">
+                <div id="onboardingFoldersList" class="folder-list" style="max-height: 200px; background: var(--raised); padding: 15px; border-radius: var(--r-md); border: 1px solid var(--border-light);">
                     <p style="color: var(--text-secondary); font-size: 0.9rem;">Nenhuma pasta selecionada ainda.</p>
                 </div>
                 
@@ -179,7 +155,7 @@
                 <!-- INDEXAÇÃO INTELIGENTE SELETIVA -->
                 <div class="indexacao-config-section" id="obIndexacaoSection">
                     <h4>Foco da Análise</h4>
-                    <p>Escolha o que a IA deve priorizar ao analisar os arquivos.</p>
+                    <p>Escolha o que tem prioridade na análise.</p>
                     <div class="chips-container" id="obChipsFoco">
                         <span class="chip-foco active" data-foco="tudo" onclick="toggleChipFoco(this, 'ob')">Analisar Tudo</span>
                         <span class="chip-foco" data-foco="pessoas" onclick="toggleChipFoco(this, 'ob')">Pessoas</span>
@@ -188,7 +164,7 @@
                     </div>
 
                     <h4>Intensidade do Processamento</h4>
-                    <p>Fast: descrições rápidas. Deep: análise exaustiva e detalhada.</p>
+                    <p>Relâmpago descreve o básico e é rápido. Profundo demora mais e enxerga detalhe.</p>
                     <div class="toggle-intensidade-container">
                         <span class="toggle-label active-label" id="obLabelFast">Relâmpago</span>
                         <div class="toggle-switch" id="obTogglePerfil" onclick="togglePerfil('ob')"></div>
@@ -196,7 +172,7 @@
                     </div>
 
                     <h4>Janela de Processamento</h4>
-                    <p>Quando a IA deve processar os arquivos.</p>
+                    <p>Quando os arquivos devem ser processados.</p>
                     <div class="janela-selector">
                         <select id="obJanelaSelect" onchange="onJanelaChange('ob')">
                             <option value="always">Processar Imediatamente</option>
@@ -219,15 +195,19 @@
             </div>
 
             <div id="onboardingStep2" style="display: none;">
-                <h2 class="section-title-white text-center" style="font-size: 3rem; margin: 0;">Monte o seu <span class="gradient-text">Perfil</span></h2>
-                <p class="text-center" style="color: var(--text-secondary); margin-bottom: 30px; font-size: 1.1rem;">Personalize como você será visto no sistema.</p>
+                <div class="ob-head">
+                    <span class="ob-step"><i></i><i class="on"></i> Passo 2 de 2</span>
+                    <h2 class="ob-title">Monte o seu <span class="gradient-text">perfil</span></h2>
+                    <p class="ob-sub">É assim que você vai aparecer dentro do sistema.</p>
+                </div>
+
                 
                 <div class="identity-flex">
                     <div class="identity-controls">
-                        <div><label style="font-size: 1.1rem;">Nome de Exibição:</label><input type="text" id="obNome" class="settings-input" oninput="updateProfilePreview()" placeholder="Ex: Lorenzo Osorio"></div>
-                        <div><label style="font-size: 1.1rem;">Seu Handle (@):</label><input type="text" id="obHandle" class="settings-input" oninput="updateProfilePreview()" placeholder="Ex: adm"></div>
-                        <div><label style="font-size: 1.1rem;">Cargo / Profissão:</label><input type="text" id="obCargo" class="settings-input" oninput="updateProfilePreview()" placeholder="Ex: Desenvolvedor Front-end"></div>
-                        <div><label style="font-size: 1.1rem;">Sobre você (Bio):</label><input type="text" id="obBio" class="settings-input" oninput="updateProfilePreview()" placeholder="Fale um pouco sobre você..."></div>
+                        <div><label style="font-size: 1.1rem;">Nome de exibição</label><input type="text" id="obNome" class="settings-input" oninput="updateProfilePreview()" placeholder="Ex: Lorenzo Osorio"></div>
+                        <div><label style="font-size: 1.1rem;">Seu handle</label><input type="text" id="obHandle" class="settings-input" oninput="updateProfilePreview()" placeholder="Ex: adm"></div>
+                        <div><label style="font-size: 1.1rem;">Cargo ou profissão</label><input type="text" id="obCargo" class="settings-input" oninput="updateProfilePreview()" placeholder="Ex: Desenvolvedor Front-end"></div>
+                        <div><label style="font-size: 1.1rem;">Sobre você</label><input type="text" id="obBio" class="settings-input" oninput="updateProfilePreview()" placeholder="Fale um pouco sobre você..."></div>
                         
                         <label style="margin-top: 15px; font-size: 1.1rem;">Imagens:</label>
                         <div style="display: flex; gap: 15px;">
@@ -245,7 +225,7 @@
                         </div>
                         <div class="ob-preview-info">
                             <div class="img-container-with-edit avatar-wrapper">
-                                <img id="obPreviewAvatar" src="" class="ob-preview-avatar">
+                                <img id="obPreviewAvatar" src="" alt="" class="ob-preview-avatar">
                                 <button id="btnRemObAvatar" onclick="removerImagemOnboarding('obAvatar')" class="btn-remove-image avatar-remove" style="display: none;">&times;</button>
                                 <button onclick="selecionarImagemExplorer('obAvatar')" class="btn-reedit reedit-avatar" title="Editar Imagem"></button>
                             </div>
@@ -272,42 +252,57 @@
     </div>
 
     <div id="iaLoadingScreen" class="loading-overlay">
-        <div class="loading-content">
-            <div class="spinner"></div>
-            <h2 class="gradient-text" style="font-size: 4rem; letter-spacing: 2px; margin-bottom: 0;">PROCESSANDO...</h2>
-            <div id="tipCarousel" class="tip-carousel">A IA está analisando seus dados profundamente...</div>
+        <div class="load-card">
+            <div class="load-topo">
+                <span class="spinner" aria-hidden="true"></span>
+                <div class="load-titulos">
+                    <span class="eyebrow">Buscando</span>
+                    <h2>Procurando no seu acervo</h2>
+                </div>
+            </div>
+
+            <div class="load-barra" aria-hidden="true"></div>
+
+            <p id="tipCarousel" class="tip-carousel">A busca entende o sentido. Descreva o arquivo como você se lembra dele.</p>
         </div>
     </div>
 
     <div id="cropperModal" class="modal" style="z-index: 10000;">
         <div class="modal-content" style="max-width: 800px; padding: 30px;">
-            <h3 class="section-title-white" style="margin-top: 0; font-size: 1.5rem;">Ajustar Imagem</h3>
+            <div class="sheet-head">
+                <div class="sheet-titles">
+                    <span class="eyebrow">Imagem</span>
+                    <h2 class="sheet-title">Ajustar enquadramento</h2>
+                </div>
+                <button class="sheet-close" onclick="fecharCropper()" aria-label="Fechar">&times;</button>
+            </div>
             <div class="cropper-container" style="width: 100%; height: 50vh; min-height: 300px; background: #000; margin-bottom: 20px; border-radius: 12px; overflow: hidden;">
-                <img id="cropperImage" src="" crossorigin="use-credentials" style="max-width: 100%; display: block;">
+                <img id="cropperImage" src="" alt="" crossorigin="use-credentials" style="max-width: 100%; display: block;">
             </div>
             <div style="display: flex; gap: 15px;">
                 <button class="action-btn" onclick="fecharCropper()" style="flex: 1; margin: 0; padding: 15px;">Cancelar</button>
-                <button class="action-btn gradient-btn" onclick="salvarCropper()" style="flex: 1; margin: 0; padding: 15px; font-size: 1.1rem;">Cortar e Salvar</button>
+                <button class="action-btn gradient-btn" onclick="salvarCropper()" style="flex: 1; margin: 0; padding: 15px; font-size: 1.1rem;">Cortar e salvar</button>
             </div>
         </div>
     </div>
 
     <div id="modalFavoritos" class="modal" style="z-index: 10000;">
-        <div class="fav-modal-content" style="max-width: 500px; padding: 25px 30px; background: #130a21; width: 90%; position: relative; border-radius: 30px; border: 1px solid rgba(168, 85, 247, 0.2); box-shadow: 0 10px 40px rgba(0,0,0,0.8);">
-            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 25px;">
-                <h3 class="gradient-text" style="margin: 0; font-size: 1.8rem; font-family: 'Inter', sans-serif;">Meus Favoritos</h3>
-                <span class="close-btn" onclick="fecharFavoritos()" style="position: static;">&times;</span>
+        <div class="modal-content fav-modal-content" style="max-width: 520px;">
+            <div class="sheet-head">
+                <div class="sheet-titles">
+                    <span class="eyebrow">Salvos</span>
+                    <h2 class="sheet-title">Meus favoritos</h2>
+                </div>
+                <button class="sheet-close" onclick="fecharFavoritos()" aria-label="Fechar">&times;</button>
             </div>
             <!-- Favoritar era um beco sem saída: a estrela marcava o arquivo e
                  parava por aí. Daqui as imagens viram coleção. -->
             <div id="favoritosAcoes" class="favoritos-acoes" style="display: none;">
                 <span id="favResumo" class="favoritos-resumo"></span>
                 <button type="button" id="favSelecionarTodos" class="action-btn"
-                        onclick="alternarSelecionarTodosFavoritos()" aria-pressed="false"
-                        style="margin:0;"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-marcar-tudo"></use></svg> Selecionar tudo</button>
+                        onclick="alternarSelecionarTodosFavoritos()" aria-pressed="false"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-marcar-tudo"></use></svg> Selecionar tudo</button>
                 <button type="button" id="favEnviar" class="action-btn gradient-btn"
-                        onclick="enviarFavoritosParaColecao()" disabled
-                        style="margin:0;">＋ Enviar para coleção</button>
+                        onclick="enviarFavoritosParaColecao()" disabled><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-caixa"></use></svg> Enviar para coleção</button>
             </div>
 
             <div id="favoritosList" style="display: flex; flex-direction: column; gap: 15px; max-height: 60vh; overflow-y: auto; padding-right: 5px;">
@@ -317,12 +312,11 @@
     </div>
 
     <div class="top-bar">
-        <div class="nav-right">
-            <!-- Menu hamburguer (abre a navegação lateral), ao lado do perfil -->
-            <button id="btnMenu" class="hamburger-btn" onclick="abrirMenuLateral()" aria-label="Menu" title="Menu">
-                <span></span><span></span><span></span>
-            </button>
+        <!-- Status do motor: pílula discreta no topo. Só aparece quando há
+             algo acontecendo (indexando, escaneando, offline). -->
+        <div id="statusBar" class="status-bar" role="status" aria-live="polite" style="display: none;">Conectando ao motor...</div>
 
+        <div class="nav-right">
             <div class="profile-container">
                 <div class="mini-profile" onclick="toggleProfileMenu(event)">
                     <img id="navAvatar" src="" alt="Avatar">
@@ -330,7 +324,7 @@
                 
                 <div id="profileDropdown" class="dropdown-menu">
                     <div class="dropdown-header">
-                        <div class="mini-profile" style="margin-left: 0; width: 50px; height: 50px;"><img id="dropAvatar" src=""></div>
+                        <div class="mini-profile" style="margin-left: 0; width: 50px; height: 50px;"><img id="dropAvatar" src="" alt=""></div>
                         <div class="dropdown-user-info" style="margin-left: 15px;">
                             <strong id="dropName">Nome</strong>
                             <span id="dropHandle">@usuario</span>
@@ -341,13 +335,13 @@
                     <a class="dropdown-item" onclick="abrirSidebarConfig()"><span class="icon"></span> Personalização Visual</a>
                     <a class="dropdown-item" onclick="abrirModalConfigGerais()"><span class="icon"></span> Configurações Gerais</a>
                     <div class="dropdown-divider"></div>
-                    <a class="dropdown-item" onclick="fazerLogout()" style="color: #ef4444;"><span class="icon"></span> Sair da Conta</a>
+                    <a class="dropdown-item dropdown-sair" onclick="fazerLogout()"><span class="icon"></span> Sair da Conta</a>
                 </div>
             </div>
         </div>
     </div>
 
-    <div id="mainAppWrapper" class="main-wrapper layout-centered fade-transition">
+    <div id="mainAppWrapper" class="main-wrapper layout-centered fade-transition" role="main">
         
         <div class="main-content" id="mainContentArea">
             
@@ -358,12 +352,14 @@
                 
                 <div class="search-box-wrapper">
                     <div class="search-box">
-                        <div class="search-input-wrap">
-                            <input type="text" id="searchInput" placeholder="Pesquise o que você lembra..." oninput="atualizarBotaoLimpar()" onkeypress="verificarEnter(event)" onfocus="mostrarHistorico(); atualizarBotaoLimpar()" onblur="setTimeout(esconderHistorico,150)">
+                        <!-- O vidro mora no invólucro: o texto do campo usa o negativo
+                             (mix-blend-mode) e, se o fundo estivesse no input, se inverteria junto. -->
+                        <div class="campo-busca search-input-wrap">
+                            <input type="text" id="searchInput" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" placeholder="Pesquise o que você lembra..." oninput="atualizarBotaoLimpar()" onkeypress="verificarEnter(event)" onfocus="mostrarHistorico(); atualizarBotaoLimpar()" onblur="setTimeout(esconderHistorico,150)">
                             <button type="button" id="btnLimparBusca" class="btn-limpar-busca" onclick="limparCampoBusca()" onmousedown="event.preventDefault()" aria-label="Limpar busca" title="Limpar busca">&times;</button>
                         </div>
-                        <button class="search-btn-img" onclick="abrirBuscaImagem()" title="Buscar por imagem" aria-label="Buscar por imagem"><svg class="ic ic--g" aria-hidden="true" focusable="false"><use href="#ic-camera"></use></svg></button>
-                        <button class="gradient-btn search-btn" onclick="realizarBusca()">Buscar</button>
+                        <button class="search-btn-img" onclick="abrirBuscaImagem()" aria-label="Buscar por imagem" title="Buscar por imagem"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-camera"></use></svg></button>
+                        <button class="search-btn" onclick="realizarBusca()" aria-label="Buscar" title="Buscar"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-lupa"></use></svg></button>
                     </div>
                     <div id="searchHistoryDropdown" class="history-dropdown">
                         <div class="history-header">
@@ -414,9 +410,13 @@
                 </div>
             </div>
 
-            <div id="dashboardView" class="dashboard-section fade-transition" style="display: none; opacity: 0; text-align: center;">
-                <h2 style="font-size: 2rem; margin-bottom: 5px; color: var(--text-primary);">Olá, <span id="dashHandle" class="gradient-text">@usuario</span> </h2>
-                <p style="color: var(--text-secondary); margin-bottom: 30px;">Pronto para continuar suas buscas?</p>
+            <div id="dashboardView" class="dashboard-section fade-transition" style="display: none; opacity: 0;">
+
+                <!-- Título FORA de caixa, sobre a onda -->
+                <div class="view-head">
+                    <span class="eyebrow">Bem-vindo de volta</span>
+                    <h2 class="view-title">Olá, <span id="dashHandle" class="gradient-text">@usuario</span></h2>
+                </div>
 
                 <!-- Quais pastas a home está mostrando. Fica no canto porque é
                      um controle de exibição, não uma ação — não pode competir
@@ -429,19 +429,40 @@
                     <div id="seletorPastasMenu" class="seletor-pastas-menu" style="display: none;"></div>
                 </div>
 
-                <!-- Galeria agrupada por categoria -->
-                <div id="galeriaCategorias" style="margin-top: 10px;"></div>
+                <div class="sec">
+                    <div id="galeriaCategorias"></div>
+                </div>
 
-                <h3 style="margin-top: 0; color: var(--text-primary);">Fotos Recentes</h3>
-                <div class="recent-grid" id="recentImgs"></div>
-                <h3 style="margin-top: 30px; color: var(--text-primary);">Documentos Recentes</h3>
-                <div class="recent-grid" id="recentDocs"></div>
-                <h3 id="favDashTitle" style="margin-top: 30px; color: var(--text-primary); display: none;">Seus Favoritos</h3>
-                <div class="recent-grid" id="recentFavsDash"></div>
+                <div class="sec">
+                    <div class="sec-head"><h3>Fotos recentes</h3></div>
+                    <div class="faixa-wrap">
+                        <button type="button" class="faixa-seta esq" aria-label="Voltar" onclick="rolarFaixa(document.getElementById('recentImgs'), -1)"></button>
+                        <button type="button" class="faixa-seta dir" aria-label="Avançar" onclick="rolarFaixa(document.getElementById('recentImgs'), 1)"></button>
+                        <div class="faixa-trilho" id="recentImgs"></div>
+                    </div>
+                </div>
+
+                <div class="sec">
+                    <div class="sec-head"><h3>Documentos recentes</h3></div>
+                    <div class="faixa-wrap">
+                        <button type="button" class="faixa-seta esq" aria-label="Voltar" onclick="rolarFaixa(document.getElementById('recentDocs'), -1)"></button>
+                        <button type="button" class="faixa-seta dir" aria-label="Avançar" onclick="rolarFaixa(document.getElementById('recentDocs'), 1)"></button>
+                        <div class="faixa-trilho" id="recentDocs"></div>
+                    </div>
+                </div>
+
+                <div class="sec" id="secFavsDash" style="display: none;">
+                    <div class="sec-head"><h3 id="favDashTitle">Seus favoritos</h3></div>
+                    <div class="faixa-wrap">
+                        <button type="button" class="faixa-seta esq" aria-label="Voltar" onclick="rolarFaixa(document.getElementById('recentFavsDash'), -1)"></button>
+                        <button type="button" class="faixa-seta dir" aria-label="Avançar" onclick="rolarFaixa(document.getElementById('recentFavsDash'), 1)"></button>
+                        <div class="faixa-trilho" id="recentFavsDash"></div>
+                    </div>
+                </div>
             </div>
 
             <div id="searchResultsView" class="fade-transition" style="display: none; opacity: 0;">
-                <h2 class="section-title-white text-center" id="tituloMelhores" style="display: none;">Resultados</h2>
+                <h2 class="band-head" id="tituloMelhores" style="display: none;">Resultados</h2>
                 <!-- Trilha do refino: cada pedaço do que está filtrando a busca,
                      removível sozinho. Escondida enquanto houver só a consulta. -->
                 <div id="trilhaRefino" class="trilha-refino" style="display: none;"
@@ -460,29 +481,50 @@
                 <div class="results-grid" id="melhoresGrid"></div>
 
                 <!-- Grid secundário mantido (oculto) para compatibilidade — não é mais usado -->
-                <h2 class="section-title-white text-center" id="tituloSemantica" style="display: none;"></h2>
+                <h2 class="band-head" id="tituloSemantica" style="display: none;">Relacionados</h2>
                 <div class="results-grid" id="outrasGrid" style="display: none;"></div>
             </div>
         </div>
 
         <div id="sidePanel" class="side-panel">
             <div class="side-panel-header">
-                <h3 id="sideTitle" style="margin: 0; word-break: break-all; padding-right: 15px;">Detalhes do Arquivo</h3>
-                <span class="close-btn" onclick="fecharPainelLateral()" style="position: static; font-size: 24px;">&times;</span>
+                <div class="sheet-titles">
+                    <span class="eyebrow">Arquivo</span>
+                    <h3 id="sideTitle">Detalhes do Arquivo</h3>
+                </div>
+                <button class="sheet-close" onclick="fecharPainelLateral()" aria-label="Fechar">&times;</button>
             </div>
             <div class="side-panel-body" id="sideContent">
                 <div id="sideMediaPreview" class="side-media-box"></div>
                 <div class="side-info-box">
-                    <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                    <div class="side-badges">
                         <span id="sideBadgeType" class="badge type">TIPO</span>
-                        <span id="sideBadgeScore" class="badge score">SCORE</span>
                     </div>
-                    <h4 style="margin-top: 0;">Conteúdo Extraído pela IA:</h4>
+
+                    <span class="eyebrow">Descrição</span>
                     <div id="sideText" class="side-text-content"></div>
-                    <a id="sideDownloadBtn" href="#" target="_blank" class="action-btn gradient-btn" style="display: block; text-align: center; margin: 20px 0 0 0; padding: 15px; text-decoration: none;">Abrir Arquivo Original</a>
-                    <button id="sideOpenLocationBtn" onclick="abrirLocalDoArquivo()" class="action-btn" style="width:100%; margin: 8px 0 0 0; padding: 13px; background: transparent;">Abrir Local no Explorer</button>
-                    <button id="sideAddColecaoBtn" onclick="abrirSeletorColecao()" class="action-btn" style="width:100%; margin: 8px 0 0 0; padding: 13px; background: transparent;">＋ Adicionar à coleção</button>
-                    <button id="sideParecidasBtn" onclick="acharParecidas()" class="action-btn" style="width:100%; margin: 8px 0 0 0; padding: 13px; background: transparent;"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-lupa"></use></svg> Achar imagens parecidas</button>
+                </div>
+
+                <div class="side-acoes">
+                    <a id="sideDownloadBtn" href="#" target="_blank" class="acao-principal">
+                        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3h7v7"/><path d="M10 14 21 3"/><path d="M21 14v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h6"/></svg>
+                        Abrir arquivo
+                    </a>
+
+                    <div class="acao-linha">
+                        <button id="sideOpenLocationBtn" onclick="abrirLocalDoArquivo()" class="acao-ficha">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+                            <span>Na pasta</span>
+                        </button>
+                        <button id="sideAddColecaoBtn" onclick="abrirSeletorColecao()" class="acao-ficha">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/></svg>
+                            <span>Coleção</span>
+                        </button>
+                        <button id="sideParecidasBtn" onclick="acharParecidas()" class="acao-ficha">
+                            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.6"/><path d="m20 20-4.2-4.2"/></svg>
+                            <span>Parecidas</span>
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -490,12 +532,17 @@
 
     <div id="editPerfilModal" class="modal">
         <div class="modal-content" style="max-width: 500px;">
-            <span class="close-btn" onclick="fecharEditPerfil()">&times;</span>
-            <h2 style="margin-top: 0; color: var(--text-primary); border-bottom: 1px solid var(--border-light); padding-bottom: 15px;">Editar Perfil</h2>
+            <div class="sheet-head">
+                <div class="sheet-titles">
+                    <span class="eyebrow">Conta</span>
+                    <h2 class="sheet-title">Editar perfil</h2>
+                </div>
+                <button class="sheet-close" onclick="fecharEditPerfil()" aria-label="Fechar">&times;</button>
+            </div>
             
             <div style="display: grid; gap: 12px; margin-top: 20px;">
-                <div><label>Nome de Exibição:</label><input type="text" id="editNome" class="settings-input"></div>
-                <div><label>Seu Handle (@):</label><input type="text" id="editHandle" class="settings-input" placeholder="usuario"></div>
+                <div><label>Nome de exibição</label><input type="text" id="editNome" class="settings-input"></div>
+                <div><label>Seu handle</label><input type="text" id="editHandle" class="settings-input" placeholder="usuario"></div>
                 
                 <div style="display: flex; gap: 15px;">
                     <div style="flex: 1;"><label>Cargo/Profissão:</label><input type="text" id="editCargo" class="settings-input"></div>
@@ -508,7 +555,7 @@
                     <div style="flex: 1; text-align: center;">
                         <label>Foto do Perfil</label>
                         <div class="img-preview-box avatar-preview-box img-container-with-edit">
-                            <img id="previewAvatar" src="" class="ob-preview-avatar">
+                            <img id="previewAvatar" src="" alt="" class="ob-preview-avatar">
                             <button onclick="selecionarImagemExplorer('editAvatar')" class="btn-reedit reedit-avatar" title="Editar Imagem"></button>
                         </div>
                         <button onclick="selecionarImagemExplorer('editAvatar')" class="action-btn gradient-btn" style="width: 100%; margin: 0; padding: 8px;">Alterar</button>
@@ -517,7 +564,7 @@
                     <div style="flex: 1; text-align: center;">
                         <label>Banner de Fundo</label>
                         <div class="img-preview-box banner-preview-box img-container-with-edit">
-                            <img id="previewBanner" src="">
+                            <img id="previewBanner" src="" alt="">
                             <button onclick="selecionarImagemExplorer('editBanner')" class="btn-reedit" title="Editar Banner"></button>
                         </div>
                         <button onclick="selecionarImagemExplorer('editBanner')" class="action-btn gradient-btn" style="width: 100%; margin: 0; padding: 8px;">Alterar</button>
@@ -527,7 +574,7 @@
                 
                 <div style="display: flex; gap: 10px; margin-top: 15px;">
                     <button onclick="fecharEditPerfil()" class="action-btn" style="flex: 1; margin: 0;">Cancelar</button>
-                    <button id="btnSalvarEditPerfil" onclick="salvarPerfil()" class="action-btn gradient-btn" style="flex: 2; margin: 0; padding: 15px;">Salvar Alterações</button>
+                    <button id="btnSalvarEditPerfil" onclick="salvarPerfil()" class="action-btn gradient-btn" style="flex: 2; margin: 0; padding: 15px;">Salvar alterações</button>
                 </div>
             </div>
         </div>
@@ -535,10 +582,15 @@
 
     <div id="modalConfigGerais" class="modal">
         <div class="modal-content" style="max-width: 600px;">
-            <span class="close-btn" onclick="fecharModalConfigGerais()">&times;</span>
-            <h2 style="margin-top: 0; color: var(--text-primary); border-bottom: 1px solid var(--border-light); padding-bottom: 15px;">Configurações Gerais</h2>
+            <div class="sheet-head">
+                <div class="sheet-titles">
+                    <span class="eyebrow">Preferências</span>
+                    <h2 class="sheet-title">Configurações gerais</h2>
+                </div>
+                <button class="sheet-close" onclick="fecharModalConfigGerais()" aria-label="Fechar">&times;</button>
+            </div>
             
-            <div style="display: flex; gap: 10px; margin: 15px 0; border-bottom: 1px solid var(--border-light); padding-bottom: 10px;">
+            <div class="sheet-tabs">
                 <button class="btn-tab-selector active" data-tab="cg-geral" onclick="selecionarTabCg('cg-geral', this)">Geral</button>
                 <button class="btn-tab-selector" data-tab="cg-privacidade" onclick="selecionarTabCg('cg-privacidade', this)">Privacidade</button>
                 <button class="btn-tab-selector" data-tab="cg-desempenho" onclick="selecionarTabCg('cg-desempenho', this)">Desempenho</button>
@@ -548,12 +600,12 @@
                 <div class="settings-group" style="margin-bottom: 15px;">
                     <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
                         <input type="checkbox" id="cgNotificacoes" onchange="avisarToggle('Notificações', this.checked)">
-                        <span>Ativar Notificações</span>
+                        <span>Ativar notificações</span>
                     </label>
-                    <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 5px 0 0 25px;">Receber alertas quando a IA terminar de analisar arquivos.</p>
+                    <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 5px 0 0 25px;">Receber alertas quando a análise terminar.</p>
                 </div>
                 <div class="settings-group" style="margin-bottom: 15px;">
-                    <label>Atalho para focar a busca:</label>
+                    <label>Atalho para focar a busca</label>
                     <input type="text" id="cgAtalho" class="settings-input" placeholder="Ex: Ctrl+Shift+F" onkeydown="capturarAtalho(event)">
                     <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 5px;">Pressione as teclas no campo acima. Funciona enquanto o app está aberto no navegador.</p>
                 </div>
@@ -568,43 +620,46 @@
                     <p style="font-size: 0.8rem; color: var(--text-secondary); margin: 5px 0 0 25px;">Não salva o histórico de termos buscados.</p>
                 </div>
                 <div class="settings-group" style="margin-bottom: 15px;">
-                    <label>Pastas Ignoradas pela IA (Blacklist):</label>
+                    <label>Pastas ignoradas</label>
                     <textarea id="cgPastasIgnoradas" class="settings-input" style="height: 60px; resize: none;" placeholder="Caminhos separados por vírgula. Ex: C:\Windows, C:\temp"></textarea>
                 </div>
                 <div style="display: flex; gap: 10px; margin-top: 20px;">
-                    <button class="action-btn" onclick="limparHistoricoBusca()" style="flex: 1; border-color: rgba(239, 68, 68, 0.4); color: #ef4444;">Limpar Histórico</button>
-                    <button class="action-btn" onclick="limparCacheIA()" style="flex: 1; border-color: rgba(239, 68, 68, 0.4); color: #ef4444;">Limpar Banco da IA</button>
+                    <button class="action-btn acao-perigo-suave" onclick="limparHistoricoBusca()" style="flex: 1;">Limpar Histórico</button>
+                    <button class="action-btn acao-perigo-suave" onclick="limparCacheIA()" style="flex: 1;">Apagar análises</button>
                 </div>
             </div>
 
             <div id="cgTabDesempenho" style="display: none;">
                 <div class="settings-group" style="margin-bottom: 15px;">
-                    <label>Modo de Uso de Hardware (CPU/GPU):</label>
+                    <label>Uso do computador</label>
                     <select id="cgModoDesempenho" class="settings-input" style="cursor: pointer; margin-top: 5px;">
-                        <option value="economico">Econômico (Processamento em segundo plano sem travar)</option>
-                        <option value="turbo">Turbo (Prioridade máxima, mais rápido)</option>
+                        <option value="economico">Tranquilo — trabalha em segundo plano sem travar o PC</option>
+                        <option value="turbo">Acelerado — usa mais o computador e termina antes</option>
                     </select>
                 </div>
             </div>
             
             <div style="display: flex; gap: 10px; margin-top: 12px;">
                 <button onclick="fecharModalConfigGerais()" class="action-btn" style="flex: 1; margin: 0;">Cancelar</button>
-                <button onclick="salvarConfigGerais()" class="action-btn gradient-btn" style="flex: 2; margin: 0; padding: 15px;">Salvar Configurações</button>
+                <button onclick="salvarConfigGerais()" class="action-btn gradient-btn" style="flex: 2; margin: 0; padding: 15px;">Salvar configurações</button>
             </div>
         </div>
     </div>
 
     <div id="sidebarConfig" class="sidebar-modal">
         <div class="sidebar-header">
-            <h2>Personalização</h2>
-            <span class="close-btn" onclick="fecharSidebarConfig()" style="position: static;">&times;</span>
+            <div class="sheet-titles">
+                <span class="eyebrow">Aparência</span>
+                <h2>Personalização</h2>
+            </div>
+            <button class="sheet-close" onclick="fecharSidebarConfig()" aria-label="Fechar">&times;</button>
         </div>
         <div class="sidebar-body">
             
             <div class="settings-group">
-                <h3>Idioma do Sistema</h3>
+                <h3>Idioma do sistema</h3>
                 <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 10px;">Selecione o idioma da interface.</p>
-                <select id="idiomaSelect" class="settings-input" style="cursor: pointer;">
+                <select id="idiomaSelect" aria-label="Idioma do sistema" class="settings-input" style="cursor: pointer;">
                     <option value="pt-BR">Português (Brasil)</option>
                     <option value="en-US">English (US)</option>
                     <option value="es-ES">Español</option>
@@ -612,24 +667,32 @@
             </div>
 
             <div class="settings-group">
-                <h3>Esquema de Cores</h3>
-                <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 10px;">Defina a paleta principal do Search+.</p>
-                <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                    <button class="action-btn" onclick="setLiveTema('dark')" style="flex: 1; background: #0b0f19; color: #fff;">Escuro</button>
-                    <button class="action-btn" onclick="setLiveTema('light')" style="flex: 1; background: #f8fafc; color: #0b0f19;">Claro</button>
+                <h3>Esquema de cores</h3>
+                <p>As duas cores valem pro aplicativo inteiro: botões, destaques, realces e o fundo animado.</p>
+                <div class="tema-opts">
+                    <button class="tema-opt escuro" onclick="setLiveTema('dark')"><i></i>Escuro</button>
+                    <button class="tema-opt claro" onclick="setLiveTema('light')"><i></i>Claro</button>
                 </div>
-                <div style="display: flex; gap: 15px; margin-bottom: 10px;">
-                    <div style="flex: 1;"><label>Cor Principal:</label><input type="color" id="corPrimaria" class="settings-color"></div>
-                    <div style="flex: 1;"><label>Cor Destaque:</label><input type="color" id="corSecundaria" class="settings-color"></div>
+                <div class="cor-dupla">
+                    <div class="cor-campo">
+                        <label for="corPrimaria">Cor principal</label>
+                        <input type="color" id="corPrimaria" class="settings-color">
+                    </div>
+                    <div class="cor-campo">
+                        <label for="corSecundaria">Cor de destaque</label>
+                        <input type="color" id="corSecundaria" class="settings-color">
+                    </div>
                 </div>
-                <div style="display: flex; gap: 15px; margin-bottom: 10px;">
-                    <div style="flex: 1;"><label>Texto Exclusivo dos Botões:</label><input type="color" id="corTextoBotao" class="settings-color" value="#FFFFFF"></div>
-                </div>
+
             </div>
 
             <div class="settings-group">
-                <h3>Design dos Botões</h3>
-                <p style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px;">Personalize cada botão individualmente ou aplique um estilo global.</p>
+                <h3>Design dos botões</h3>
+                <p>Vale pros botões de ação do aplicativo inteiro.</p>
+                <div class="cor-campo" style="margin-bottom: 14px;">
+                    <label for="corTextoBotao">Cor do texto</label>
+                    <input type="color" id="corTextoBotao" class="settings-color" value="#FFFFFF">
+                </div>
 
                 <!-- Tabs de botões individuais -->
                 <div class="btn-style-tabs" style="display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 15px;">
@@ -642,7 +705,7 @@
 
                 <div id="btnTabGlobal">
                     <div style="margin-bottom: 15px;">
-                        <label>Fonte Global dos Botões:</label>
+                        <label for="botaoFonte">Fonte dos botões</label>
                         <select id="botaoFonte" class="settings-input" style="cursor: pointer; margin-top: 5px;">
                             <option value="system-ui, -apple-system, sans-serif">Padrão Sistema</option>
                             <option value="'Outfit', sans-serif">Outfit</option>
@@ -653,18 +716,18 @@
                         </select>
                     </div>
                     <div style="margin-bottom: 15px;">
-                        <label>Estilo Global do Fundo:</label>
+                        <label for="botaoEstilo">Estilo do fundo</label>
                         <select id="botaoEstilo" class="settings-input" onchange="toggleOpcoesBotao()" style="cursor: pointer; margin-top: 5px;">
-                            <option value="default">Padrão (Cores Primárias)</option>
-                            <option value="glass">Glass (Apple Liquid)</option>
-                            <option value="gradient">Gradiente Avançado Custom.</option>
-                            <option value="image">Imagem Dinâmica (Corte)</option>
+                            <option value="default">Vidro com cor (padrão)</option>
+                            <option value="glass">Vidro puro</option>
+                            <option value="gradient">Gradiente</option>
+                            <option value="image">Imagem</option>
                         </select>
                     </div>
-                    <div id="btnGroupGradient" style="display: none; padding: 10px; background: rgba(0,0,0,0.1); border-radius: 8px; margin-bottom: 15px;">
+                    <div id="btnGroupGradient" style="display: none; padding: 10px; background: var(--raised); border-radius: var(--r-md); margin-bottom: 15px;">
                         <div style="display: flex; gap: 10px; margin-bottom: 10px;">
-                            <div style="flex: 1;"><label>Gradiente 1:</label><input type="color" id="btnGrad1" class="settings-color" value="#FF512F"></div>
-                            <div style="flex: 1;"><label>Gradiente 2:</label><input type="color" id="btnGrad2" class="settings-color" value="#DD2476"></div>
+                            <div style="flex: 1;"><label>Gradiente 1</label><input type="color" id="btnGrad1" class="settings-color" value="#3B4A5E"></div>
+                            <div style="flex: 1;"><label>Gradiente 2</label><input type="color" id="btnGrad2" class="settings-color" value="#7D91A9"></div>
                         </div>
                     </div>
                     <div id="btnGroupImage" style="display: none; margin-bottom: 15px;">
@@ -692,8 +755,8 @@
                         </select>
                     </div>
                     <div style="display:flex; gap:10px;">
-                        <div style="flex:1;"><label>Cor Fundo:</label><input type="color" id="btnSearchCor" class="settings-color" value="#A855F7" oninput="aplicarEstilosBotaoIndividual()"></div>
-                        <div style="flex:1;"><label>Cor Texto:</label><input type="color" id="btnSearchTexto" class="settings-color" value="#FFFFFF" oninput="aplicarEstilosBotaoIndividual()"></div>
+                        <div style="flex:1;"><label>Cor do fundo</label><input type="color" id="btnSearchCor" class="settings-color" value="#6F87A8" oninput="aplicarEstilosBotaoIndividual()"></div>
+                        <div style="flex:1;"><label>Cor do texto</label><input type="color" id="btnSearchTexto" class="settings-color" value="#FFFFFF" oninput="aplicarEstilosBotaoIndividual()"></div>
                     </div>
                 </div>
 
@@ -710,8 +773,8 @@
                         </select>
                     </div>
                     <div style="display:flex; gap:10px;">
-                        <div style="flex:1;"><label>Cor Fundo:</label><input type="color" id="btnTopbarCor" class="settings-color" value="#151A2A" oninput="aplicarEstilosBotaoIndividual()"></div>
-                        <div style="flex:1;"><label>Cor Texto:</label><input type="color" id="btnTopbarTexto" class="settings-color" value="#F8FAFC" oninput="aplicarEstilosBotaoIndividual()"></div>
+                        <div style="flex:1;"><label>Cor do fundo</label><input type="color" id="btnTopbarCor" class="settings-color" value="#151A2A" oninput="aplicarEstilosBotaoIndividual()"></div>
+                        <div style="flex:1;"><label>Cor do texto</label><input type="color" id="btnTopbarTexto" class="settings-color" value="#F8FAFC" oninput="aplicarEstilosBotaoIndividual()"></div>
                     </div>
                 </div>
 
@@ -728,8 +791,8 @@
                         </select>
                     </div>
                     <div style="display:flex; gap:10px;">
-                        <div style="flex:1;"><label>Cor Fundo:</label><input type="color" id="btnActionsCor" class="settings-color" value="#151A2A" oninput="aplicarEstilosBotaoIndividual()"></div>
-                        <div style="flex:1;"><label>Cor Texto:</label><input type="color" id="btnActionsTexto" class="settings-color" value="#F8FAFC" oninput="aplicarEstilosBotaoIndividual()"></div>
+                        <div style="flex:1;"><label>Cor do fundo</label><input type="color" id="btnActionsCor" class="settings-color" value="#151A2A" oninput="aplicarEstilosBotaoIndividual()"></div>
+                        <div style="flex:1;"><label>Cor do texto</label><input type="color" id="btnActionsTexto" class="settings-color" value="#F8FAFC" oninput="aplicarEstilosBotaoIndividual()"></div>
                     </div>
                 </div>
 
@@ -746,8 +809,8 @@
                         </select>
                     </div>
                     <div style="display:flex; gap:10px;">
-                        <div style="flex:1;"><label>Cor Ativo:</label><input type="color" id="btnFiltersCor" class="settings-color" value="#A855F7" oninput="aplicarEstilosBotaoIndividual()"></div>
-                        <div style="flex:1;"><label>Cor Texto:</label><input type="color" id="btnFiltersTexto" class="settings-color" value="#FFFFFF" oninput="aplicarEstilosBotaoIndividual()"></div>
+                        <div style="flex:1;"><label>Cor do ativo</label><input type="color" id="btnFiltersCor" class="settings-color" value="#6F87A8" oninput="aplicarEstilosBotaoIndividual()"></div>
+                        <div style="flex:1;"><label>Cor do texto</label><input type="color" id="btnFiltersTexto" class="settings-color" value="#FFFFFF" oninput="aplicarEstilosBotaoIndividual()"></div>
                     </div>
                 </div>
             </div>
@@ -764,15 +827,10 @@
                 <button onclick="selecionarImagemExplorer('bgUrl')" class="action-btn gradient-btn" style="width: 100%; margin: 0 0 15px 0; padding: 10px;">Cortar e Escolher</button>
                 <input type="hidden" id="bgUrl">
                 
-                <label style="display: block;">Desfoque (Blur): <span id="blurValue">15</span>px</label>
+                <label for="bgBlur" style="display: block;">Desfoque: <span id="blurValue">4</span>px</label>
                 <input type="range" id="bgBlur" min="0" max="50" style="width: 100%; margin-top: 5px;">
             </div>
             
-            <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 20px;">
-                <button onclick="salvarConfiguracoesUX()" class="action-btn gradient-btn" style="margin: 0; padding: 15px;">Salvar Aparência</button>
-                <button onclick="restaurarPadroesUX()" class="action-btn" style="margin: 0; padding: 12px; background: transparent;">Restaurar Padrões</button>
-            </div>
-
             <!-- Presets de tema: exportar / importar -->
             <div class="preset-tema-box">
                 <h4 style="margin:0 0 4px 0; color:var(--text-primary);" class="tem-icone"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-paleta"></use></svg> Temas (presets)</h4>
@@ -786,42 +844,70 @@
                 <input type="file" id="importarTemaInput" accept=".json,application/json" style="display:none;" onchange="importarTema(event)">
             </div>
         </div>
+
+        <!-- Rodapé fixo: mudou alguma coisa, a ação está sempre à vista. -->
+        <div class="sidebar-footer">
+            <button onclick="restaurarPadroesUX()" class="action-btn">Restaurar padrões</button>
+            <button onclick="salvarConfiguracoesUX()" class="action-btn gradient-btn">Salvar aparência</button>
+        </div>
     </div>
     <div id="sidebarOverlay" class="sidebar-overlay" onclick="fecharSidebarConfig()"></div>
 
     <!-- Histórico das exportações: o que foi, quando, para onde e o que falhou. -->
     <div id="historicoExportModal" class="modal">
         <div class="modal-content" style="max-width: 640px;">
-            <button class="close-btn" onclick="fecharHistoricoExport()" aria-label="Fechar">&times;</button>
-            <h2 style="margin-top: 0; color: var(--text-primary);">Exportações</h2>
-            <div id="historicoExportCorpo" style="margin-top: 14px;"></div>
+            <div class="sheet-head">
+                <div class="sheet-titles">
+                    <span class="eyebrow">Coleções</span>
+                    <h2 class="sheet-title">Exportações</h2>
+                </div>
+                <button class="sheet-close" onclick="fecharHistoricoExport()" aria-label="Fechar">&times;</button>
+            </div>
+            <p class="sheet-sub">O que já foi salvo no computador, para onde foi e o que não deu para copiar.</p>
+            <div id="historicoExportCorpo" class="folha-lista"></div>
         </div>
     </div>
 
     <!-- Resumo da última indexação: o que entrou, o que foi ignorado, o que falhou. -->
     <div id="resumoModal" class="modal">
         <div class="modal-content" style="max-width: 640px;">
-            <button class="close-btn" onclick="fecharResumoIndexacao()" aria-label="Fechar">&times;</button>
-            <h2 style="margin-top: 0; color: var(--text-primary);">Última análise</h2>
-            <div id="resumoCorpo" style="margin-top: 14px;"></div>
+            <div class="sheet-head">
+                <div class="sheet-titles">
+                    <span class="eyebrow">Análise</span>
+                    <h2 class="sheet-title">Última análise</h2>
+                </div>
+                <button class="sheet-close" onclick="fecharResumoIndexacao()" aria-label="Fechar">&times;</button>
+            </div>
+            <p class="sheet-sub">O que entrou na busca, o que foi ignorado e o que deu erro.</p>
+            <div id="resumoCorpo" class="folha-lista"></div>
         </div>
     </div>
 
     <!-- Lixeira: o que foi excluído e ainda dá para trazer de volta. -->
     <div id="lixeiraModal" class="modal">
         <div class="modal-content" style="max-width: 620px;">
-            <button class="close-btn" onclick="fecharLixeira()" aria-label="Fechar">&times;</button>
-            <h2 style="margin-top: 0; color: var(--text-primary);">Lixeira</h2>
-            <p id="lixeiraPrazo" style="color: var(--text-secondary); font-size: 0.85rem;"></p>
-            <div id="lixeiraLista" style="margin-top: 14px;"></div>
+            <div class="sheet-head">
+                <div class="sheet-titles">
+                    <span class="eyebrow">Biblioteca</span>
+                    <h2 class="sheet-title">Lixeira</h2>
+                </div>
+                <button class="sheet-close" onclick="fecharLixeira()" aria-label="Fechar">&times;</button>
+            </div>
+            <p id="lixeiraPrazo" class="sheet-sub"></p>
+            <div id="lixeiraLista" class="folha-lista"></div>
         </div>
     </div>
 
     <div id="foldersModal" class="modal">
         <div class="modal-content" style="max-width: 650px;">
-            <span class="close-btn" onclick="fecharModalPastas()">&times;</span>
-            <h2 style="margin-top: 0; color: var(--text-primary);">Pastas do computador</h2>
-            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 20px;">O motor de IA analisará os arquivos dentro destas pastas.</p>
+            <div class="sheet-head">
+                <div class="sheet-titles">
+                    <span class="eyebrow">Biblioteca</span>
+                    <h2 class="sheet-title">Pastas do computador</h2>
+                </div>
+                <button class="sheet-close" onclick="fecharModalPastas()" aria-label="Fechar">&times;</button>
+            </div>
+            <p class="sheet-sub">Tudo o que estiver dentro destas pastas entra na busca.</p>
             
             <div id="foldersList" class="folder-list"></div>
 
@@ -829,7 +915,7 @@
             <div id="folderConfigInline" class="indexacao-config-section" style="display:none;">
                 <h4>Configurar análise: <span id="folderConfigName" style="color:var(--accent-primary);"></span></h4>
 
-                <p>Foco da Análise</p>
+                <h4>Foco da Análise</h4>
                 <div class="chips-container" id="modalChipsFoco">
                     <span class="chip-foco active" data-foco="tudo" onclick="toggleChipFoco(this, 'modal')">Tudo</span>
                     <span class="chip-foco" data-foco="pessoas" onclick="toggleChipFoco(this, 'modal')">Pessoas</span>
@@ -837,14 +923,14 @@
                     <span class="chip-foco" data-foco="paisagens" onclick="toggleChipFoco(this, 'modal')">Paisagens</span>
                 </div>
 
-                <p>Intensidade</p>
+                <h4>Intensidade</h4>
                 <div class="toggle-intensidade-container">
                     <span class="toggle-label active-label" id="modalLabelFast">Relâmpago</span>
                     <div class="toggle-switch" id="modalTogglePerfil" onclick="togglePerfil('modal')"></div>
                     <span class="toggle-label" id="modalLabelDeep">Profundo</span>
                 </div>
 
-                <p>Janela de Processamento</p>
+                <h4>Janela de Processamento</h4>
                 <div class="janela-selector">
                     <select id="modalJanelaSelect" onchange="onJanelaChange('modal')">
                         <option value="always">Processar Imediatamente</option>
@@ -863,29 +949,135 @@
                 <button onclick="salvarConfigPasta()" class="action-btn gradient-btn" style="width:100%; margin-left:0; margin-top:15px; padding:12px;">Salvar Configuração</button>
             </div>
             
-            <button id="btnAdicionarPasta" onclick="adicionarPasta()" class="action-btn gradient-btn" style="width: 100%; margin-left: 0; margin-top: 20px; padding: 15px;">+ Adicionar pasta</button>
-            <button id="btnAnalisarPastas" onclick="forcarAnalise()" class="action-btn" style="width: 100%; margin-left: 0; margin-top: 10px; padding: 15px; background: transparent;">Analisar Pastas Agora</button>
-            <button id="btnReanalizar" onclick="reAnalizarArquivos()" class="action-btn" style="width: 100%; margin-left: 0; margin-top: 10px; padding: 15px; background: transparent; border-color: rgba(234,179,8,0.4); color: #EAB308;">Re-analisar Arquivos com Descrição Ruim</button>
+            <div class="pastas-acoes">
+                <button id="btnAdicionarPasta" onclick="adicionarPasta()" class="action-btn gradient-btn">Adicionar pasta</button>
+                <div class="pastas-acoes-linha">
+                    <button id="btnAnalisarPastas" onclick="forcarAnalise()" class="action-btn">Analisar agora</button>
+                    <button id="btnReanalizar" onclick="reAnalizarArquivos()" class="action-btn">Refazer descrições ruins</button>
+                </div>
+            </div>
         </div>
     </div>
 
-    <div id="statusBar" class="status-bar" role="status" aria-live="polite">Conectando ao motor...</div>
-
     <!-- Container de notificações (toasts) -->
     <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Trilho de atalhos: unica navegacao do app (o menu da direita saiu,
+         era o mesmo conteudo em outro lugar). Encolhido mostra so os icones;
+         com o ponteiro em cima abre e mostra os nomes. -->
+    <nav id="appDock" class="dock" aria-label="Navegação">
+        <div class="dock-marca" aria-hidden="true">
+            <span class="dock-ic dock-marca-ic">S<i>+</i></span>
+            <span class="dock-nome">SEARCH<i>+</i></span>
+        </div>
+        <button class="dock-btn" onclick="voltarParaHomeSmooth()">
+            <span class="dock-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V21H3z"/></svg></span>
+            <span class="dock-nome">Início</span>
+        </button>
+        <button class="dock-btn" onclick="document.getElementById('searchInput').focus()">
+            <span class="dock-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg></span>
+            <span class="dock-nome">Buscar</span>
+        </button>
+        <button class="dock-btn" onclick="mostrarAcervo()" title="Abrir as prateleiras por categoria">
+            <span class="dock-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="7.5" height="7.5" rx="1.6"/><rect x="13.5" y="4" width="7.5" height="7.5" rx="1.6"/><rect x="3" y="14.5" width="7.5" height="5.5" rx="1.6"/><rect x="13.5" y="14.5" width="7.5" height="5.5" rx="1.6"/></svg></span>
+            <span class="dock-nome">Acervo</span>
+        </button>
+        <button class="dock-btn" onclick="abrirColecoes()">
+            <span class="dock-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/></svg></span>
+            <span class="dock-nome">Coleções</span>
+        </button>
+        <button class="dock-btn" onclick="abrirFavoritos()">
+            <span class="dock-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20.5 4.8 13.3a4.6 4.6 0 0 1 6.5-6.5l.7.7.7-.7a4.6 4.6 0 0 1 6.5 6.5z"/></svg></span>
+            <span class="dock-nome">Favoritos</span>
+        </button>
+        <span class="dock-sep"></span>
+        <button class="dock-btn" onclick="abrirModalPastas()">
+            <span class="dock-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+            <span class="dock-nome">Pastas</span>
+        </button>
+        <button class="dock-btn" onclick="reAnalizarArquivos()">
+            <span class="dock-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg></span>
+            <span class="dock-nome">Re-analisar</span>
+        </button>
+        <button class="dock-btn" onclick="abrirModalConfigGerais()">
+            <span class="dock-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M22 12h-3M5 12H2M18.4 5.6l-2 2M7.6 16.4l-2 2M18.4 18.4l-2-2M7.6 7.6l-2-2"/></svg></span>
+            <span class="dock-nome">Ajustes</span>
+        </button>
+        <!-- Estas três eram do menu lateral do develop, que o dock substituiu.
+             Sem elas aqui, a lixeira e as exportações ficariam inalcançáveis. -->
+        <span class="dock-sep" aria-hidden="true"></span>
+        <button class="dock-btn" onclick="abrirResumoIndexacao()">
+            <span class="dock-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-check-circulo"></use></svg></span>
+            <span class="dock-nome">Última análise</span>
+        </button>
+        <button class="dock-btn" onclick="abrirHistoricoExport()">
+            <span class="dock-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-subir"></use></svg></span>
+            <span class="dock-nome">Exportações</span>
+        </button>
+        <button class="dock-btn" onclick="abrirLixeira()">
+            <span class="dock-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#ic-lixeira"></use></svg></span>
+            <span class="dock-nome">Lixeira</span>
+        </button>
+        <button class="dock-btn" onclick="abrirAjuda()">
+            <span class="dock-ic"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.4 2.3c-.7.3-1 .8-1 1.6v.4"/><path d="M12 17h.01"/></svg></span>
+            <span class="dock-nome">Ajuda</span>
+        </button>
+    </nav>
+
+    <!-- Os números moram nos cantos de cima, ladeando o logo. A faixa some
+         sozinha quando a busca sobe o layout — quem decide isso é o CSS. -->
+    <div class="faixa-numeros" id="painelNumeros">
+        <div class="faixa-lado">
+            <button class="num-card" onclick="abrirModalPastas()" title="Gerenciar as pastas do computador">
+                <span class="num-rot">Pastas</span>
+                <strong id="numPastas">—</strong>
+                <span class="num-nota" id="notaPastas">no computador</span>
+                <span class="num-acao">Gerenciar</span>
+            </button>
+            <button class="num-card" onclick="mostrarAcervo()" title="Abrir as prateleiras do acervo">
+                <span class="num-rot">Acervo</span>
+                <strong id="numArquivos">—</strong>
+                <span class="num-nota" id="notaArquivos">prontos pra busca</span>
+                <span class="num-acao">Ver acervo</span>
+            </button>
+        </div>
+        <div class="faixa-lado">
+            <button class="num-card num-fila" id="cardFila" onclick="analisarPelaFila()"
+                    title="Varrer as pastas e analisar o que estiver pendente">
+                <span class="num-rot">Fila</span>
+                <strong id="numFila">—</strong>
+                <span class="num-nota" id="notaFila">nada esperando</span>
+                <span class="num-acao" id="acaoFila">Analisar agora</span>
+                <span class="fila-pulso" aria-hidden="true"></span>
+            </button>
+            <button class="num-card" onclick="abrirViewPerfil()" title="Ver o perfil e as categorias">
+                <span class="num-rot">Categorias</span>
+                <strong id="numCategorias">—</strong>
+                <span class="mini-barras" id="miniCategorias" aria-hidden="true"></span>
+            </button>
+        </div>
+    </div>
 
     <!-- Modal de confirmação genérico (substitui o confirm() nativo) -->
     <!-- Diálogos genéricos (substituem confirm() e prompt()): ficam ACIMA de
          qualquer modal de feature, porque são abertos de dentro deles. Um
          z-index menor os deixaria invisíveis atrás de quem os chamou. -->
     <div id="confirmModal" class="modal" style="z-index: 10100;">
-        <div class="modal-content" style="max-width: 440px;">
-            <h3 id="confirmTitulo" style="margin:0 0 12px 0; color:var(--text-primary); font-size:1.3rem;">Confirmar</h3>
+        <div class="modal-content" style="max-width: 460px;">
+            <!-- O X cancela, e não só esconde: o Esc passa por ele, e esconder
+                 por fora deixaria a pergunta sem resposta. -->
+            <div class="sheet-head">
+                <div class="sheet-titles">
+                    <span class="eyebrow">Antes de continuar</span>
+                    <h2 class="sheet-title" id="confirmTitulo">Confirmar</h2>
+                </div>
+                <button class="sheet-close" onclick="document.getElementById('confirmCancelar').click()" aria-label="Cancelar">&times;</button>
+            </div>
             <!-- pre-line: o texto vem por textContent (anti-XSS), então as
                  quebras precisam ser respeitadas pelo CSS, não por <br>. -->
-            <p id="confirmTexto" style="color:var(--text-secondary); font-size:0.95rem; line-height:1.5; margin:0 0 24px 0; white-space:pre-line;"></p>
-            <div style="display:flex; gap:10px; justify-content:flex-end;">
-                <button id="confirmCancelar" class="action-btn" style="background:transparent;">Cancelar</button>
+            <p id="confirmTexto" class="dialogo-texto"></p>
+            <div class="dialogo-acoes">
+                <button id="confirmCancelar" class="action-btn">Cancelar</button>
                 <button id="confirmOk" class="action-btn gradient-btn">Confirmar</button>
             </div>
         </div>
@@ -894,30 +1086,36 @@
     <!-- Modal: status — o que da coleção já está na pasta e o que falta -->
     <div id="statusPastaModal" class="modal" style="z-index: 10005;">
         <div class="modal-content" style="max-width: 640px;">
-            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-                <h3 id="statusPastaTitulo" style="margin:0; color:var(--text-primary); font-size:1.3rem;">Status da pasta</h3>
-                <span class="close-btn" onclick="fecharStatusPasta()" style="position:static;">&times;</span>
+            <div class="sheet-head">
+                <div class="sheet-titles">
+                    <span class="eyebrow">Coleção</span>
+                    <h2 class="sheet-title" id="statusPastaTitulo">Status da pasta</h2>
+                </div>
+                <button class="sheet-close" onclick="fecharStatusPasta()" aria-label="Fechar">&times;</button>
             </div>
-            <p id="statusPastaTexto" style="color:var(--text-secondary); font-size:0.92rem; line-height:1.5; margin:0 0 16px 0;"></p>
-            <div id="statusPastaCorpo"></div>
+            <p id="statusPastaTexto" class="sheet-sub"></p>
+            <div id="statusPastaCorpo" class="folha-lista"></div>
         </div>
     </div>
 
     <!-- Modal: configurações da coleção — quando enviar as fotos para a pasta -->
     <div id="configColecaoModal" class="modal" style="z-index: 10005;">
         <div class="modal-content" style="max-width: 540px;">
-            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-                <h3 id="configColecaoTitulo" style="margin:0; color:var(--text-primary); font-size:1.3rem;">Configurações</h3>
-                <span class="close-btn" onclick="fecharConfigColecao()" style="position:static;">&times;</span>
+            <div class="sheet-head">
+                <div class="sheet-titles">
+                    <span class="eyebrow">Coleção</span>
+                    <h2 class="sheet-title" id="configColecaoTitulo">Configurações</h2>
+                </div>
+                <button class="sheet-close" onclick="fecharConfigColecao()" aria-label="Fechar">&times;</button>
             </div>
-            <p id="configColecaoTexto" style="color:var(--text-secondary); font-size:0.92rem; line-height:1.5; margin:0 0 16px 0;"></p>
+            <p id="configColecaoTexto" class="sheet-sub"></p>
 
             <!-- A ilustração é clonada da que existe no modal de vínculo, para
                  o SVG ter uma origem só. -->
             <div id="configIlustracao"></div>
 
             <p class="exp-novo-rotulo">Nome da coleção</p>
-            <button type="button" id="configRenomear" class="vincular-opcao" style="margin-bottom:20px;">
+            <button type="button" id="configRenomear" class="vincular-opcao config-renomear">
                 <span class="vincular-opcao-titulo tem-icone"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-lapis"></use></svg> Renomear coleção</span>
                 <span class="vincular-opcao-desc">O nome aparece no app e dá nome às pastas da coleção.</span>
             </button>
@@ -932,14 +1130,17 @@
     <!-- Modal: pastas exportadas — abrir e escolher qual recebe as fotos -->
     <div id="pastasExportadasModal" class="modal" style="z-index: 10005;">
         <div class="modal-content" style="max-width: 580px;">
-            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-                <h3 style="margin:0; color:var(--text-primary); font-size:1.3rem;">Pastas da coleção</h3>
-                <span class="close-btn" onclick="fecharPastasExportadas()" style="position:static;">&times;</span>
+            <div class="sheet-head">
+                <div class="sheet-titles">
+                    <span class="eyebrow">Coleção</span>
+                    <h2 class="sheet-title">Pastas da coleção</h2>
+                </div>
+                <button class="sheet-close" onclick="fecharPastasExportadas()" aria-label="Fechar">&times;</button>
             </div>
-            <p id="pastasExpTexto" style="color:var(--text-secondary); font-size:0.92rem; line-height:1.5; margin:0 0 12px 0;"></p>
+            <p id="pastasExpTexto" class="sheet-sub"></p>
             <div id="pastasExpAcoes" class="pastas-exp-acoes-topo">
-                <button type="button" id="btnMarcarTodasPastas" class="action-btn"
-                        onclick="alternarTodasAsPastas()" style="margin:0; padding:7px 14px; font-size:0.84rem; background:transparent;"></button>
+                <button type="button" id="btnMarcarTodasPastas" class="btn-linha"
+                        onclick="alternarTodasAsPastas()"></button>
             </div>
             <div id="pastasExpLista" class="pastas-lista"></div>
         </div>
@@ -948,10 +1149,14 @@
     <!-- Modal: exportar de novo — nome da nova pasta e destino das próximas fotos -->
     <div id="exportarDeNovoModal" class="modal" style="z-index: 10006;">
         <div class="modal-content" style="max-width: 560px;">
-            <h3 style="margin:0 0 10px 0; color:var(--text-primary); font-size:1.3rem;">
-                Esta coleção já foi salva numa pasta
-            </h3>
-            <p id="expNovoTexto" style="color:var(--text-secondary); font-size:0.95rem; line-height:1.5; margin:0 0 16px 0;"></p>
+            <div class="sheet-head">
+                <div class="sheet-titles">
+                    <span class="eyebrow">Salvar no computador</span>
+                    <h2 class="sheet-title">Esta coleção já foi salva numa pasta</h2>
+                </div>
+                <button class="sheet-close" onclick="fecharExportarDeNovo()" aria-label="Fechar">&times;</button>
+            </div>
+            <p id="expNovoTexto" class="sheet-sub"></p>
 
             <div id="expNovoEtapaNome">
                 <p class="exp-novo-rotulo">Como chamar a nova pasta?</p>
@@ -965,16 +1170,16 @@
                         <span class="vincular-opcao-desc" id="expNovoCustomDesc"></span>
                     </button>
                 </div>
-                <div id="expNovoCampo" style="display:none; margin-top:14px;">
+                <div id="expNovoCampo" class="exp-novo-campo" style="display:none;">
                     <label class="exp-novo-rotulo" for="expNovoSufixo">Complemento do nome</label>
                     <div class="exp-novo-linha">
                         <span id="expNovoPrefixo" class="exp-novo-prefixo"></span>
-                        <input type="text" id="expNovoSufixo" class="settings-input" style="flex:1; margin:0;"
+                        <input type="text" id="expNovoSufixo" class="settings-input"
                                placeholder="praia, backup, 2026..." maxlength="60"
                                onkeypress="if(event.key==='Enter') confirmarNomeNovaPasta()">
                     </div>
-                    <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:14px;">
-                        <button class="action-btn" style="background:transparent;" onclick="fecharExportarDeNovo()">Cancelar</button>
+                    <div class="dialogo-acoes">
+                        <button class="action-btn" onclick="fecharExportarDeNovo()">Cancelar</button>
                         <button class="action-btn gradient-btn" onclick="confirmarNomeNovaPasta()">Continuar</button>
                     </div>
                 </div>
@@ -990,22 +1195,25 @@
     <!-- Modal: o que fazer com as pastas ao excluir a coleção -->
     <div id="pastasColecaoModal" class="modal" style="z-index: 10005;">
         <div class="modal-content" style="max-width: 560px;">
-            <h3 id="pastasTitulo" style="margin:0 0 10px 0; color:var(--text-primary); font-size:1.3rem;">
-                Excluir também as pastas?
-            </h3>
-            <p id="pastasTexto" style="color:var(--text-secondary); font-size:0.95rem; line-height:1.5; margin:0 0 16px 0;"></p>
+            <div class="sheet-head">
+                <div class="sheet-titles">
+                    <span class="eyebrow">Excluir coleção</span>
+                    <h2 class="sheet-title" id="pastasTitulo">Excluir também as pastas?</h2>
+                </div>
+                <button class="sheet-close" onclick="fecharPastasColecao()" aria-label="Fechar">&times;</button>
+            </div>
+            <p id="pastasTexto" class="sheet-sub"></p>
 
             <div id="pastasLista" class="pastas-lista"></div>
 
             <p id="pastasAviso" class="pastas-aviso" style="display:none;"></p>
 
-            <div style="display:flex; gap:10px; justify-content:flex-end; margin-top:18px; flex-wrap:wrap;">
-                <button id="pastasCancelar" class="action-btn" style="background:transparent;"
+            <div class="dialogo-acoes">
+                <button id="pastasCancelar" class="action-btn"
                         onclick="fecharPastasColecao()">Cancelar</button>
                 <button id="pastasManter" class="action-btn"
                         onclick="confirmarExclusaoPastas(false)">Manter as pastas</button>
-                <button id="pastasApagar" class="action-btn" onclick="confirmarExclusaoPastas(true)"
-                        style="background:#ef4444; border-color:#ef4444; color:#fff;">Apagar selecionadas</button>
+                <button id="pastasApagar" class="action-btn perigo" onclick="confirmarExclusaoPastas(true)">Apagar selecionadas</button>
             </div>
         </div>
     </div>
@@ -1013,10 +1221,14 @@
     <!-- Modal: vincular coleção a uma pasta do computador -->
     <div id="vincularPastaModal" class="modal" style="z-index: 10004;">
         <div class="modal-content" style="max-width: 520px;">
-            <h3 id="vincularTitulo" style="margin:0 0 10px 0; color:var(--text-primary); font-size:1.35rem;">
-                Enviar esta coleção para uma pasta?
-            </h3>
-            <p id="vincularTexto" style="color:var(--text-secondary); font-size:0.95rem; line-height:1.5; margin:0 0 18px 0;"></p>
+            <div class="sheet-head">
+                <div class="sheet-titles">
+                    <span class="eyebrow">Nova coleção</span>
+                    <h2 class="sheet-title" id="vincularTitulo">Enviar esta coleção para uma pasta?</h2>
+                </div>
+                <button class="sheet-close" onclick="fecharVincularPasta()" aria-label="Fechar">&times;</button>
+            </div>
+            <p id="vincularTexto" class="sheet-sub"></p>
 
             <!-- Ilustração: a coleção alimentando uma pasta no computador.
                  aria-hidden porque é decorativa — o texto acima já explica. -->
@@ -1057,11 +1269,17 @@
     <!-- Modal de entrada de texto (substitui o prompt() nativo) -->
     <div id="inputModal" class="modal" style="z-index: 10101;">
         <div class="modal-content" style="max-width: 420px;">
-            <h3 id="inputTitulo" style="margin:0 0 8px 0; color:var(--text-primary); font-size:1.3rem;">Digite</h3>
-            <label id="inputLabel" style="display:block; color:var(--text-secondary); font-size:0.9rem; margin-bottom:8px;"></label>
-            <input type="text" id="inputCampo" style="width:100%; padding:11px 14px; background:rgba(0,0,0,0.3); border:1px solid var(--border-light); border-radius:8px; color:var(--text-primary); margin-bottom:20px;">
-            <div style="display:flex; gap:10px; justify-content:flex-end;">
-                <button id="inputCancelar" class="action-btn" style="background:transparent;">Cancelar</button>
+            <div class="sheet-head">
+                <div class="sheet-titles">
+                    <span class="eyebrow">Escreva</span>
+                    <h2 class="sheet-title" id="inputTitulo">Digite</h2>
+                </div>
+                <button class="sheet-close" onclick="document.getElementById('inputCancelar').click()" aria-label="Cancelar">&times;</button>
+            </div>
+            <label id="inputLabel" class="dialogo-rotulo" for="inputCampo"></label>
+            <input type="text" id="inputCampo" class="settings-input">
+            <div class="dialogo-acoes">
+                <button id="inputCancelar" class="action-btn">Cancelar</button>
                 <button id="inputOk" class="action-btn gradient-btn">OK</button>
             </div>
         </div>
@@ -1072,14 +1290,17 @@
          pasta clica em "Exportar" e ignora o resto. -->
     <div id="opcoesExportModal" class="modal" style="z-index: 10002;">
         <div class="modal-content" style="max-width: 520px;">
-            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
-                <h3 class="gradient-text" style="margin:0; font-size:1.5rem; font-family:'Inter',sans-serif;">Como exportar</h3>
-                <span class="close-btn" onclick="fecharOpcoesExport()" style="position:static; cursor:pointer;">&times;</span>
+            <div class="sheet-head">
+                <div class="sheet-titles">
+                    <span class="eyebrow">Salvar no computador</span>
+                    <h2 class="sheet-title">Como exportar</h2>
+                </div>
+                <button class="sheet-close" onclick="fecharOpcoesExport()" aria-label="Fechar">&times;</button>
             </div>
 
             <div class="opcao-export">
                 <label for="expTipos">O que levar</label>
-                <select id="expTipos">
+                <select id="expTipos" class="settings-input">
                     <option value="tudo">Tudo o que está na coleção</option>
                     <option value="imagens">Só as imagens</option>
                     <option value="documentos">Só os documentos</option>
@@ -1088,7 +1309,7 @@
 
             <div class="opcao-export">
                 <label for="expPadrao">Renomear os arquivos</label>
-                <input type="text" id="expPadrao" placeholder="Deixe em branco para manter os nomes">
+                <input type="text" id="expPadrao" class="settings-input" placeholder="Deixe em branco para manter os nomes">
                 <p class="opcao-export-ajuda">
                     Use <code>{n}</code> para numerar, <code>{nome}</code> para o nome atual,
                     <code>{colecao}</code> e <code>{data}</code>.
@@ -1098,7 +1319,7 @@
 
             <div class="opcao-export">
                 <label for="expLargura">Reduzir as imagens</label>
-                <select id="expLargura">
+                <select id="expLargura" class="settings-input">
                     <option value="">Manter o tamanho original</option>
                     <option value="1920">Grande — 1920 px de largura</option>
                     <option value="1280">Média — 1280 px</option>
@@ -1112,18 +1333,21 @@
                 <label for="expSubpastas">Separar em subpastas por mês</label>
             </div>
 
-            <div style="display:flex; gap:10px; margin-top:18px;">
-                <button class="action-btn" onclick="fecharOpcoesExport()" style="flex:1; margin:0;">Cancelar</button>
-                <button class="action-btn gradient-btn" onclick="confirmarOpcoesExport()" style="flex:2; margin:0;">Escolher a pasta e exportar</button>
+            <div class="dialogo-acoes largas">
+                <button class="action-btn" onclick="fecharOpcoesExport()">Cancelar</button>
+                <button class="action-btn gradient-btn" onclick="confirmarOpcoesExport()">Escolher a pasta e exportar</button>
             </div>
         </div>
     </div>
 
     <div id="escolherColecaoModal" class="modal" style="z-index: 10002;">
         <div class="modal-content" style="max-width: 460px;">
-            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:16px;">
-                <h3 class="gradient-text" style="margin:0; font-size:1.5rem; font-family:'Inter',sans-serif;">Adicionar à coleção</h3>
-                <span class="close-btn" onclick="fecharEscolherColecao()" style="position:static; cursor:pointer;">&times;</span>
+            <div class="sheet-head">
+                <div class="sheet-titles">
+                    <span class="eyebrow">Organizar</span>
+                    <h2 class="sheet-title">Adicionar à coleção</h2>
+                </div>
+                <button class="sheet-close" onclick="fecharEscolherColecao()" aria-label="Fechar">&times;</button>
             </div>
             <div id="escolherColecaoLista" style="display:flex; flex-direction:column; gap:8px; max-height:50vh; overflow-y:auto;"></div>
             <button id="escolherColecaoNova" class="action-btn gradient-btn" onclick="criarColecaoEAdicionar()" style="width:100%; margin-top:14px; padding:12px;">+ Criar nova coleção</button>
@@ -1133,15 +1357,18 @@
     <!-- Modal: Busca por imagem -->
     <div id="buscaImagemModal" class="modal" style="z-index: 10001;">
         <div class="modal-content" style="max-width: 520px;">
-            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
-                <h3 class="gradient-text" style="margin:0; font-size:1.6rem; font-family:'Inter',sans-serif;">Buscar por imagem</h3>
-                <span class="close-btn" onclick="fecharBuscaImagem()" style="position:static;">&times;</span>
+            <div class="sheet-head">
+                <div class="sheet-titles">
+                    <span class="eyebrow">Busca visual</span>
+                    <h2 class="sheet-title">Buscar por imagem</h2>
+                </div>
+                <button class="sheet-close" onclick="fecharBuscaImagem()" aria-label="Fechar">&times;</button>
             </div>
-            <p style="color:var(--text-secondary); font-size:0.9rem; margin:0 0 16px 0;">Arraste uma imagem ou clique para escolher. A IA vai encontrar imagens visualmente parecidas no seu acervo.</p>
+            <p class="sheet-sub">Arraste uma imagem ou clique para escolher. O Search+ acha as parecidas no seu acervo.</p>
 
             <div id="dropZone" class="drop-zone">
                 <input type="file" id="dropZoneInput" accept="image/*" style="display:none;">
-                <img id="dropZonePreview" style="display:none; max-width:100%; max-height:240px; border-radius:8px;">
+                <img id="dropZonePreview" alt="" style="display:none; max-width:100%; max-height:240px; border-radius:8px;">
                 <div id="dropZonePlaceholder" class="drop-zone-placeholder">
                     <div style="color:var(--text-secondary);"><svg class="ic ic--gg" aria-hidden="true" focusable="false"><use href="#ic-imagem"></use></svg></div>
                     <div>Arraste uma imagem aqui</div>
@@ -1153,42 +1380,34 @@
         </div>
     </div>
 
-    <!-- Preview flutuante (inspeção rápida no hover) -->
-    <div id="hoverPreview" class="hover-preview">
-        <img id="hoverPreviewImg" src="" alt="">
-        <div id="hoverPreviewDoc" class="hover-preview-doc" style="display:none;">
-            <div id="hoverPreviewNome" class="hover-preview-nome"></div>
-            <div id="hoverPreviewTexto" class="hover-preview-texto"></div>
-        </div>
-    </div>
-
     <!-- Modal: Coleções -->
     <div id="colecoesModal" class="modal" style="z-index: 10001;">
         <div class="modal-content" style="max-width: 720px;">
-            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
-                <div style="display:flex; align-items:center; gap:10px; min-width:0;">
-                    <h3 class="gradient-text" id="colecoesTitulo" style="margin:0; font-size:1.8rem; font-family:'Inter',sans-serif; word-break:break-word;">Minhas Coleções</h3>
+            <div class="sheet-head">
+                <div class="sheet-titles">
+                    <span class="eyebrow">Sua biblioteca</span>
+                    <h2 class="sheet-title" id="colecoesTitulo">Minhas coleções</h2>
                     <button type="button" id="btnRenomearColecao" class="btn-renomear" onclick="iniciarRenomearColecao()"
-                            style="display:none;" aria-label="Renomear coleção" title="Renomear coleção"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-lapis"></use></svg></button>
+                    style="display:none;" aria-label="Renomear coleção" title="Renomear coleção"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-lapis"></use></svg></button>
                 </div>
-                <input type="text" id="colecaoNomeEdit" class="settings-input colecao-nome-edit" maxlength="80"
-                       style="display:none;" aria-label="Novo nome da coleção"
-                       onkeydown="if(event.key==='Enter') confirmarRenomearColecao(); if(event.key==='Escape') cancelarRenomearColecao();"
-                       onblur="confirmarRenomearColecao()">
-                <span class="close-btn" onclick="fecharColecoes()" style="position:static;">&times;</span>
+                    <input type="text" id="colecaoNomeEdit" class="settings-input colecao-nome-edit" maxlength="80"
+                    style="display:none;" aria-label="Novo nome da coleção"
+                    onkeydown="if(event.key==='Enter') confirmarRenomearColecao(); if(event.key==='Escape') cancelarRenomearColecao();"
+                    onblur="confirmarRenomearColecao()">
+                <button class="sheet-close" onclick="fecharColecoes()" aria-label="Fechar">&times;</button>
             </div>
 
             <!-- Criar nova coleção -->
-            <div id="colecoesCriar" style="display:flex; gap:10px; margin-bottom:18px;">
-                <input type="text" id="novaColecaoNome" placeholder="Nome da nova coleção..." style="flex:1; padding:10px 14px; background:rgba(0,0,0,0.3); border:1px solid var(--border-light); border-radius:8px; color:var(--text-primary);" onkeypress="if(event.key==='Enter') criarColecao()">
-                <button class="action-btn gradient-btn" onclick="criarColecao()" style="padding:10px 18px;">Criar</button>
+            <div id="colecoesCriar" class="colecoes-criar">
+                <input type="text" id="novaColecaoNome" placeholder="Nome da nova coleção..." aria-label="Nome da nova coleção" class="settings-input" onkeypress="if(event.key==='Enter') criarColecao()">
+                <button class="action-btn gradient-btn" onclick="criarColecao()">Criar</button>
             </div>
 
             <!-- Ordem da lista. Fica escondido quando se está DENTRO de uma
                  coleção — lá não há lista de coleções para ordenar. -->
             <div id="colecoesOrdem" class="colecoes-ordem">
                 <label for="ordemColecoes">Ordenar por</label>
-                <select id="ordemColecoes" onchange="trocarOrdemDasColecoes(this.value)">
+                <select id="ordemColecoes" class="settings-input" onchange="trocarOrdemDasColecoes(this.value)">
                     <option value="recentes">Mais recentes</option>
                     <option value="antigas">Mais antigas</option>
                     <option value="nome">Nome</option>
@@ -1199,19 +1418,18 @@
             <!-- Lista de coleções OU conteúdo de uma coleção -->
             <div id="colecoesLista" class="recent-grid"></div>
             <div id="colecaoConteudo" style="display:none;">
-                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px;">
-                    <button class="action-btn" onclick="abrirColecoes()" style="margin:0; padding:8px 14px;">← Voltar às coleções</button>
-                    <div style="display:flex; gap:8px;">
-                        <button id="btnStatusPasta" class="action-btn" onclick="abrirStatusPasta()"
-                                style="margin:0; padding:8px 14px; background:transparent; display:none;"
+                <div class="colecao-barra">
+                    <button class="btn-linha" onclick="abrirColecoes()">← Voltar às coleções</button>
+                    <div class="colecao-barra-acoes">
+                        <button id="btnStatusPasta" class="btn-linha" onclick="abrirStatusPasta()"
+                                style="display:none;"
                                 title="Ver quais imagens já estão na pasta e quais faltam"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-lupa"></use></svg> Status da pasta</button>
-                        <button id="btnConfigColecao" class="action-btn" onclick="abrirConfigColecao()"
-                                style="margin:0; padding:8px 14px; background:transparent;"
+                        <button id="btnConfigColecao" class="btn-linha" onclick="abrirConfigColecao()"
                                 title="Escolher quando as novas fotos vão para a pasta"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-engrenagem"></use></svg> Configurações</button>
-                        <button id="btnAbrirPastaColecao" class="action-btn" onclick="abrirPastaDaColecao()"
-                                style="margin:0; padding:8px 14px; background:transparent; display:none;"
+                        <button id="btnAbrirPastaColecao" class="btn-linha" onclick="abrirPastaDaColecao()"
+                                style="display:none;"
                                 title="Abrir no Explorer a pasta desta coleção"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-pasta-aberta"></use></svg> Abrir pasta da coleção</button>
-                        <button class="action-btn gradient-btn" onclick="exportarColecao()" style="margin:0; padding:8px 16px;" title="Copiar as imagens desta coleção para uma pasta do computador"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-baixar"></use></svg> Salvar no computador</button>
+                        <button class="action-btn gradient-btn" onclick="exportarColecao()" title="Copiar as imagens desta coleção para uma pasta do computador"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-baixar"></use></svg> Salvar no computador</button>
                     </div>
                 </div>
                 <div id="colecaoItens" class="recent-grid"></div>
@@ -1222,14 +1440,19 @@
     <!-- Modal: progresso e resultado da exportação -->
     <div id="exportModal" class="modal" style="z-index: 10002;">
         <div class="modal-content" style="max-width: 560px;">
-            <h3 id="exportTitulo" class="gradient-text" style="margin:0 0 20px; font-size:1.5rem; font-family:'Inter',sans-serif;">Exportando...</h3>
+            <div class="sheet-head">
+                <div class="sheet-titles">
+                    <span class="eyebrow">Salvar no computador</span>
+                    <h2 class="sheet-title" id="exportTitulo">Exportando...</h2>
+                </div>
+            </div>
 
             <div id="exportProgressoBox">
                 <div class="export-barra-trilha">
-                    <div id="exportBarra" class="export-barra-preenchida" role="progressbar" aria-valuemin="0" aria-valuenow="0" aria-valuemax="0" style="width:0%;"></div>
+                    <div id="exportBarra" class="export-barra-preenchida" role="progressbar" aria-valuemin="0" aria-valuenow="0" aria-valuemax="0"></div>
                 </div>
-                <p id="exportContagem" aria-live="polite" style="color:var(--text-secondary); margin:12px 0 20px;">0 de 0 imagens</p>
-                <button class="action-btn" onclick="cancelarExportacao()" style="margin:0;">Cancelar</button>
+                <p id="exportContagem" class="export-contagem" aria-live="polite">0 de 0 imagens</p>
+                <button class="action-btn" onclick="cancelarExportacao()">Cancelar</button>
             </div>
 
             <div id="exportResultadoBox" style="display:none;"></div>
@@ -1240,30 +1463,33 @@
     <div id="barraSelecao" class="barra-selecao">
         <span id="selecaoContador" role="status" aria-live="polite">0 imagens selecionadas</span>
         <div class="barra-selecao-acoes">
-            <button class="action-btn gradient-btn" onclick="abrirSeletorColecao()" style="margin:0;">＋ Adicionar à coleção</button>
-            <button class="action-btn" onclick="limparSelecao()" style="margin:0;">Limpar seleção</button>
+            <button class="action-btn gradient-btn" onclick="abrirSeletorColecao()"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-caixa"></use></svg> Adicionar à coleção</button>
+            <button class="action-btn" onclick="limparSelecao()">Limpar seleção</button>
         </div>
     </div>
 
     <!-- Modal de Ajuda -->
     <div id="ajudaModal" class="modal" style="z-index: 10001;">
         <div class="modal-content" style="max-width: 640px;">
-            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px;">
-                <h3 class="gradient-text" style="margin:0; font-size:1.8rem; font-family:'Inter',sans-serif;">Como usar o Search+</h3>
-                <span class="close-btn" onclick="fecharAjuda()" style="position:static;">&times;</span>
+            <div class="sheet-head">
+                <div class="sheet-titles">
+                    <span class="eyebrow">Guia rápido</span>
+                    <h2 class="sheet-title">Como usar o Search+</h2>
+                </div>
+                <button class="sheet-close" onclick="fecharAjuda()" aria-label="Fechar">&times;</button>
             </div>
             <div class="ajuda-conteudo">
                 <div class="ajuda-item">
                     <h4 class="tem-icone"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-lupa"></use></svg> Como buscar</h4>
-                    <p>Digite o que você quer encontrar em linguagem natural — ex: "cachorro na grama", "prato de comida", "foto de festa". A IA entende o significado, não só palavras exatas.</p>
+                    <p>Digite o que você quer encontrar em linguagem natural — ex: "cachorro na grama", "prato de comida", "foto de festa". A busca entende o significado, não só palavras exatas.</p>
                 </div>
                 <div class="ajuda-item">
                     <h4 class="tem-icone"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-pasta"></use></svg> Adicionar pastas</h4>
-                    <p>Abra o menu e escolha "Pastas do computador". O Search+ analisa todas as imagens e documentos que estiverem dentro delas.</p>
+                    <p>Abra <b>Pastas</b> no menu da esquerda e escolha as pastas do seu computador. Tudo o que estiver dentro delas entra na busca.</p>
                 </div>
                 <div class="ajuda-item">
                     <h4 class="tem-icone"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-ampulheta"></use></svg> Primeira análise</h4>
-                    <p>Ao adicionar uma pasta, a IA precisa analisar cada arquivo (alguns segundos por imagem). Acompanhe o progresso na barra inferior. Você pode buscar enquanto ela trabalha.</p>
+                    <p>Ao adicionar uma pasta, cada arquivo é analisado uma vez (alguns segundos por imagem). O quadro <b>Fila</b> na tela inicial mostra quanto falta. Você pode buscar enquanto isso.</p>
                 </div>
                 <div class="ajuda-item">
                     <h4 class="tem-icone"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-teclado"></use></svg> Atalhos de teclado</h4>
@@ -1275,13 +1501,15 @@
                 </div>
                 <div class="ajuda-item">
                     <h4 class="tem-icone"><svg class="ic" aria-hidden="true" focusable="false"><use href="#ic-alerta"></use></svg> Algo não funciona?</h4>
-                    <p>Verifique se o <b>Ollama</b> está aberto e se você tem <b>conexão com a internet</b> (o banco de dados fica na nuvem). Se a busca não traz nada, espere a IA terminar de analisar a pasta.</p>
+                    <p>Confira sua <b>conexão com a internet</b>. Se a busca não traz nada, provavelmente a análise da pasta ainda não terminou — o quadro <b>Fila</b> na tela inicial mostra quanto falta.</p>
                 </div>
             </div>
         </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
-    <script src="script.js?v=2026_claude_ui"></script>
+    <script src="script.js?v=2026_remodel"></script>
+    <script src="theme-wave.js?v=2"></script>
+    <script src="lab.js?v=1"></script>
 </body>
 </html>

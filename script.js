@@ -87,8 +87,8 @@ let filtroAtual = 'all';
 // Cores padrão do tema. Auditadas contra o mínimo de contraste da WCAG (4,5:1
 // para texto normal) — ver o comentário em style.css sobre os dois papéis do
 // destaque. Ficam aqui porque é o JS que aplica o tema, sobrescrevendo o CSS.
-const COR_PRIMARIA_PADRAO = '#AB5AF7';
-const COR_SECUNDARIA_PADRAO = '#E879F9';
+const COR_PRIMARIA_PADRAO = '#6F87A8';
+const COR_SECUNDARIA_PADRAO = '#A2B5CB';
 
 // Indexação Inteligente Seletiva — estado local
 let _obPrioridades = ['tudo'];
@@ -301,24 +301,24 @@ async function abrirHistoricoExport() {
     const modal = document.getElementById('historicoExportModal');
     const corpo = document.getElementById('historicoExportCorpo');
     modal.style.display = 'flex';
-    corpo.innerHTML = '<p style="color:var(--text-secondary);">Carregando...</p>';
+    corpo.innerHTML = '<p class="msg-estado">Carregando...</p>';
 
     let d;
     try {
         const r = await fetch(`${API_BASE_URL}/api/exportacoes`);
         if (!r.ok) {
-            corpo.innerHTML = '<p style="color:var(--text-secondary);">Não foi possível abrir o histórico.</p>';
+            corpo.innerHTML = '<p class="msg-estado">Não foi possível abrir o histórico.</p>';
             return;
         }
         d = await r.json();
     } catch (e) {
-        corpo.innerHTML = '<p style="color:var(--text-secondary);">Não foi possível abrir o histórico. O servidor respondeu?</p>';
+        corpo.innerHTML = '<p class="msg-estado">Não foi possível abrir o histórico. O servidor respondeu?</p>';
         return;
     }
 
     const itens = d.exportacoes || [];
     if (!itens.length) {
-        corpo.innerHTML = '<p style="color:var(--text-secondary);">' +
+        corpo.innerHTML = '<p class="msg-estado">' +
             'Você ainda não exportou nenhuma coleção.</p>';
         return;
     }
@@ -361,7 +361,7 @@ function _linhaDeExportacao(e) {
     if (e.pasta_existe) {
         const abrir = document.createElement('button');
         abrir.type = 'button';
-        abrir.className = 'action-btn';
+        abrir.className = 'btn-linha';
         abrir.textContent = 'Abrir a pasta';
         abrir.onclick = () => abrirPastaExportada(e.pasta);
         acoes.appendChild(abrir);
@@ -378,7 +378,7 @@ function _linhaDeExportacao(e) {
     if (podeRepetir && e.pasta_existe) {
         const repetir = document.createElement('button');
         repetir.type = 'button';
-        repetir.className = 'action-btn';
+        repetir.className = 'btn-linha';
         repetir.textContent = 'Tentar de novo os que falharam';
         repetir.onclick = () => repetirExportacao(e.id);
         acoes.appendChild(repetir);
@@ -386,7 +386,7 @@ function _linhaDeExportacao(e) {
     if (temSumidos) {
         const limpar = document.createElement('button');
         limpar.type = 'button';
-        limpar.className = 'action-btn';
+        limpar.className = 'btn-linha';
         limpar.textContent = 'Tirar da coleção os que sumiram';
         limpar.onclick = () => limparSumidos(e.id);
         acoes.appendChild(limpar);
@@ -475,25 +475,25 @@ async function abrirResumoIndexacao() {
     const modal = document.getElementById('resumoModal');
     const corpo = document.getElementById('resumoCorpo');
     modal.style.display = 'flex';
-    corpo.innerHTML = '<p style="color:var(--text-secondary);">Carregando...</p>';
+    corpo.innerHTML = '<p class="msg-estado">Carregando...</p>';
 
     let d;
     try {
         const r = await fetch(`${API_BASE_URL}/api/resumo_indexacao`);
         if (!r.ok) {
-            corpo.innerHTML = '<p style="color:var(--text-secondary);">' +
+            corpo.innerHTML = '<p class="msg-estado">' +
                 'Não foi possível abrir o resumo.</p>';
             return;
         }
         d = await r.json();
     } catch (e) {
-        corpo.innerHTML = '<p style="color:var(--text-secondary);">' +
+        corpo.innerHTML = '<p class="msg-estado">' +
             'Não foi possível abrir o resumo. O servidor respondeu?</p>';
         return;
     }
 
     if (!d.resumo) {
-        corpo.innerHTML = '<p style="color:var(--text-secondary);">' +
+        corpo.innerHTML = '<p class="msg-estado">' +
             'Nenhuma análise foi concluída ainda. Depois de analisar suas ' +
             'pastas, o resultado aparece aqui.</p>';
         return;
@@ -598,12 +598,12 @@ async function abrirLixeira() {
     const modal = document.getElementById('lixeiraModal');
     const lista = document.getElementById('lixeiraLista');
     modal.style.display = 'flex';
-    lista.innerHTML = '<p style="color:var(--text-secondary);">Carregando...</p>';
+    lista.innerHTML = '<p class="msg-estado">Carregando...</p>';
 
     try {
         const r = await fetch(`${API_BASE_URL}/api/lixeira`);
         if (!r.ok) {
-            lista.innerHTML = '<p style="color:var(--text-secondary);">' +
+            lista.innerHTML = '<p class="msg-estado">' +
                 'Não foi possível abrir a lixeira.</p>';
             return;
         }
@@ -612,7 +612,7 @@ async function abrirLixeira() {
             `O que você exclui fica aqui por ${d.dias} dias e depois é descartado.`;
 
         if (!d.itens.length) {
-            lista.innerHTML = '<p style="color:var(--text-secondary);">' +
+            lista.innerHTML = '<p class="msg-estado">' +
                 'A lixeira está vazia.</p>';
             return;
         }
@@ -627,12 +627,12 @@ async function abrirLixeira() {
             const linha = document.createElement('div');
             linha.className = 'lixeira-item';
             linha.innerHTML = `
-                <div style="flex:1; min-width:0;">
+                <div class="lixeira-item-info">
                     <div class="lixeira-item-nome"></div>
                     <div class="lixeira-item-meta"></div>
                 </div>
-                <button type="button" class="btn-config-folder">Restaurar</button>
-                <button type="button" class="btn-remover">Descartar</button>
+                <button type="button" class="btn-linha">Restaurar</button>
+                <button type="button" class="btn-linha perigo">Descartar</button>
             `;
             linha.querySelector('.lixeira-item-nome').textContent = i.rotulo;
             linha.querySelector('.lixeira-item-meta').textContent = `${detalhe} · ${quando}`;
@@ -647,7 +647,7 @@ async function abrirLixeira() {
             lista.appendChild(linha);
         });
     } catch (e) {
-        lista.innerHTML = '<p style="color:var(--text-secondary);">' +
+        lista.innerHTML = '<p class="msg-estado">' +
             'Não foi possível abrir a lixeira. O servidor respondeu?</p>';
     }
 }
@@ -742,9 +742,9 @@ function pedirTexto(titulo, label, valorInicial = '') {
 }
 
 const dicasUX = [
-    "A IA faz buscas semânticas. Descreva o arquivo com linguagem natural.",
-    "O motor lê textos dentro de Imagens e PDFs automaticamente.",
-    "Pesquise algo como: 'Planilha financeira do ano passado'.",
+    "Descreva o arquivo com suas palavras: 'cachorro na grama', 'nota de luz'.",
+    "O Search+ lê o texto que aparece dentro de imagens e PDFs.",
+    "Vale procurar por assunto: 'planilha financeira do ano passado'.",
     "Personalize o aplicativo usando o menu do seu perfil."
 ];
 let tipInterval;
@@ -1139,15 +1139,24 @@ async function loginBemSucedido(username) {
 function mostrarHome() {
     const dash = document.getElementById('dashboardView');
     if (!dash) return;
-    dash.style.display = 'block';
-    dash.classList.remove('fade-out');
-    // Reflow forçado em vez de requestAnimationFrame: o rAF não dispara em aba
-    // em segundo plano, e a home ficaria com opacity 0 — visível no DOM, em
-    // branco na tela. O reflow libera a transição de forma síncrona.
-    void dash.offsetHeight;
-    dash.style.opacity = '1';
+
+    // Os dados da home carregam sempre: a galeria acompanha a análise e os
+    // quadros de número leem daqui. Mas a entrada é a tela limpa — logo,
+    // busca e os quadros. As prateleiras só aparecem com o Acervo aberto.
     carregarFavoritosDash();
     carregarGaleria();
+    carregarPainelNumeros();
+
+    const wrap = document.getElementById('mainAppWrapper');
+    if (!wrap || !wrap.classList.contains('acervo-aberto')) return;
+
+    dash.style.display = '';            // '' deixa o CSS mandar (é flex)
+    dash.classList.remove('fade-out');
+    // Reflow forçado em vez de requestAnimationFrame: o rAF não dispara em aba
+    // em segundo plano, e a home ficaria com opacity 0 — no DOM, em branco na
+    // tela. O reflow libera a transição de forma síncrona.
+    void dash.offsetHeight;
+    dash.style.opacity = '1';
 }
 
 async function fazerLogout() {
@@ -1321,6 +1330,20 @@ async function carregarConfiguracoesUX() {
         currentConfig.cor_secundaria = currentConfig.cor_secundaria || COR_SECUNDARIA_PADRAO;
         currentConfig.cor_texto_botao = currentConfig.cor_texto_botao || "#FFFFFF";
 
+        // O padrão de fábrica mudou: era roxo/rosa com o fundo atrás de 15px
+        // de desfoque, virou cinza-azul com o fundo à mostra. Quem estiver
+        // EXATAMENTE no padrão antigo não escolheu aquilo — veio assim — e
+        // recebe o novo. Cor escolhida a dedo continua de pé.
+        const FABRICAS_VELHAS = {
+            cor_primaria:   ["#A855F7", "#AB5AF7", "#4B82D8"],
+            cor_secundaria: ["#E879F9", "#93BFEA"],
+            bg_blur:        [15]
+        };
+        const FABRICA_NOVA = { cor_primaria: "#6F87A8", cor_secundaria: "#A2B5CB", bg_blur: 4 };
+        Object.keys(FABRICAS_VELHAS).forEach(k => {
+            if (FABRICAS_VELHAS[k].includes(currentConfig[k])) currentConfig[k] = FABRICA_NOVA[k];
+        });
+
         aplicarTemaNoDOM(currentConfig);
 
         const safeSetSrc = (id, val) => { const el = document.getElementById(id); if (el) el.src = val; };
@@ -1392,14 +1415,27 @@ addSafeListener('btnGrad2',    'input',  function() { tempConfig.botao_grad2  = 
 
 function aplicarTemaNoDOM(config) {
     const root = document.documentElement;
-    if (config.tema === 'light') {
-        root.style.setProperty('--bg-deep', '#F8FAFC'); root.style.setProperty('--surface', '#FFFFFF');
-        root.style.setProperty('--text-primary', '#0B0F19'); root.style.setProperty('--text-secondary', '#475569');
-        root.style.setProperty('--border-light', 'rgba(0, 0, 0, 0.08)');
-    } else {
-        root.style.setProperty('--bg-deep', '#0B0F19'); root.style.setProperty('--surface', '#151A2A');
-        root.style.setProperty('--text-primary', '#F8FAFC'); root.style.setProperty('--text-secondary', '#94A3B8');
-        root.style.setProperty('--border-light', 'rgba(255, 255, 255, 0.08)');
+    const claro = config.tema === 'light';
+    root.classList.toggle('tema-claro', claro);
+
+    // O tema escuro é o da folha de estilo. Antes isto sobrescrevia --surface
+    // com uma cor OPACA (#151A2A) e matava o vidro do aplicativo inteiro:
+    // todo painel virava retângulo chapado assim que a tela carregava.
+    ['--bg-deep', '--surface', '--surface-solid', '--raised', '--text-primary',
+     '--text-secondary', '--text-faint', '--border-light', '--border-hi']
+        .forEach(v => root.style.removeProperty(v));
+
+    if (claro) {
+        root.style.setProperty('--bg-deep', '#EEF1F7');
+        root.style.setProperty('--surface', 'rgba(255, 255, 255, .62)');
+        root.style.setProperty('--surface-solid', '#FFFFFF');
+        root.style.setProperty('--raised', 'rgba(15, 23, 42, .05)');
+        root.style.setProperty('--text-primary', '#0B0F19');
+        root.style.setProperty('--text-secondary', '#475569');
+        // #64748B dava 4.21:1 sobre o #EEF1F7 da página — abaixo de 4.5.
+        root.style.setProperty('--text-faint', '#586780');
+        root.style.setProperty('--border-light', 'rgba(15, 23, 42, .12)');
+        root.style.setProperty('--border-hi', 'rgba(15, 23, 42, .22)');
     }
     root.style.setProperty('--accent-primary', config.cor_primaria);
     root.style.setProperty('--accent-secondary', config.cor_secundaria);
@@ -1418,9 +1454,31 @@ function aplicarTemaNoDOM(config) {
     const bStyle = config.botao_estilo || "default";
     
     if (bStyle === "default") {
+        // Padrão premium: vidro com a cor por dentro. O degradê chapado de
+        // antes deixava todo botão com cara de banner.
         btnCss = `
             .action-btn, .gradient-btn, .filter-tag { font-family: ${bFont} !important; }
-            .gradient-btn { background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary)) !important; color: var(--btn-text-color) !important; border: none !important; }
+            .gradient-btn {
+                background:
+                    linear-gradient(180deg,
+                        color-mix(in srgb, var(--accent-primary) 38%, transparent),
+                        color-mix(in srgb, var(--accent-secondary) 26%, transparent)) !important;
+                border: 1px solid color-mix(in srgb, var(--accent-secondary) 42%, transparent) !important;
+                color: var(--btn-text-color) !important;
+                backdrop-filter: blur(26px) saturate(1.8) !important;
+                -webkit-backdrop-filter: blur(26px) saturate(1.8) !important;
+                box-shadow:
+                    inset 0 1.4px 0 rgba(255, 255, 255, .42),
+                    inset 0 -1px 0 rgba(255, 255, 255, .07),
+                    0 18px 38px -22px color-mix(in srgb, var(--accent-secondary) 80%, transparent) !important;
+            }
+            .gradient-btn:hover {
+                background:
+                    linear-gradient(180deg,
+                        color-mix(in srgb, var(--accent-primary) 52%, transparent),
+                        color-mix(in srgb, var(--accent-secondary) 38%, transparent)) !important;
+                border-color: color-mix(in srgb, var(--accent-secondary) 62%, transparent) !important;
+            }
         `;
     } else if (bStyle === "glass") {
         btnCss = `
@@ -1440,8 +1498,8 @@ function aplicarTemaNoDOM(config) {
             }
         `;
     } else if (bStyle === "gradient") {
-        const c1 = config.botao_grad1 || "#FF512F";
-        const c2 = config.botao_grad2 || "#DD2476";
+        const c1 = config.botao_grad1 || "#3B4A5E";
+        const c2 = config.botao_grad2 || "#7D91A9";
         btnCss = `
             .action-btn, .gradient-btn, .filter-tag { font-family: ${bFont} !important; }
             .gradient-btn { background: linear-gradient(135deg, ${c1}, ${c2}) !important; color: var(--btn-text-color) !important; border: none !important; }
@@ -1496,15 +1554,15 @@ async function restaurarPadroesUX() {
     tempConfig.cor_secundaria = COR_SECUNDARIA_PADRAO;
     tempConfig.cor_texto_botao = "#FFFFFF";
     tempConfig.bg_url = "";
-    tempConfig.bg_blur = 15;
+    tempConfig.bg_blur = 4;
     tempConfig.botao_estilo = "default";
     tempConfig.botao_fonte = "system-ui, -apple-system, sans-serif";
-    tempConfig.botao_grad1 = "#FF512F";
-    tempConfig.botao_grad2 = "#DD2476";
+    tempConfig.botao_grad1 = "#3B4A5E";
+    tempConfig.botao_grad2 = "#7D91A9";
     tempConfig.botao_img_url = "";
     // Reset per-button individual styles
     tempConfig.btn_search_estilo = "inherit";
-    tempConfig.btn_search_cor = "#A855F7";
+    tempConfig.btn_search_cor = "#6F87A8";
     tempConfig.btn_search_texto = "#FFFFFF";
     tempConfig.btn_topbar_estilo = "inherit";
     tempConfig.btn_topbar_cor = "#151A2A";
@@ -1513,7 +1571,7 @@ async function restaurarPadroesUX() {
     tempConfig.btn_actions_cor = "#151A2A";
     tempConfig.btn_actions_texto = "#F8FAFC";
     tempConfig.btn_filters_estilo = "inherit";
-    tempConfig.btn_filters_cor = "#A855F7";
+    tempConfig.btn_filters_cor = "#6F87A8";
     tempConfig.btn_filters_texto = "#FFFFFF";
     
     const safeSetVal = (id, val) => { const el = document.getElementById(id); if(el) el.value = val; };
@@ -1636,13 +1694,45 @@ async function importarTema(event) {
 // ==========================================
 // PER-BUTTON CUSTOMIZATION FUNCTIONS
 // ==========================================
+// Abas de tamanhos diferentes faziam a caixa saltar na troca. Aqui a altura
+// de partida é fixada, o conteúdo é trocado, e a caixa desliza até a altura
+// nova. O fade de entrada do painel é do CSS.
+function trocarPainel(caixa, mostrar) {
+    if (!caixa) { mostrar(); return; }
+
+    const antes = caixa.offsetHeight;
+    mostrar();
+    const depois = caixa.offsetHeight;
+    if (antes === depois) return;
+
+    caixa.style.height = antes + 'px';
+    caixa.style.overflow = 'hidden';
+    void caixa.offsetHeight;      // força o navegador a assumir a altura de partida
+    caixa.style.transition = 'height .34s var(--ease)';
+    caixa.style.height = depois + 'px';
+
+    const soltar = () => {
+        caixa.style.height = '';
+        caixa.style.overflow = '';
+        caixa.style.transition = '';
+        caixa.removeEventListener('transitionend', soltar);
+        clearTimeout(rede);
+    };
+    // Rede: se o transitionend não vier (modal fechado no meio), a altura
+    // fixa não pode ficar presa no elemento.
+    const rede = setTimeout(soltar, 600);
+    caixa.addEventListener('transitionend', soltar);
+}
+
 function selecionarTabBotao(tab, el) {
-    ['global', 'search', 'topbar', 'actions', 'filters'].forEach(t => {
-        const div = document.getElementById('btnTab' + t.charAt(0).toUpperCase() + t.slice(1));
-        if (div) div.style.display = 'none';
-    });
     const div = document.getElementById('btnTab' + tab.charAt(0).toUpperCase() + tab.slice(1));
-    if (div) div.style.display = 'block';
+    trocarPainel(div && div.parentElement, () => {
+        ['global', 'search', 'topbar', 'actions', 'filters'].forEach(t => {
+            const d = document.getElementById('btnTab' + t.charAt(0).toUpperCase() + t.slice(1));
+            if (d) d.style.display = 'none';
+        });
+        if (div) div.style.display = 'block';
+    });
     document.querySelectorAll('.btn-tab-selector').forEach(b => b.classList.remove('active'));
     if (el) el.classList.add('active');
 }
@@ -1650,7 +1740,7 @@ function selecionarTabBotao(tab, el) {
 function aplicarEstilosBotaoIndividual() {
     const sv = (id) => { const el = document.getElementById(id); return el ? el.value : null; };
     tempConfig.btn_search_estilo  = sv('btnSearchEstilo')  || 'inherit';
-    tempConfig.btn_search_cor     = sv('btnSearchCor')     || '#A855F7';
+    tempConfig.btn_search_cor     = sv('btnSearchCor')     || '#6F87A8';
     tempConfig.btn_search_texto   = sv('btnSearchTexto')   || '#FFFFFF';
     tempConfig.btn_topbar_estilo  = sv('btnTopbarEstilo')  || 'inherit';
     tempConfig.btn_topbar_cor     = sv('btnTopbarCor')     || '#151A2A';
@@ -1659,7 +1749,7 @@ function aplicarEstilosBotaoIndividual() {
     tempConfig.btn_actions_cor    = sv('btnActionsCor')    || '#151A2A';
     tempConfig.btn_actions_texto  = sv('btnActionsTexto')  || '#F8FAFC';
     tempConfig.btn_filters_estilo = sv('btnFiltersEstilo') || 'inherit';
-    tempConfig.btn_filters_cor    = sv('btnFiltersCor')    || '#A855F7';
+    tempConfig.btn_filters_cor    = sv('btnFiltersCor')    || '#6F87A8';
     tempConfig.btn_filters_texto  = sv('btnFiltersTexto')  || '#FFFFFF';
     aplicarLivePreviewUX();
 }
@@ -1694,7 +1784,7 @@ function aplicarEstilosBotaoIndividualNoDOM(config) {
     // Search button
     const se = config.btn_search_estilo || 'inherit';
     if (se !== 'inherit') {
-        const sc = config.btn_search_cor || '#A855F7', st = config.btn_search_texto || '#fff';
+        const sc = config.btn_search_cor || '#6F87A8', st = config.btn_search_texto || '#fff';
         const sRule = se === 'glass' ? buildGlass() : se === 'solid' ? buildSolid(sc, st) : buildOutline(sc, st);
         css += `.search-btn { ${sRule} background-clip: padding-box !important; }\n`;
     }
@@ -1718,7 +1808,7 @@ function aplicarEstilosBotaoIndividualNoDOM(config) {
     // Filter tags
     const fe = config.btn_filters_estilo || 'inherit';
     if (fe !== 'inherit') {
-        const fc = config.btn_filters_cor || '#A855F7', ft = config.btn_filters_texto || '#fff';
+        const fc = config.btn_filters_cor || '#6F87A8', ft = config.btn_filters_texto || '#fff';
         if (fe === 'glass') {
             css += `.filter-tag { ${buildGlass()} }\n.filter-tag.active { background: rgba(255,255,255,0.18) !important; color: #fff !important; }\n`;
         } else if (fe === 'pill') {
@@ -1761,8 +1851,8 @@ function abrirSidebarConfig() {
     safeSetVal('bgUrl', tempConfig.bg_url);
     safeSetVal('botaoEstilo', tempConfig.botao_estilo || 'default');
     safeSetVal('botaoFonte', tempConfig.botao_fonte || "system-ui, -apple-system, sans-serif");
-    safeSetVal('btnGrad1', tempConfig.botao_grad1 || "#FF512F");
-    safeSetVal('btnGrad2', tempConfig.botao_grad2 || "#DD2476");
+    safeSetVal('btnGrad1', tempConfig.botao_grad1 || "#3B4A5E");
+    safeSetVal('btnGrad2', tempConfig.botao_grad2 || "#7D91A9");
     
     toggleOpcoesBotao(); // Updates visibility
     
@@ -1818,7 +1908,7 @@ const _CATEGORIA_LABEL = {
     comida:   { icone: 'comida',   nome: 'Comida' },
     natureza: { icone: 'natureza', nome: 'Natureza' },
     urbano:   { icone: 'urbano',   nome: 'Urbano' },
-    desenhos: { icone: 'paleta',   nome: 'Desenhos e Arte' },
+    desenhos: { icone: 'paleta',   nome: 'Desenhos e arte' },
 };
 
 async function carregarEstatisticas() {
@@ -1845,18 +1935,19 @@ async function carregarEstatisticas() {
             const meta = _CATEGORIA_LABEL[c.categoria] || { icone: 'caixa', nome: c.categoria };
             const pct = maxVal > 0 ? Math.round((c.total / maxVal) * 100) : 0;
             const row = document.createElement('div');
-            row.style.cssText = 'display:flex; align-items:center; gap:10px; font-size:0.85rem;';
-            // Estrutura: ícone+nome | barra | contagem (tudo via DOM, sem innerHTML de dado externo)
+            row.className = 'acervo-linha';
+            // Estrutura: nome | barra | contagem (tudo via DOM, sem innerHTML de dado externo)
             const label = document.createElement('span');
-            label.style.cssText = 'width:90px; color:var(--text-primary);';
+            label.className = 'acervo-nome';
             rotularCom(label, meta.icone, meta.nome);
             const barWrap = document.createElement('div');
-            barWrap.style.cssText = 'flex:1; height:8px; background:rgba(255,255,255,0.08); border-radius:4px; overflow:hidden;';
+            barWrap.className = 'acervo-trilho';
             const bar = document.createElement('div');
-            bar.style.cssText = `height:100%; width:${pct}%; background:var(--accent-primary); border-radius:4px;`;
+            bar.className = 'acervo-barra';
+            bar.style.width = `${pct}%`;
             barWrap.appendChild(bar);
             const count = document.createElement('b');
-            count.style.cssText = 'width:32px; text-align:right; color:var(--text-secondary);';
+            count.className = 'acervo-total';
             count.textContent = c.total;
             row.append(label, barWrap, count);
             lista.appendChild(row);
@@ -1882,14 +1973,13 @@ function fecharModalConfigGerais() {
 }
 
 function selecionarTabCg(tab, el) {
-    ['cg-geral', 'cg-privacidade', 'cg-desempenho'].forEach(t => {
-        const tId = t.replace('cg-', 'cgTab').replace(/^(cgTab)(.)(.*)/, (m, p1, p2, p3) => p1 + p2.toUpperCase() + p3);
-        const div = document.getElementById(tId);
-        if (div) div.style.display = 'none';
-    });
     const selectedId = tab.replace('cg-', 'cgTab').replace(/^(cgTab)(.)(.*)/, (m, p1, p2, p3) => p1 + p2.toUpperCase() + p3);
     const div = document.getElementById(selectedId);
-    if (div) div.style.display = 'block';
+
+    trocarPainel(div && div.parentElement, () => {
+        document.querySelectorAll('#modalConfigGerais [id^="cgTab"]').forEach(d => d.style.display = 'none');
+        if (div) div.style.display = 'block';
+    });
     
     document.querySelectorAll('#modalConfigGerais .btn-tab-selector').forEach(b => b.classList.remove('active'));
     if (el) el.classList.add('active');
@@ -2032,16 +2122,19 @@ async function carregarHistorico() {
 }
 
 // Escapa caracteres HTML perigosos pra evitar XSS quando texto vai para innerHTML
-function _escapeHtml(s) {
-    return String(s)
-        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-}
-
 function mostrarHistorico() {
     if (_historicoCache.length === 0) return;
     const dropdown = document.getElementById('searchHistoryDropdown');
     const list = document.getElementById('searchHistoryList');
+
+    // Cola o painel no CAMPO, não na linha: a linha inclui os dois botões
+    // redondos, e alinhar por ela empurrava o painel ~50px pra direita.
+    // Medir na hora acerta em qualquer largura de tela.
+    const campo = document.querySelector('.campo-busca') || document.getElementById('searchInput');
+    const base = dropdown.offsetParent || dropdown.parentElement;
+    const rc = campo.getBoundingClientRect(), rb = base.getBoundingClientRect();
+    dropdown.style.left = (rc.left - rb.left) + 'px';
+    dropdown.style.width = rc.width + 'px';
 
     // Render via DOM (anti-XSS) com itens animados em cascata
     list.innerHTML = '';
@@ -2127,13 +2220,13 @@ async function reAnalizarArquivos() {
         const extra = limpas ? ` + ${limpas} imagem(ns) marcada(s) pra redescrever` : '';
         if (btn) {
             rotularCom(btn, 'check-circulo', `${data.reenfileirados} arquivo(s) na fila!`);
-            setTimeout(() => { btn.innerText = 'Re-analisar Arquivos com Descrição Ruim'; btn.disabled = false; }, 3000);
+            setTimeout(() => { btn.innerText = 'Refazer descrições ruins'; btn.disabled = false; }, 3000);
             if (limpas) toastOk(`${limpas} imagem(ns) serão redescritas na próxima busca.`);
         } else {
             toastOk(`${data.reenfileirados} arquivo(s) na fila de reanálise${extra}.`);
         }
     } catch(e) {
-        if (btn) { btn.innerText = 'Re-analisar Arquivos com Descrição Ruim'; btn.disabled = false; }
+        if (btn) { btn.innerText = 'Refazer descrições ruins'; btn.disabled = false; }
         else { toastErro('Não foi possível reanalisar.'); }
     }
 }
@@ -2153,11 +2246,20 @@ async function abrirLocalDoArquivo() {
 // ==========================================
 // BUSCA E DASHBOARD (SOFT TRANSITIONS GLOBAIS)
 // ==========================================
+// Sumir não é o mesmo que fechar: display:none corta o quadro no meio.
+// Aqui a opacidade cai primeiro e o display só sai no fim.
+function esconderSuave(el, ms) {
+    if (!el || el.style.display === 'none') return;
+    el.style.opacity = '0';
+    setTimeout(() => { el.style.display = 'none'; }, ms || 380);
+}
+
 function voltarParaHomeSmooth() {
     definirTextoBusca('');
     document.getElementById('searchResultsView').classList.add('fade-out');
     document.getElementById('searchResultsView').style.opacity = '0';
     document.getElementById('filterBarContainer').style.opacity = '0';
+    esconderSuave(document.getElementById('dashboardView'), 380);
     fecharPainelLateral();
 
     setTimeout(() => {
@@ -2168,11 +2270,22 @@ function voltarParaHomeSmooth() {
         wrapper.classList.remove('layout-top');
         wrapper.classList.add('layout-centered');
 
-        // Sem condição: clicar no logo sempre devolve a home. Antes isso era
-        // guardado por `searchHistoryExists` e, antes da primeira busca, o
-        // clique só apagava os resultados e deixava a tela em branco.
+        // A casa é a tela vazia: logo, busca e os quadros de número. As
+        // prateleiras só aparecem se a pessoa pedir — pelo quadro Acervo.
+        wrapper.classList.remove('acervo-aberto');
         mostrarHome();
+        carregarPainelNumeros();
     }, 400);
+}
+
+// Abre as prateleiras por baixo da busca. Fecha pelo logo ou pelo Início.
+function mostrarAcervo() {
+    // A classe vai no wrapper porque é dele que o CSS dos quadros do topo
+    // enxerga: com as prateleiras abertas a página rola, e eles sairiam de cena.
+    document.getElementById('mainAppWrapper').classList.add('acervo-aberto');
+    mostrarHome();
+    const acervo = document.getElementById('dashboardView');
+    setTimeout(() => acervo.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
 }
 
 // ==========================================
@@ -2335,6 +2448,244 @@ async function realizarBusca() {
     }
 }
 
+// ==========================================
+// FAIXAS DO PAINEL (prateleiras horizontais)
+// Uma capa só, usada pela galeria, pelos recentes e pelos favoritos.
+// ==========================================
+// A caixa da imagem de uma capa, comum a todas.
+function _caixaDaCapa(r) {
+    const box = document.createElement('div');
+    box.className = 'poster-img';
+    const ext = (r.tipo || '').toLowerCase();
+    if (extensoesImagem.includes(ext)) {
+        const img = document.createElement('img');
+        img.src = formatImagePath(r.caminho);
+        img.alt = textoAlternativo(r);
+        img.loading = 'lazy';
+        box.appendChild(img);
+    } else {
+        const tag = document.createElement('span');
+        tag.className = 'poster-ext';
+        tag.textContent = ext.toUpperCase();
+        box.appendChild(tag);
+    }
+    return box;
+}
+
+// Abrir é um botão de verdade cobrindo a imagem, e não a capa inteira: dentro
+// da capa também moram selecionar e favoritar, e um controle não pode conter
+// outro (nem <button> em <button>, nem role=button com botões dentro).
+function _botaoAbrir(r, aoClicar) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'poster-abrir';
+    b.setAttribute('aria-label', 'Abrir ' + r.nome);
+    b.onclick = aoClicar;
+    return b;
+}
+
+function montarPoster(r, aoClicar, opcoes = {}) {
+    const capa = document.createElement('div');
+    capa.className = 'poster';
+    capa.title = r.nome;
+    if (r.id !== undefined) capa.dataset.fileId = r.id;
+
+    const box = _caixaDaCapa(r);
+    const nome = document.createElement('span');
+    nome.className = 'poster-nome';
+    nome.textContent = r.nome;
+    box.append(nome, _botaoAbrir(r, aoClicar));
+
+    // Selecionar e favoritar sem abrir o arquivo — quem navega pela galeria
+    // está olhando muita coisa de uma vez. Mesmos botões e mesmo estado dos
+    // resultados da busca.
+    if (opcoes.acoes) {
+        const marcado = _selecionados.has(r.id);
+        capa.classList.toggle('card-selecionado', marcado);
+
+        const sel = document.createElement('button');
+        sel.type = 'button';
+        sel.className = 'btn-sel-abs' + (marcado ? ' is-sel' : '');
+        sel.setAttribute('role', 'checkbox');
+        sel.setAttribute('aria-checked', marcado ? 'true' : 'false');
+        sel.setAttribute('aria-label', 'Selecionar para coleção');
+        sel.title = 'Selecionar para coleção';
+        marcarBotaoSelecao(sel, marcado);
+        sel.onclick = (ev) => alternarSelecao(ev, r.id, sel);
+
+        const fav = document.createElement('button');
+        fav.type = 'button';
+        fav.className = 'btn-fav-abs';
+        fav.onclick = (ev) => toggleFavorito(ev, r.id, fav);
+        aplicarEstadoFavorito(fav, !!r.favorito);
+
+        box.append(sel, fav);
+    }
+
+    capa.appendChild(box);
+    return capa;
+}
+
+function rolarFaixa(trilho, dir) {
+    trilho.scrollBy({ left: dir * trilho.clientWidth * 0.8, behavior: 'smooth' });
+}
+
+// Liga/desliga as setas conforme dá pra rolar pra cada lado.
+function vigiarFaixa(wrap, trilho) {
+    const ver = () => {
+        // Enquanto o acervo está fechado a faixa tem largura 0, e aí TUDO
+        // parece caber. Medir nesse estado marcava a prateleira como curta e
+        // escondia o "ver a pasta completa" pra sempre.
+        if (!trilho.clientWidth) return;
+
+        const max = trilho.scrollWidth - trilho.clientWidth - 2;
+        wrap.classList.toggle('tem-antes', trilho.scrollLeft > 8);
+        wrap.classList.toggle('tem-depois', trilho.scrollLeft < max);
+        // Prateleira que cabe inteira na tela não precisa de "ver tudo".
+        const secao = wrap.closest('.faixa, .sec') || wrap;
+        secao.classList.toggle('cabe-tudo', trilho.scrollWidth <= trilho.clientWidth + 4);
+    };
+    trilho.addEventListener('scroll', ver, { passive: true });
+    // O observador cobre os três casos de uma vez: a janela mudou, a faixa
+    // acabou de aparecer, ou as capas terminaram de carregar.
+    new ResizeObserver(ver).observe(trilho);
+    return ver;
+}
+
+// Última capa: troca a fila horizontal por uma grade, ali mesmo. Os itens
+// já estão no DOM — a categoria vem inteira do servidor —, então abrir não
+// busca nada, só muda o arranjo.
+function montarVerTudo(secao, quantos, cabecalho) {
+    const capa = document.createElement('button');
+    capa.type = 'button';
+    capa.className = 'poster poster-tudo';
+
+    const seta = document.createElement('span');
+    seta.className = 'tudo-seta';
+    seta.setAttribute('aria-hidden', 'true');
+
+    const rot = document.createElement('span');
+    rot.className = 'tudo-rot';
+
+    const cont = document.createElement('span');
+    cont.className = 'tudo-cont';
+    cont.textContent = quantos === 1 ? '1 item' : quantos + ' itens';
+
+    capa.append(seta, rot, cont);
+
+    // Gêmeo no cabeçalho: pra chegar na capa do fim é preciso rolar até ela,
+    // que é justamente o que a pessoa quer evitar. Mesmo comando em dois
+    // lugares — o do fim pra quem está passando o olho, o do topo pra quem
+    // já decidiu.
+    const atalho = document.createElement('button');
+    atalho.type = 'button';
+    atalho.className = 'faixa-tudo';
+
+    const sincronizar = () => {
+        const aberta = secao.classList.contains('aberta');
+        rot.textContent = atalho.textContent = aberta ? 'Ver menos' : 'Ver a pasta completa';
+        capa.setAttribute('aria-expanded', String(aberta));
+        atalho.setAttribute('aria-expanded', String(aberta));
+    };
+
+    capa.onclick = atalho.onclick = () => {
+        const aberta = secao.classList.toggle('aberta');
+        sincronizar();
+        if (!aberta) secao.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    };
+
+    sincronizar();
+    if (cabecalho) cabecalho.appendChild(atalho);
+    return capa;
+}
+
+function montarFaixa(titulo, contagem, icone) {
+    const secao = document.createElement('section');
+    secao.className = 'faixa';
+
+    const head = document.createElement('div');
+    head.className = 'faixa-head';
+    const h = document.createElement('h3');
+    if (icone) rotularCom(h, icone, titulo); else h.textContent = titulo;
+    head.appendChild(h);
+    if (contagem !== null && contagem !== undefined) {
+        const c = document.createElement('span');
+        c.className = 'faixa-cont';
+        c.textContent = contagem;
+        head.appendChild(c);
+    }
+
+    const wrap = document.createElement('div');
+    wrap.className = 'faixa-wrap';
+    const trilho = document.createElement('div');
+    trilho.className = 'faixa-trilho';
+
+    [['esq', -1, 'Voltar'], ['dir', 1, 'Avançar']].forEach(([lado, dir, rot]) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'faixa-seta ' + lado;
+        b.setAttribute('aria-label', rot);
+        b.onclick = () => rolarFaixa(trilho, dir);
+        wrap.appendChild(b);
+    });
+
+    wrap.appendChild(trilho);
+    secao._head = head;
+    secao.append(head, wrap);
+    return { secao: secao, trilho: trilho, wrap: wrap };
+}
+
+// ==========================================
+// DESCRIÇÃO DO ARQUIVO
+// O modelo devolve tudo numa linha: "- Estilo: x - O que é: y - Pessoas: ...".
+// Na tela o usuário vê o essencial em tópicos; o texto cru continua intacto
+// no dado (e no data-bruto do painel), que é como a IA reconhece que aquele
+// arquivo já foi analisado.
+// ==========================================
+const _DESC_VAZIOS = ['nenhum', 'nenhuma', 'nenhum.', 'nenhuma.', '-', 'n/a', 'nao identificado'];
+const _DESC_TECNICOS = ['estilo', 'tags'];   // meta do modelo, não interessa na tela
+
+function lerDescricao(txt) {
+    const bruto = (txt || '').trim();
+    const limpo = bruto.replace(/^["\s-]+|["\s]+$/g, '');
+    const topicos = [];
+    let principal = '';
+
+    limpo.split(/\s+-\s+/).filter(Boolean).forEach(parte => {
+        const i = parte.indexOf(':');
+        if (i < 1) return;
+        const chave = parte.slice(0, i).trim();
+        const valor = parte.slice(i + 1).trim();
+        if (!valor || _DESC_VAZIOS.includes(valor.toLowerCase())) return;
+
+        const k = chave.toLowerCase();
+        if (k.startsWith('o que')) { principal = valor; return; }
+        if (_DESC_TECNICOS.includes(k)) return;
+        topicos.push([chave, valor]);
+    });
+
+    return { principal, topicos, bruto };
+}
+
+// Marca o termo buscado sem innerHTML: o texto vem do servidor.
+function _comDestaque(texto, termo) {
+    const frag = document.createDocumentFragment();
+    if (!termo) { frag.appendChild(document.createTextNode(texto)); return frag; }
+    const re = new RegExp(`(${termo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+    texto.split(re).forEach((pedaco, i) => {
+        if (!pedaco) return;
+        if (i % 2 === 1) {
+            const m = document.createElement('span');
+            m.className = 'highlight';
+            m.textContent = pedaco;
+            frag.appendChild(m);
+        } else {
+            frag.appendChild(document.createTextNode(pedaco));
+        }
+    });
+    return frag;
+}
+
 // Cards de "recentes", montados pelo DOM.
 //
 // A versão anterior montava isto com template string e innerHTML, e o nome do
@@ -2365,36 +2716,44 @@ function popularDashboard(resultados) {
     resultados.forEach((r, indice) => {
         const ext = (r.tipo || '').toLowerCase();
         const ehImagem = extensoesImagem.includes(ext);
-        if (ehImagem ? imgs >= 4 : docs >= 4) return;
+        if (ehImagem ? imgs >= 18 : docs >= 18) return;
 
-        const card = document.createElement('div');
-        card.className = 'recent-card';
-        card.onclick = () => abrirPainelLateral(indice);
-
-        const midia = document.createElement('div');
-        if (ehImagem) {
-            midia.className = 'recent-img';
-            const img = document.createElement('img');
-            img.src = formatImagePath(r.caminho);
-            img.alt = textoAlternativo(r);
-            midia.appendChild(img);
-        } else {
-            midia.className = 'recent-img doc-icon';
-            midia.textContent = ext.toUpperCase();
-        }
-
-        const nome = document.createElement('p');
+        // A capa é montada aqui mesmo, e não por montarPoster: é esta função
+        // que o teste de segurança vigia. O nome entra por textContent e o
+        // clique leva o ÍNDICE, nunca o nome.
+        const capa = document.createElement('div');
+        capa.className = 'poster';
+        capa.title = r.nome;
+        const box = _caixaDaCapa(r);
+        const nome = document.createElement('span');
+        nome.className = 'poster-nome';
         nome.textContent = r.nome;
+        box.append(nome, _botaoAbrir(r, () => abrirPainelLateral(indice)));
+        capa.appendChild(box);
 
-        card.append(midia, nome);
-        if (ehImagem) { imagens.appendChild(card); imgs++; }
-        else { documentos.appendChild(card); docs++; }
+        if (ehImagem) { imagens.appendChild(capa); imgs++; }
+        else { documentos.appendChild(capa); docs++; }
     });
 
-    // Uma escrita por grade, e não uma por card: `innerHTML +=` dentro do laço
-    // reconstruía tudo que já estava lá a cada volta.
+    // Uma escrita por grade, e não uma por capa.
     rGridImg.replaceChildren(imagens);
     rGridDoc.replaceChildren(documentos);
+
+    mostrarSecao(rGridDoc, docs > 0);
+    mostrarSecao(rGridImg, imgs > 0);
+}
+
+// Seção vazia não vira título órfão: some inteira.
+function mostrarSecao(grid, temConteudo) {
+    if (!grid) return;
+    const sec = grid.closest('.sec');
+    if (sec) sec.style.display = temConteudo ? '' : 'none';
+
+    const wrap = grid.parentElement;
+    if (temConteudo && wrap && wrap.classList.contains('faixa-wrap') && !grid.dataset.vigiada) {
+        grid.dataset.vigiada = '1';
+        vigiarFaixa(wrap, grid);
+    }
 }
 
 // ==========================================
@@ -2412,35 +2771,57 @@ function atualizarListaModalPastas(pastas) {
     const list = document.getElementById('foldersList');
     _foldersData = pastas || [];
     if (!pastas || pastas.length === 0) {
-        list.innerHTML = '<p style="color:var(--text-secondary);">Nenhuma pasta do computador ainda.</p>';
+        list.innerHTML = '<p class="msg-estado">Nenhuma pasta do computador ainda.</p>';
         document.getElementById('folderConfigInline').style.display = 'none';
         return;
     }
     list.innerHTML = '';
     pastas.forEach(f => {
         const p = typeof f === 'string' ? f : f.path;
-        const prio = (f.prioridades || ['tudo']).join(', ');
+        const prio = f.prioridades || ['tudo'];
         const perfil = f.perfil_analise || 'fast';
         const janela = f.janela_processamento || 'always';
         const fId = f.id || 0;
-        const escapedPath = p.replace(/\\/g, '\\\\');
-        list.innerHTML += `<div class="folder-item" style="flex-wrap:wrap;">
-            <div style="flex:1; min-width:0;">
-                <span class="folder-path">${p}</span>
-                <div class="folder-config-badges">
-                    <span class="folder-badge badge-foco">${prio}</span>
-                    <span class="folder-badge badge-perfil">${perfil === 'deep' ? 'Deep' : 'Fast'}</span>
-                    <span class="folder-badge badge-janela">${janela === 'always' ? 'Sempre' : '' + janela}</span>
-                </div>
-            </div>
-            <div style="display:flex; gap:6px; align-items:center; margin-top:5px;">
-                <button class="btn-verificar-pasta" id="btnVerificar${fId}"
-                        onclick="verificarPasta(${fId})"
-                        title="Procura arquivos novos, alterados ou apagados nesta pasta">Verificar</button>
-                <button class="btn-config-folder" onclick="abrirConfigPasta(${fId}, '${escapedPath}')">Config</button>
-                <button class="btn-remover" onclick="removerPasta('${escapedPath}')">Excluir</button>
-            </div>
-        </div>`;
+
+        // A configuração vira uma frase, não três etiquetas com jargão.
+        const foco = (!prio.length || prio.includes('tudo'))
+            ? 'Tudo' : (Array.isArray(prio) ? prio : String(prio).split(', ')).map(x => x[0].toUpperCase() + x.slice(1)).join(', ');
+        const modo = perfil === 'deep' ? 'análise profunda' : 'análise rápida';
+        const quando = janela === 'always' ? 'a qualquer hora' : `das ${janela.replace('-', ' às ')}`;
+
+        const item = document.createElement('div');
+        item.className = 'folder-item';
+
+        const info = document.createElement('div');
+        info.className = 'folder-info';
+        const caminho = document.createElement('span');
+        caminho.className = 'folder-path';
+        caminho.textContent = p;
+        const resumo = document.createElement('span');
+        resumo.className = 'folder-resumo';
+        resumo.textContent = `${foco} · ${modo} · ${quando}`;
+        info.append(caminho, resumo);
+
+        const acoes = document.createElement('div');
+        acoes.className = 'folder-acoes';
+        const bCfg = document.createElement('button');
+        bCfg.className = 'btn-linha';
+        bCfg.textContent = 'Ajustar';
+        bCfg.onclick = () => abrirConfigPasta(fId, p);
+        const bDel = document.createElement('button');
+        bDel.className = 'btn-linha perigo';
+        bDel.textContent = 'Remover';
+        bDel.onclick = () => removerPasta(p);
+        const bVer = document.createElement('button');
+        bVer.className = 'btn-linha';
+        bVer.id = `btnVerificar${fId}`;
+        bVer.textContent = 'Verificar';
+        bVer.title = 'Procura arquivos novos, alterados ou apagados nesta pasta';
+        bVer.onclick = () => verificarPasta(fId);
+        acoes.append(bVer, bCfg, bDel);
+
+        item.append(info, acoes);
+        list.appendChild(item);
     });
 }
 
@@ -2511,6 +2892,92 @@ function mostrarResultadoDaVerificacao(resumo, detalhe) {
     ].filter(Boolean).join('\n'));
 }
 
+// ==========================================
+// PAINEL DE NÚMEROS DA TELA INICIAL
+// Quatro quadros com o que o app já fez: pastas, arquivos, fila e acervo.
+// Cada um leva pro lugar onde se mexe naquilo.
+// ==========================================
+// Número que sobe em vez de aparecer pronto.
+// A rede de segurança no fim não é paranoia: requestAnimationFrame é
+// estrangulado em aba de fundo, e sem ela quem trocasse de aba durante o
+// carregamento voltaria pra um contador parado no zero.
+function animarNumero(el, alvo, ms) {
+    if (!el) return;
+    const parado = matchMedia('(prefers-reduced-motion: reduce)').matches
+        || document.documentElement.classList.contains('wv-perf');
+    if (parado || !Number.isFinite(alvo)) { el.textContent = alvo; return; }
+
+    const dur = ms || 900;
+    const t0 = performance.now();
+    const passo = (agora) => {
+        const t = Math.min(1, (agora - t0) / dur);
+        el.textContent = Math.round(alvo * (1 - Math.pow(1 - t, 3)));  // desacelera no fim
+        if (t < 1) requestAnimationFrame(passo);
+    };
+    requestAnimationFrame(passo);
+    setTimeout(() => { el.textContent = alvo; }, dur + 80);
+}
+
+async function carregarPainelNumeros() {
+    const painel = document.getElementById('painelNumeros');
+    if (!painel) return;
+
+    const num = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+
+    try {
+        const [rs, re] = await Promise.all([
+            fetch(`${API_BASE_URL}/api/stats`, { headers: fetchOptions.headers }),
+            fetch(`${API_BASE_URL}/api/status`)
+        ]);
+        const st = await rs.json();
+        const es = await re.json();
+
+        const pastas = st.total_pastas ?? 0;
+        const arquivos = st.total_arquivos ?? 0;
+        const fila = es.arquivos_pendentes || 0;
+        const cats = st.por_categoria || [];
+
+        const conta = (id, v) => animarNumero(document.getElementById(id), v);
+
+        conta('numPastas', pastas);
+        num('notaPastas', pastas === 1 ? 'pasta do computador' : 'pastas do computador');
+
+        conta('numArquivos', arquivos);
+        num('notaArquivos', arquivos === 1 ? 'pronto pra busca' : 'prontos pra busca');
+
+        // "Em dia" é palavra, não número: não tem o que contar.
+        if (fila === 0) num('numFila', 'Em dia'); else conta('numFila', fila);
+        num('notaFila', fila === 0 ? 'nada na fila' : (fila === 1 ? 'arquivo esperando' : 'arquivos esperando'));
+        num('acaoFila', fila === 0 ? 'Procurar novidades' : 'Analisar agora');
+        painel.classList.toggle('tem-fila', fila > 0);
+
+        conta('numCategorias', cats.length);
+        num('notaCategorias', cats.length === 1 ? 'categoria reconhecida' : 'categorias reconhecidas');
+
+        // Mini barras: proporção de cada categoria, do maior pro menor.
+        const mini = document.getElementById('miniCategorias');
+        if (mini) {
+            mini.innerHTML = '';
+            const maior = Math.max(1, ...cats.map(c => c.total));
+            [...cats].sort((a, b) => b.total - a.total).slice(0, 6).forEach((c, i) => {
+                const meta = _CATEGORIA_LABEL[c.categoria] || { nome: c.categoria };
+                const col = document.createElement('span');
+                col.className = 'mini-col';
+                col.style.setProperty('--h', Math.max(12, Math.round(c.total / maior * 100)) + '%');
+                col.style.setProperty('--i', i);
+                // Cada barra respira num fôlego diferente, senão as seis
+                // sobem e descem juntas e parece um único bloco pulsando.
+                col.style.setProperty('--r', (0.90 + (i % 3) * 0.035).toFixed(3));
+                col.style.setProperty('--f', (3.1 + (i % 4) * 0.55).toFixed(2) + 's');
+                col.title = `${meta.nome}: ${c.total}`;
+                mini.appendChild(col);
+            });
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
 async function adicionarPasta() {
     const btn = document.getElementById('btnAdicionarPasta'); rotularCom(btn, 'ampulheta', 'Abrindo Windows...');
     const res = await fetch(`${API_BASE_URL}/api/choose_folder`); const data = await res.json();
@@ -2543,18 +3010,51 @@ async function removerPasta(p) {
     }
 }
 
+// O trabalho, sem interface. Quem chama decide como dá o retorno — o
+// botão do modal e o quadro da Fila mostram progresso em lugares distintos.
+async function dispararAnalise(aoAndar) {
+    // 1. Re-gera os vetores dos arquivos já processados (rápido, sem o modelo de visão)
+    await fetch(`${API_BASE_URL}/api/reembed`, { method: 'POST', headers: fetchOptions.headers });
+    if (aoAndar) aoAndar('Sincronizando...');
+    // 2. Escaneia pastas em busca de arquivos novos
+    await fetch(`${API_BASE_URL}/api/analyze_folders`, { method: 'POST', headers: fetchOptions.headers });
+}
+
+// Disparo pelo quadro da Fila: o modal está fechado, então o retorno é no
+// próprio quadro e num aviso — nunca no botão invisível de lá dentro.
+async function analisarPelaFila() {
+    const card = document.getElementById('cardFila');
+    const rot = document.getElementById('acaoFila');
+    if (!card || card.dataset.ocupado) return;   // dois cliques não viram duas varreduras
+
+    card.dataset.ocupado = '1';
+    card.classList.add('ocupado');
+    const antes = rot ? rot.textContent : '';
+    if (rot) rot.textContent = 'Varrendo...';
+
+    try {
+        await dispararAnalise(t => { if (rot) rot.textContent = t; });
+        toastInfo('Varredura iniciada. O quadro Fila mostra o que falta.');
+        buscarStatus();
+        carregarPainelNumeros();
+    } catch (e) {
+        console.error(e);
+        toastErro('Não deu pra iniciar a varredura.');
+    } finally {
+        card.classList.remove('ocupado');
+        delete card.dataset.ocupado;
+        if (rot) rot.textContent = antes;
+    }
+}
+
 async function forcarAnalise() {
     const btn = document.getElementById('btnAnalisarPastas');
     const textoOriginal = btn.innerHTML;
-    rotularCom(btn, 'ampulheta', 'Atualizando embeddings...');
+    rotularCom(btn, 'ampulheta', 'Preparando a busca...');
     btn.disabled = true;
     try {
-        // 1. Re-gera embeddings dos arquivos já processados (rápido, sem LLaVA)
-        await fetch(`${API_BASE_URL}/api/reembed`, { method: 'POST', headers: fetchOptions.headers });
-        rotularCom(btn, 'ampulheta', 'Sincronizando com a IA...');
-        // 2. Escaneia pastas em busca de arquivos novos
-        await fetch(`${API_BASE_URL}/api/analyze_folders`, { method: 'POST', headers: fetchOptions.headers });
-        rotularCom(btn, 'check-circulo', 'Análise Iniciada!');
+        await dispararAnalise(texto => rotularCom(btn, 'ampulheta', texto));
+        rotularCom(btn, 'check-circulo', 'Análise iniciada');
         setTimeout(() => {
             btn.innerHTML = textoOriginal;
             btn.disabled = false;
@@ -2708,7 +3208,7 @@ function escolherColecaoParaFavoritos(quantas) {
 
         const lista = document.getElementById('escolherColecaoLista');
         const modal = document.getElementById('escolherColecaoModal');
-        lista.innerHTML = '<p style="color:var(--text-secondary);">Carregando...</p>';
+        lista.innerHTML = '<p class="msg-estado">Carregando...</p>';
         modal.style.display = 'flex';
 
         // "Criar nova coleção" a partir dos favoritos: o caso de quem
@@ -2734,7 +3234,7 @@ function escolherColecaoParaFavoritos(quantas) {
             const cols = (await res.json()).colecoes || [];
             lista.innerHTML = '';
             if (!cols.length) {
-                lista.innerHTML = '<p style="color:var(--text-secondary);">' +
+                lista.innerHTML = '<p class="msg-estado">' +
                     'Você ainda não tem coleções. Crie uma abaixo.</p>';
             }
             cols.forEach(c => {
@@ -2750,7 +3250,7 @@ function escolherColecaoParaFavoritos(quantas) {
                 lista.appendChild(btn);
             });
         } catch (e) {
-            lista.innerHTML = '<p style="color:#f87171;">Erro ao carregar coleções.</p>';
+            lista.innerHTML = '<p class="msg-estado erro">Erro ao carregar coleções.</p>';
         }
     });
 }
@@ -2915,7 +3415,11 @@ function renderizarResultados() {
         else if (extensoesImagem.includes(ext)) midia = `<img src="${link}" alt="${_attr(textoAlternativo(r))}">`;
 
         const idx = window.resultadosAtuais.indexOf(r);
-        let trecho = r.trecho && r.trecho !== "Nenhum conteúdo..." ? `<div class="trecho-preview">"${r.trecho}"</div>` : '';
+        // No cartão vai só o "o que é": a lista completa fica no painel.
+        const _d = lerDescricao(r.trecho);
+        const _resumo = (_d.principal || (r.trecho === "Nenhum conteúdo..." ? '' : r.trecho))
+            .replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+        let trecho = _resumo ? `<div class="trecho-preview"></div>` : '';
 
         const favClass = r.favorito ? 'is-fav' : '';
         const favBtn = `<button type="button" class="btn-fav-abs ${favClass}" ` +
@@ -2929,10 +3433,15 @@ function renderizarResultados() {
         const sel = _selecionados.has(r.id);
         const selBtn = `<button type="button" class="btn-sel-abs${sel ? ' is-sel' : ''}" role="checkbox" aria-checked="${sel}" aria-label="Selecionar para coleção" title="Selecionar para coleção" onclick="alternarSelecao(event, ${r.id}, this)">${sel ? iconeHTML('check') : ''}</button>`;
 
-        return `<div class="card${sel ? ' card-selecionado' : ''}" data-file-id="${r.id}" data-idx="${idx}" onclick="abrirPainelLateral(${idx})" onmouseenter="mostrarHoverPreview(event, ${idx})" onmousemove="moverHoverPreview(event)" onmouseleave="esconderHoverPreview()">${selBtn}${favBtn}<div class="media-container">${midia}</div><div class="card-content"><h3>${r.nome}</h3><div class="tags"><span class="badge type">${ext.toUpperCase()}</span>${badgeDeOrigem(r.origem)}</div>${trecho}</div></div>`;
+        return `<div class="card${sel ? ' card-selecionado' : ''}" data-file-id="${r.id}" data-idx="${idx}" data-resumo="${_resumo.replace(/"/g, '&quot;')}" onclick="abrirPainelLateral(${idx})">${selBtn}${favBtn}<div class="media-container">${midia}</div><div class="card-content"><h3>${r.nome}</h3><div class="tags"><span class="badge type">${ext.toUpperCase()}</span>${badgeDeOrigem(r.origem)}</div>${trecho}</div></div>`;
     };
 
     mGrid.innerHTML = ordenados.map(buildCard).join('');
+    // O texto entra por textContent: nada de dado do servidor virando marcação.
+    mGrid.querySelectorAll('.card[data-resumo]').forEach(c => {
+        const alvo = c.querySelector('.trecho-preview');
+        if (alvo) alvo.textContent = c.dataset.resumo;
+    });
     oGrid.innerHTML = '';
     atualizarAcoesResultados();
 }
@@ -3073,61 +3582,6 @@ function _botaoVazio(rotulo, aoClicar) {
     return b;
 }
 
-// ==========================================
-// INSPEÇÃO RÁPIDA (preview no hover)
-// ==========================================
-let _hoverTimer = null;
-
-function mostrarHoverPreview(ev, idx) {
-    const r = window.resultadosAtuais[idx];
-    if (!r) return;
-    const ext = (r.tipo || '').toLowerCase();
-    const box = document.getElementById('hoverPreview');
-    const img = document.getElementById('hoverPreviewImg');
-    const doc = document.getElementById('hoverPreviewDoc');
-
-    // Pequeno atraso pra não piscar ao passar rápido
-    clearTimeout(_hoverTimer);
-    _hoverTimer = setTimeout(() => {
-        if (extensoesImagem.includes(ext)) {
-            img.src = formatImagePath(r.caminho);
-            img.alt = textoAlternativo(r);
-            img.style.display = 'block';
-            doc.style.display = 'none';
-        } else {
-            // Documento / mídia: mostra nome + trecho da descrição
-            img.style.display = 'none';
-            doc.style.display = 'block';
-            document.getElementById('hoverPreviewNome').textContent = r.nome;
-            const txt = (r.descricao_ia || r.trecho || 'Sem descrição disponível.').slice(0, 300);
-            document.getElementById('hoverPreviewTexto').textContent = txt;
-        }
-        box.style.display = 'block';
-        moverHoverPreview(ev);
-    }, 250);
-}
-
-function moverHoverPreview(ev) {
-    const box = document.getElementById('hoverPreview');
-    if (box.style.display === 'none') return;
-    // Posiciona perto do cursor, evitando sair da tela
-    const margem = 18;
-    const w = box.offsetWidth || 280;
-    const h = box.offsetHeight || 220;
-    let x = ev.clientX + margem;
-    let y = ev.clientY + margem;
-    if (x + w > window.innerWidth)  x = ev.clientX - w - margem;
-    if (y + h > window.innerHeight) y = ev.clientY - h - margem;
-    box.style.left = Math.max(8, x) + 'px';
-    box.style.top  = Math.max(8, y) + 'px';
-}
-
-function esconderHoverPreview() {
-    clearTimeout(_hoverTimer);
-    const box = document.getElementById('hoverPreview');
-    box.style.display = 'none';
-    document.getElementById('hoverPreviewImg').src = '';
-}
 
 function abrirPainelLateral(id) {
     const res = window.resultadosAtuais[id];
@@ -3138,9 +3592,6 @@ function abrirPainelLateral(id) {
 
     document.getElementById('sideTitle').innerText = res.nome;
     document.getElementById('sideBadgeType').innerText = res.tipo.toUpperCase();
-    // Score escondido do usuário — informação técnica, não interessa pra quem busca.
-    const _sbScore = document.getElementById('sideBadgeScore');
-    if (_sbScore) _sbScore.style.display = 'none';
     document.getElementById('sideDownloadBtn').href = formatImagePath(res.caminho);
 
     const ext = res.tipo.toLowerCase(); const link = formatImagePath(res.caminho);
@@ -3150,12 +3601,34 @@ function abrirPainelLateral(id) {
     else if (extensoesImagem.includes(ext)) mediaBox.innerHTML = `<img src="${link}" alt="${_attr(textoAlternativo(res))}">`;
     else mediaBox.innerHTML = `<div class="document-icon-wrapper" style="width:100%; height:100%;"><svg viewBox='0 0 24 24'><path d='M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2h12c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z'/></svg></div>`;
 
-    let txt = res.conteudo || res.trecho || "Nenhum conteúdo legível.";
-    if (q && txt !== "Nenhum conteúdo legível.") {
-        const reg = new RegExp(`(${q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-        txt = txt.replace(reg, '<span class="highlight">$1</span>');
+    const alvo = document.getElementById('sideText');
+    const desc = lerDescricao(res.conteudo || res.trecho || '');
+    alvo.innerHTML = '';
+    alvo.dataset.bruto = desc.bruto;   // o cru fica aqui: a IA relê, o usuário não vê
+
+    if (desc.principal) {
+        const lead = document.createElement('p');
+        lead.className = 'desc-lead';
+        lead.appendChild(_comDestaque(desc.principal, q));
+        alvo.appendChild(lead);
     }
-    document.getElementById('sideText').innerHTML = txt;
+
+    if (desc.topicos.length) {
+        const lista = document.createElement('dl');
+        lista.className = 'desc-topicos';
+        desc.topicos.forEach(([chave, valor]) => {
+            const dt = document.createElement('dt');
+            dt.textContent = chave;
+            const dd = document.createElement('dd');
+            dd.appendChild(_comDestaque(valor, q));
+            lista.append(dt, dd);
+        });
+        alvo.appendChild(lista);
+    }
+
+    if (!desc.principal && !desc.topicos.length) {
+        alvo.textContent = desc.bruto || 'Nenhum conteúdo legível.';
+    }
 
     document.getElementById('sidePanel').classList.add('open');
     document.getElementById('mainContentArea').classList.add('shifted');
@@ -3189,7 +3662,7 @@ function fecharFavoritos() {
 
 async function carregarFavoritos() {
     const list = document.getElementById('favoritosList');
-    list.innerHTML = '<p style="text-align:center; color: var(--text-secondary);">Carregando favoritos...</p>';
+    list.innerHTML = '<p class="msg-estado">Carregando favoritos...</p>';
 
     try {
         const res = await fetch(`${API_BASE_URL}/api/favorites`, { headers: fetchOptions.headers });
@@ -3235,10 +3708,10 @@ async function carregarFavoritos() {
                 list.innerHTML += card;
             });
         } else {
-            list.innerHTML = '<p style="text-align:center; color: var(--text-secondary);">Nenhum favorito ainda.</p>';
+            list.innerHTML = '<p class="msg-estado">Nenhum favorito ainda.</p>';
         }
     } catch (e) {
-        list.innerHTML = '<p style="text-align:center; color: red;">Erro ao carregar favoritos.</p>';
+        list.innerHTML = '<p class="msg-estado erro">Erro ao carregar favoritos.</p>';
     }
 }
 
@@ -3290,7 +3763,7 @@ async function toggleFavorito(event, id, btnElement, fromModal = false) {
             // desenho de cachorro entra em Animais e em Desenhos), e cada uma
             // desenha o seu botão. Atualizar só o clicado deixaria a mesma
             // foto com estrela cheia num lugar e vazia no outro.
-            document.querySelectorAll(`.recent-card[data-file-id="${id}"] .btn-fav-abs`)
+            document.querySelectorAll(`.recent-card[data-file-id="${id}"] .btn-fav-abs, .poster[data-file-id="${id}"] .btn-fav-abs`)
                 .forEach(b => { if (b !== btnElement) aplicarEstadoFavorito(b, isFav); });
 
             if (fromModal && !isFav) {
@@ -3299,7 +3772,7 @@ async function toggleFavorito(event, id, btnElement, fromModal = false) {
 
                 const list = document.getElementById('favoritosList');
                 if (list && !list.innerHTML.trim().includes('fav-card')) {
-                    list.innerHTML = '<p style="text-align:center; color: var(--text-secondary);">Nenhum favorito ainda.</p>';
+                    list.innerHTML = '<p class="msg-estado">Nenhum favorito ainda.</p>';
                 }
 
                 carregarFavoritosDash();
@@ -3320,40 +3793,23 @@ async function carregarFavoritosDash() {
         const dados = await res.json();
 
         const grid = document.getElementById('recentFavsDash');
-        const title = document.getElementById('favDashTitle');
+        const secao = document.getElementById('secFavsDash');
         if (!grid) return;
 
         grid.innerHTML = '';
 
         if (dados.resultados && dados.resultados.length > 0) {
-            title.style.display = 'block';
+            if (secao) secao.style.display = '';
 
-            const topFavs = dados.resultados.slice(0, 8);
+            const topFavs = dados.resultados.slice(0, 18);
 
             topFavs.forEach(r => {
-                const ext = r.tipo.toLowerCase();
-                let iconText = "";
-                if (extensoesVideo.includes(ext)) iconText = iconeHTML('video', 'ic--gg');
-                else if (extensoesAudio.includes(ext)) iconText = iconeHTML('musica', 'ic--gg');
-                else if (extensoesImagem.includes(ext)) iconText = "";
-
-                let midia = `<div class="recent-img" style="font-size:3rem; background:transparent;">${iconText}</div>`;
-                if (extensoesImagem.includes(ext)) {
-                    midia = `<div class="recent-img"><img src="${formatImagePath(r.caminho)}" alt="${_attr(textoAlternativo(r))}"></div>`;
-                }
-
-                const cardBox = `<div class="recent-card" onclick="abrirFavoritos()" id="favDash_${r.id}">
-                    <div style="position:relative; width:100%; height:100%; pointer-events: none;">
-                        ${midia}
-                    </div>
-                    <p style="pointer-events: auto;">${r.nome}</p>
-                    <button type="button" class="btn-fav-abs is-fav" aria-pressed="true" aria-label="Remover dos favoritos" title="Remover dos favoritos" onclick="event.stopPropagation(); toggleFavorito(event, ${r.id}, this, true)" style="top:5px; right:5px; width:30px; height:30px; pointer-events: auto;">${iconeFavHTML(true)}</button>
-                </div>`;
-
-                grid.innerHTML += cardBox;
+                const poster = montarPoster(r, () => abrirFavoritos());
+                poster.id = `favDash_${r.id}`;
+                grid.appendChild(poster);
             });
         } else {
-            title.style.display = 'none';
+            if (secao) secao.style.display = 'none';
         }
     } catch (e) { }
 }
@@ -3367,7 +3823,7 @@ const _CAT_GALERIA = {
     comida:   { icone: 'comida',   nome: 'Comida' },
     natureza: { icone: 'natureza', nome: 'Natureza' },
     urbano:   { icone: 'urbano',   nome: 'Urbano' },
-    desenhos: { icone: 'paleta',   nome: 'Desenhos e Arte' },
+    desenhos: { icone: 'paleta',   nome: 'Desenhos e arte' },
     outras:   { icone: 'caixa',    nome: 'Outras' },
 };
 
@@ -3607,102 +4063,71 @@ async function carregarGaleria() {
 
         desenharSeletorDePastas(d.pastas || []);
 
-        container.innerHTML = '';
+        // Mapa categoria -> itens: o painel lateral, a seleção por categoria
+        // e o favorito sincronizado entre prateleiras leem daqui.
+        window._galeriaGrupos = {};
+        grupos.forEach(g => { window._galeriaGrupos[g.categoria] = g.itens; });
+
+        container.replaceChildren();
+        mostrarSecao(container, true);
         if (grupos.length === 0) {
             desenharHomeVazia(container, d.pastas || []);
+            atualizarBarraSelecao();
             return;
         }
 
         grupos.forEach(g => {
             const meta = _CAT_GALERIA[g.categoria] || { icone: 'pasta', nome: g.categoria };
+            const faixa = montarFaixa(meta.nome, g.total, meta.icone);
+            faixa.secao.dataset.cat = g.categoria;
 
-            const secao = document.createElement('div');
-            secao.style.cssText = 'margin-bottom: 32px;';
-
-            const titulo = document.createElement('h3');
-            titulo.style.cssText = 'color: var(--text-primary); margin: 0 0 14px 0; display:flex; align-items:center; gap:8px; justify-content:center;';
-            rotularCom(titulo, meta.icone, meta.nome);
-            const cont = document.createElement('span');
-            cont.style.cssText = 'font-size:0.8rem; color:var(--text-secondary); font-weight:normal;';
-            cont.textContent = `(${g.total})`;
-            titulo.appendChild(cont);
-
-            // Selecionar a categoria inteira. É o motivo de a pessoa estar
-            // aqui em vez de na busca: ela já sabe que quer "todas as fotos de
-            // animais", e marcar de uma em uma seria o trabalho que o
-            // agrupamento existe para poupar.
+            // Selecionar a categoria inteira: quem está aqui já sabe que quer
+            // "todas as fotos de animais", e marcar de uma em uma seria o
+            // trabalho que o agrupamento existe para poupar.
             const btnCat = document.createElement('button');
             btnCat.type = 'button';
             btnCat.className = 'btn-sel-categoria';
             btnCat.dataset.categoria = g.categoria;
             btnCat.onclick = () => alternarSelecaoDaCategoria(g.categoria);
-            titulo.appendChild(btnCat);
+            faixa.secao._head.appendChild(btnCat);
 
-            secao.appendChild(titulo);
-
-            const grid = document.createElement('div');
-            grid.className = 'recent-grid';
-
-            // Guarda os itens do grupo numa janela global pra reusar o painel lateral
             g.itens.forEach(r => {
-                const card = document.createElement('div');
-                card.className = 'recent-card';
-                if (_selecionados.has(r.id)) card.classList.add('card-selecionado');
-                card.dataset.fileId = r.id;
-                card.onclick = () => abrirPainelGaleria(g.categoria, r.id);
-
-                // Mesma caixa de seleção dos resultados de busca, e o mesmo
-                // Set por trás. Quem navega por categoria em vez de buscar
-                // precisa poder montar coleção do mesmo jeito.
-                const sel = document.createElement('button');
-                sel.type = 'button';
-                sel.className = 'btn-sel-abs' + (_selecionados.has(r.id) ? ' is-sel' : '');
-                sel.setAttribute('role', 'checkbox');
-                sel.setAttribute('aria-checked', _selecionados.has(r.id) ? 'true' : 'false');
-                sel.setAttribute('aria-label', 'Selecionar para coleção');
-                sel.title = 'Selecionar para coleção';
-                marcarBotaoSelecao(sel, _selecionados.has(r.id));
-                sel.onclick = (ev) => alternarSelecao(ev, r.id, sel);
-                card.appendChild(sel);
-
-                // Favoritar sem precisar abrir a imagem. Quem navega por
-                // categoria está justamente olhando muita coisa de uma vez —
-                // ter de abrir cada uma para marcar a estrela desfaz a
-                // vantagem de estar aqui em vez de na busca.
-                const fav = document.createElement('button');
-                fav.type = 'button';
-                fav.className = 'btn-fav-abs' + (r.favorito ? ' is-fav' : '');
-                fav.setAttribute('aria-pressed', r.favorito ? 'true' : 'false');
-                fav.setAttribute('aria-label',
-                    r.favorito ? 'Remover dos favoritos' : 'Favoritar');
-                fav.title = fav.getAttribute('aria-label');
-                fav.replaceChildren(iconeFav(r.favorito));
-                fav.onclick = (ev) => toggleFavorito(ev, r.id, fav);
-                card.appendChild(fav);
-
-                const ext = (r.tipo || '').toLowerCase();
-                const imgBox = document.createElement('div');
-                imgBox.className = 'recent-img';
-                if (extensoesImagem.includes(ext)) {
-                    const img = document.createElement('img');
-                    img.src = formatImagePath(r.caminho);
-                    img.alt = textoAlternativo(r);
-                    img.loading = 'lazy';
-                    imgBox.appendChild(img);
-                }
-                const nm = document.createElement('p');
-                nm.textContent = r.nome;
-                card.append(imgBox, nm);
-                grid.appendChild(card);
+                faixa.trilho.appendChild(montarPoster(
+                    r, () => abrirPainelGaleria(g.categoria, r.id), { acoes: true }));
             });
+            faixa.trilho.appendChild(
+                montarVerTudo(faixa.secao, g.itens.length, faixa.secao._head));
 
-            secao.appendChild(grid);
-            container.appendChild(secao);
+            container.appendChild(faixa.secao);
+            vigiarFaixa(faixa.wrap, faixa.trilho);
         });
 
-        // Mapa categoria -> itens, pra abrir o painel lateral corretamente
-        window._galeriaGrupos = {};
-        grupos.forEach(g => { window._galeriaGrupos[g.categoria] = g.itens; });
+        // Antes da primeira busca, a prateleira de recentes é o acervo
+        // inteiro, do mais novo pro mais velho.
+        const grade = document.getElementById('recentImgs');
+        if (grade && grade.children.length === 0) {
+            const todas = [];
+            grupos.forEach(g => g.itens.forEach(r => {
+                if (!todas.some(x => x.id === r.id)) todas.push(r);
+            }));
+            todas.sort((a, b) => new Date(b.data || 0) - new Date(a.data || 0));
+            const recentes = todas.slice(0, 18);
+            recentes.forEach(r => {
+                const cat = grupos.find(g => g.itens.some(x => x.id === r.id));
+                grade.appendChild(montarPoster(
+                    r, () => abrirPainelGaleria(cat.categoria, r.id), { acoes: true }));
+            });
+            const secRecentes = grade.closest('.sec') || grade.closest('.faixa');
+            if (secRecentes) {
+                grade.appendChild(montarVerTudo(
+                    secRecentes, recentes.length, secRecentes.querySelector('.sec-head')));
+            }
+            mostrarSecao(grade, todas.length > 0);
+        }
+
+        // Documento não entra na galeria (ela é de imagem): sem busca, sem seção.
+        const docs = document.getElementById('recentDocs');
+        if (docs && docs.children.length === 0) mostrarSecao(docs, false);
 
         atualizarBotoesDeCategoria();
         atualizarBarraSelecao();
@@ -3748,7 +4173,7 @@ function atualizarBotoesDeCategoria() {
 // file_id em toda a galeria, e não só nos cards da categoria clicada — senão
 // a mesma foto apareceria marcada num lugar e desmarcada no outro.
 function sincronizarCardsDaGaleria() {
-    document.querySelectorAll('.recent-card[data-file-id]').forEach(card => {
+    document.querySelectorAll('.recent-card[data-file-id], .poster[data-file-id]').forEach(card => {
         const id = Number(card.dataset.fileId);
         const marcado = _selecionados.has(id);
         card.classList.toggle('card-selecionado', marcado);
@@ -4124,6 +4549,7 @@ async function buscarStatus() {
 
         // Monta o texto do status
         let texto;
+        let ocioso = false;   // parada, a barra nem aparece
         let simbolo = '';       // id do icone que acompanha o texto
         if (pend > 0) {
             // "N na fila" não responde à pergunta que a pessoa tem: dá tempo
@@ -4141,6 +4567,7 @@ async function buscarStatus() {
             texto = s.status;
         } else {
             texto = "Motor pronto";
+            ocioso = true;   // nada acontecendo: a barra nao precisa aparecer
         }
 
         // Reconstrói a barra: texto (textContent, anti-XSS) + botão cancelar
@@ -4159,10 +4586,12 @@ async function buscarStatus() {
             b.appendChild(btn);
         }
         b.style.color = "var(--telemetry)";
+        b.style.display = ocioso ? "none" : "flex";
     } catch (e) {
         rotularCom(b, 'alerta',
                    'Servidor desconectado — verifique se o backend está rodando.');
-        b.style.color = "#ef4444";
+        b.style.color = "var(--danger)";
+        b.style.display = "flex";
     }
 }
 
@@ -4187,12 +4616,10 @@ function avisarToggle(nome, ativado) {
 // ==========================================
 // MENU LATERAL (navegação hamburguer)
 // ==========================================
-function abrirMenuLateral() {
-    document.getElementById('menuLateral').classList.add('aberto');
-    document.getElementById('menuOverlay').classList.add('aberto');
-}
 function fecharMenuLateral() {
-    document.getElementById('menuLateral').classList.remove('aberto');
+    const ml = document.getElementById('menuLateral');
+    if (!ml) return;
+    ml.classList.remove('aberto');
     document.getElementById('menuOverlay').classList.remove('aberto');
 }
 
@@ -4290,15 +4717,15 @@ function corMaisProximaQuePassa(cor, fundo, minimo = CONTRASTE_MINIMO) {
 const _FUNDO_DE_LEITURA = {
     corPrimaria:    () => _corDeFundoDaTela(),
     corSecundaria:  () => _corDeFundoDaTela(),
-    corTextoBotao:  () => document.getElementById('corPrimaria')?.value || '#A855F7',
-    btnSearchTexto: () => document.getElementById('btnSearchCor')?.value || '#A855F7',
+    corTextoBotao:  () => document.getElementById('corPrimaria')?.value || '#6F87A8',
+    btnSearchTexto: () => document.getElementById('btnSearchCor')?.value || '#6F87A8',
     btnTopbarTexto: () => document.getElementById('btnTopbarCor')?.value || '#151A2A',
 };
 
 function _corDeFundoDaTela() {
     const cs = getComputedStyle(document.body).backgroundColor;
     const m = cs.match(/\d+/g);
-    if (!m) return '#0B0614';
+    if (!m) return '#0C0E13';
     const hex = (v) => Number(v).toString(16).padStart(2, '0');
     return '#' + hex(m[0]) + hex(m[1]) + hex(m[2]);
 }
@@ -4429,7 +4856,7 @@ function _prepararModal(modal) {
 
     // O X é um <span> em vários modais: sem role e tabindex, o teclado não
     // alcança o único jeito de fechar.
-    modal.querySelectorAll('.close-btn').forEach(x => {
+    modal.querySelectorAll('.close-btn, .sheet-close').forEach(x => {
         if (x.tagName !== 'BUTTON') {
             x.setAttribute('role', 'button');
             if (!x.hasAttribute('tabindex')) x.setAttribute('tabindex', '0');
@@ -4450,7 +4877,7 @@ function _aoAbrirModal(modal) {
     // conteúdo. Quando ele é o ÚNICO foco possível — modal ainda carregando,
     // ou só com texto —, o foco vai para o próprio diálogo, que faz o leitor
     // de tela ler o título em vez de dizer "Fechar".
-    const alvos = _focaveis(modal).filter(el => !el.classList.contains('close-btn'));
+    const alvos = _focaveis(modal).filter(el => !el.matches('.close-btn, .sheet-close'));
     if (alvos.length) {
         alvos[0].focus();
     } else {
@@ -4501,7 +4928,7 @@ function fecharModalDeCima() {
     const [topo] = _modaisAbertos();
     if (!topo) return false;
 
-    const x = topo.querySelector('.close-btn');
+    const x = topo.querySelector('.close-btn, .sheet-close');
     if (x) { x.click(); return true; }
     topo.style.display = 'none';
     return true;
@@ -4563,6 +4990,13 @@ document.addEventListener('keydown', (e) => {
         // nove ficaram sem tecla de fechar, sem ninguém perceber.
         if (fecharModalDeCima()) return;
 
+        // Nada aberto pra fechar: Esc é o caminho de volta pra tela inicial.
+        // Menos quando a tecla nasceu dentro de um modal que acabou de se fechar.
+        if (e.target && e.target.closest && e.target.closest('.modal')) return;
+        const wrap = document.getElementById('mainAppWrapper');
+        if (wrap && (wrap.classList.contains('layout-top') || wrap.classList.contains('acervo-aberto'))) {
+            voltarParaHomeSmooth();
+        }
         return;
     }
 
@@ -4638,7 +5072,7 @@ async function restaurarSelecao() {
 function alternarSelecao(event, fileId, btn) {
     event.stopPropagation();     // não abre o painel lateral
     // `.card` nos resultados de busca, `.recent-card` na galeria da home.
-    const card = btn.closest('.card') || btn.closest('.recent-card');
+    const card = btn.closest('.card') || btn.closest('.recent-card') || btn.closest('.poster');
 
     if (_selecionados.has(fileId)) {
         _selecionados.delete(fileId);
@@ -4766,7 +5200,7 @@ let _fileIdAtual = null;
 
 async function abrirColecoes() {
     document.getElementById('colecoesModal').style.display = 'flex';
-    document.getElementById('colecoesTitulo').innerText = 'Minhas Coleções';
+    document.getElementById('colecoesTitulo').innerText = 'Minhas coleções';
     if (typeof cancelarRenomearColecao === 'function') cancelarRenomearColecao();
     const btnR = document.getElementById('btnRenomearColecao');
     if (btnR) btnR.style.display = 'none';
@@ -4792,7 +5226,7 @@ function trocarOrdemDasColecoes(valor) {
 
 async function carregarColecoes() {
     const lista = document.getElementById('colecoesLista');
-    lista.innerHTML = '<p style="color:var(--text-secondary);">Carregando...</p>';
+    lista.innerHTML = '<p class="msg-estado">Carregando...</p>';
 
     const seletor = document.getElementById('ordemColecoes');
     if (seletor) seletor.value = _ordemColecoes;
@@ -4802,7 +5236,7 @@ async function carregarColecoes() {
         const d = await res.json();
         const cols = d.colecoes || [];
         if (cols.length === 0) {
-            lista.innerHTML = '<p style="color:var(--text-secondary);">Nenhuma coleção ainda. Crie uma acima ou use "Adicionar à coleção" num resultado.</p>';
+            lista.innerHTML = '<p class="msg-estado">Nenhuma coleção ainda. Crie uma acima ou use "Adicionar à coleção" num resultado.</p>';
             return;
         }
         lista.innerHTML = '';
@@ -4877,7 +5311,7 @@ async function carregarColecoes() {
         });
     } catch (e) {
         console.error(e);
-        lista.innerHTML = '<p style="color:#f87171;">Erro ao carregar coleções.</p>';
+        lista.innerHTML = '<p class="msg-estado erro">Erro ao carregar coleções.</p>';
     }
 }
 
@@ -5165,8 +5599,7 @@ function renderizarPastasExportadas(pastas) {
 
         const renomear = document.createElement('button');
         renomear.type = 'button';
-        renomear.className = 'action-btn';
-        renomear.style.background = 'transparent';
+        renomear.className = 'btn-linha btn-icone';
         renomear.replaceChildren(icone('lapis'));
         renomear.setAttribute('aria-label', `Mudar o complemento do nome de ${p.nome}`);
         renomear.title = 'Mudar o complemento do nome desta pasta';
@@ -5174,7 +5607,7 @@ function renderizarPastasExportadas(pastas) {
         acoes.appendChild(renomear);
 
         const abrir = document.createElement('button');
-        abrir.className = 'action-btn gradient-btn';
+        abrir.className = 'btn-linha';
         abrir.textContent = 'Abrir';
         abrir.onclick = () => { fecharPastasExportadas(); abrirPastaExportada(p.caminho); };
         acoes.appendChild(abrir);
@@ -5343,7 +5776,7 @@ async function abrirStatusPasta() {
 
     if (pastas.length === 0) {
         const p = document.createElement('p');
-        p.style.cssText = 'color:var(--text-secondary); font-size:0.92rem;';
+        p.className = 'msg-estado';
         p.textContent = 'Esta coleção ainda não tem pasta no computador. Use "Salvar no computador" para criar uma.';
         corpo.appendChild(p);
     } else {
@@ -5413,7 +5846,6 @@ function _blocoStatusPasta(p, totalColecao) {
     if (p.faltando.length > 0 && p.recebe) {
         const b = document.createElement('button');
         b.className = 'action-btn gradient-btn';
-        b.style.marginTop = '12px';
         b.textContent = `Copiar as ${p.faltando.length} que faltam`;
         b.onclick = async () => {
             fecharStatusPasta();
@@ -5443,7 +5875,7 @@ function _listaNomes(titulo, nomes, nota) {
     det.appendChild(sum);
     if (nota) {
         const p = document.createElement('p');
-        p.style.cssText = 'color:var(--text-secondary); font-size:0.79rem; margin:6px 0 0;';
+        p.className = 'status-nota';
         p.textContent = nota;
         det.appendChild(p);
     }
@@ -5690,7 +6122,7 @@ async function verColecao(id, nome) {
     document.getElementById('colecaoConteudo').style.display = 'block';
     atualizarBotaoAbrirPasta(id);
     const grid = document.getElementById('colecaoItens');
-    grid.innerHTML = '<p style="color:var(--text-secondary);">Carregando...</p>';
+    grid.innerHTML = '<p class="msg-estado">Carregando...</p>';
     try {
         // A capa vem da listagem, que é quem a conhece. Sem isto, entrar
         // direto numa coleção (pelo desfazer, por exemplo) mostraria a estrela
@@ -5707,37 +6139,25 @@ async function verColecao(id, nome) {
         const d = await res.json();
         const itens = d.resultados || [];
         if (itens.length === 0) {
-            grid.innerHTML = '<p style="color:var(--text-secondary);">Coleção vazia.</p>';
+            grid.innerHTML = '<p class="msg-estado">Coleção vazia.</p>';
             return;
         }
         // Reaproveita os itens como resultadosAtuais pra reusar o painel lateral
         window.resultadosAtuais = itens;
         grid.innerHTML = '';
         itens.forEach((r, idx) => {
-            const card = document.createElement('div');
-            card.className = 'recent-card';
-            card.style.position = 'relative';
-            card.onclick = () => { fecharColecoes(); abrirPainelLateral(idx); };
+            const card = montarPoster(r, () => { fecharColecoes(); abrirPainelLateral(idx); });
             const ext = (r.tipo || '').toLowerCase();
-            if (extensoesImagem.includes(ext)) {
-                const img = document.createElement('img');
-                img.src = formatImagePath(r.caminho);
-                img.alt = textoAlternativo(r);
-                img.style.cssText = 'width:100%; height:110px; object-fit:cover; border-radius:8px;';
-                card.appendChild(img);
-            }
-            const nm = document.createElement('div');
-            nm.style.cssText = 'font-size:0.8rem; margin-top:6px; color:var(--text-primary); word-break:break-all;';
-            nm.textContent = r.nome;
-            card.appendChild(nm);
 
-            // Botão de remover este item da coleção (flutuante no canto)
+            // Tirar este item da coleção sem abrir o arquivo.
             const rem = document.createElement('button');
+            rem.type = 'button';
             rem.className = 'colecao-item-remover';
-            rem.textContent = '×';
+            rem.replaceChildren(icone('x'));
+            rem.setAttribute('aria-label', 'Remover desta coleção');
             rem.title = 'Remover desta coleção';
             rem.onclick = (e) => { e.stopPropagation(); removerDaColecao(r.id, r.nome); };
-            card.appendChild(rem);
+            card.querySelector('.poster-img').appendChild(rem);
 
             // Definir como capa. Só faz sentido em imagem: um PDF não tem o
             // que mostrar na capa.
@@ -5755,14 +6175,14 @@ async function verColecao(id, nome) {
                     e.stopPropagation();
                     definirCapaDaColecao(eCapa ? null : r.id);
                 };
-                card.appendChild(capaBtn);
+                card.querySelector('.poster-img').appendChild(capaBtn);
             }
 
             grid.appendChild(card);
         });
     } catch (e) {
         console.error(e);
-        grid.innerHTML = '<p style="color:#f87171;">Erro ao carregar.</p>';
+        grid.innerHTML = '<p class="msg-estado erro">Erro ao carregar.</p>';
     }
 }
 
@@ -5866,7 +6286,7 @@ async function abrirSeletorColecao() {
         return;
     }
     const lista = document.getElementById('escolherColecaoLista');
-    lista.innerHTML = '<p style="color:var(--text-secondary);">Carregando...</p>';
+    lista.innerHTML = '<p class="msg-estado">Carregando...</p>';
     document.getElementById('escolherColecaoModal').style.display = 'flex';
     try {
         const res = await fetch(`${API_BASE_URL}/api/collections`);
@@ -5874,7 +6294,7 @@ async function abrirSeletorColecao() {
         const cols = d.colecoes || [];
 
         if (cols.length === 0) {
-            lista.innerHTML = '<p style="color:var(--text-secondary);">Você ainda não tem coleções. Crie uma abaixo.</p>';
+            lista.innerHTML = '<p class="msg-estado">Você ainda não tem coleções. Crie uma abaixo.</p>';
             return;
         }
         lista.innerHTML = '';
@@ -5895,7 +6315,7 @@ async function abrirSeletorColecao() {
         });
     } catch (e) {
         console.error(e);
-        lista.innerHTML = '<p style="color:#f87171;">Erro ao carregar coleções.</p>';
+        lista.innerHTML = '<p class="msg-estado erro">Erro ao carregar coleções.</p>';
     }
 }
 
@@ -6339,7 +6759,7 @@ function perguntarQualPastaRecebe({ pastaNova, existentes }) {
 
     const confirmar = document.createElement('button');
     confirmar.className = 'action-btn gradient-btn';
-    confirmar.style.cssText = 'margin-top:14px; align-self:flex-end;';
+    confirmar.classList.add('exp-novo-confirmar');
     confirmar.textContent = 'Confirmar escolha';
     confirmar.onclick = async () => {
         const marcadas = [...box.querySelectorAll('input[type="checkbox"]:checked')]
