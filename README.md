@@ -172,7 +172,13 @@ O navegador abre sozinho em **http://127.0.0.1:5000**. Se não abrir, digite ess
 3. Escolha o modo de análise (**Relâmpago** = descrições mais econômicas, **Profundo** = mais minuciosas) e confirme. A indexação só começa depois da sua confirmação.
 4. Busque em português natural: *"cachorro na grama"*, *"nota fiscal"*, *"prato de comida"*.
 
-A **primeira busca** por um assunto novo demora alguns segundos, porque o Claude está descrevendo as imagens candidatas naquele momento. As buscas seguintes usam o cache e respondem em cerca de 1 segundo.
+A **primeira busca** por um assunto novo demora, porque o Claude está descrevendo as imagens candidatas naquele momento. As candidatas são descritas ao mesmo tempo, e não uma depois da outra, então a espera é a da imagem mais lenta — não a soma de todas. Cada chamada tem teto de 20 segundos (ajustável em `CLAUDE_TIMEOUT`). As buscas seguintes usam o cache e respondem em cerca de 1 segundo.
+
+O servidor registra no terminal quanto cada fase levou, o que ajuda a saber onde o tempo foi embora:
+
+```
+[Busca] 8.1s — sql 0.4 | clip 0.2 | descricao 6.2 (5) | persistencia 0.3 | rerank 1.0
+```
 
 Para desligar, feche a janela do terminal. Para religar, basta rodar o `rodar.bat` de novo — os passos 1, 3 e 4 são só da primeira vez.
 

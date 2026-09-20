@@ -257,6 +257,29 @@ produto.
 
 ---
 
+## 9-C. Latência da busca
+
+Ver `features/16-latencia-da-busca.md`. Uma busca por assunto ainda não descrito
+fazia até seis chamadas pagas **em fila indiana**, dentro do request, mais cinco
+aberturas de conexão com o banco — e só respondia quando a última terminava.
+
+| ID | Requisito | Como verificar |
+|---|---|---|
+| **RNF-091** | As descrições sob demanda de uma mesma busca devem correr **em paralelo**. O custo da fase é o da chamada mais lenta, não a soma das cinco. | `tests/unit/test_descricao_paralela.py` mede a concorrência máxima observada; em série ela é 1. |
+| **RNF-092** | Apenas a chamada à API vai para thread. SBERT, BM25 e banco ficam na thread principal. Não é preferência de estilo: `_SBERT` é objeto global sem garantia de encode concorrente, e `get_db()` só anota a conexão em `flask.g` havendo contexto de aplicação — sem isso o `teardown` não recolhe e o pool esgota. | Revisão do diff: nenhuma dessas chamadas dentro do `ThreadPoolExecutor`. |
+| **RNF-093** | As descrições de uma busca devem ser gravadas numa **única** conexão, com um `commit`. Com o Postgres na nuvem, cinco idas e voltas custam mais que os próprios `UPDATE`s. | `test_descricao_paralela.py`: uma conexão, cinco `UPDATE`s, um `commit`. |
+| **RNF-094** | Conexão aberta fora de um request precisa de `close()` em `finally`. Quem chama de dentro do request era salvo pelo `teardown`; o worker e as threads não são. | Revisão: `get_db()` sem `finally` no mesmo escopo. |
+| **RNF-095** | Toda chamada à API de IA deve ter teto de espera. O padrão do SDK são 10 minutos e 2 retentativas, o que na prática é não ter teto — e o re-rank roda dentro do request da busca. Padrão: 20 s, 1 retentativa, ajustável por `CLAUDE_TIMEOUT`. | `tests/unit/test_cliente_claude.py`. |
+| **RNF-096** | A busca deve registrar o tempo **por fase** no log do servidor: `sql`, `clip`, `descricao` (com a contagem), `persistencia` e `rerank`. Sem isso, qualquer otimização é chute e o ganho não é demonstrável. | `tests/unit/test_fases_da_busca.py`; a soma das fases bate com o total dentro de 0,3 s. |
+| **RNF-097** | A medição **não** pode entrar no payload de `/api/search`, que é contrato público. Sai no log e em `/api/debug/scores`. | Teste dedicado: nenhum campo de diagnóstico na resposta da busca. |
+
+**Ainda não medido em produção.** As etapas acima mudam a estrutura da espera e
+estão cobertas por teste, mas o número de ponta a ponta com a chave real e uma
+biblioteca de verdade não foi levantado. O RNF-096 existe justamente para que
+esse número passe a sair sozinho no log, sem instrumentação nova.
+
+---
+
 ## 10. Resumo dos débitos técnicos preexistentes
 
 Encontrados durante a análise. **Nenhum é causado pelas features novas**, mas
