@@ -2160,6 +2160,37 @@ def _trecho(desc: str, query: str) -> str:
     return desc[:240].strip()
 
 
+# Última medição por fase da busca, para o /api/debug/scores.
+#
+# Uma variável de módulo, e não algo por usuário: isto é diagnóstico de
+# desenvolvimento, lido logo depois de rodar uma busca na própria máquina.
+# Guardar por sessão daria a impressão de ser um histórico, que não é.
+_ULTIMAS_FASES: dict = {}
+
+
+def _registrar_fases(total: float, fases: dict) -> None:
+    """Loga o tempo por fase e guarda a última medição.
+
+    O total vem de fora em vez de ser somado daqui: a diferença entre ele e a
+    soma das partes é justamente o que ainda não está medido, e some se o
+    total for calculado a partir das fases.
+    """
+    global _ULTIMAS_FASES
+    _ULTIMAS_FASES = dict(fases, total=round(total, 3))
+
+    if not fases:
+        print(f"[Busca] {total:.1f}s")
+        return
+
+    partes = []
+    for nome, seg in fases.items():
+        if nome.endswith("_n"):
+            continue
+        quantos = fases.get(f"{nome}_n")
+        partes.append(f"{nome} {seg:.1f}" + (f" ({quantos})" if quantos is not None else ""))
+    print(f"[Busca] {total:.1f}s — " + " | ".join(partes))
+
+
 @app.route("/api/search", methods=["GET", "POST"])
 def api_search():
     """
@@ -2214,6 +2245,9 @@ def api_search():
         return jsonify({"resultados": [], "tempo": 0})
 
     t0 = time.time()
+    # Sem separar as fases, qualquer otimização daqui para frente é chute e
+    # não há como provar o ganho depois.
+    fases: dict = {}
 
     if not SBERT_OK:
         # Duas situações bem diferentes, e o usuário precisa saber qual é a
@@ -2294,6 +2328,7 @@ def api_search():
     #  (b) imagens com embedding_clip (busca lazy: indexadas só com CLIP, sem
     #      descrição ainda). O sbert_score é NULL pra imagens sem SBERT; o CLIP
     #      cuida da relevância delas mais abaixo.
+    _t = time.time()
     conn = get_db()
     rows = conn.execute(
         f"""
@@ -2337,11 +2372,14 @@ def api_search():
         rows.extend(r for r in rows_lazy if r["id"] not in ja_vistos)
     conn.close()
 
+    fases["sql"] = round(time.time() - _t, 3)
+
     if not rows:
         # Os campos do refino vão junto mesmo sem resultado. Sem eles, a trilha
         # sumiria da tela justamente quando a pessoa mais precisa dela: o
         # refino apertou demais, não veio nada, e o caminho de volta é remover
         # um dos filtros que acabaram de desaparecer da vista.
+        _registrar_fases(time.time() - t0, fases)
         return jsonify({
             "resultados": [], "tempo": round(time.time() - t0, 3),
             "consulta": q["original"], "excluidos": termos_excluidos,
@@ -2359,6 +2397,7 @@ def api_search():
 
     # CLIP (visual): só pra imagens com embedding_clip (vetor da query já
     # foi calculado antes da SQL — reusa)
+    _t = time.time()
     clip_sims = [0.0] * len(rows)
     if CLIP_OK and SKLEARN_OK and clip_query_vec is not None:
         import numpy as np
@@ -2380,6 +2419,7 @@ def api_search():
     # útil do CLIP é esticada para [0, 1] antes de entrar no blend. Os limiares
     # continuam usando o valor cru (clip_sims), que é onde foram calibrados.
     clip_norm = [max(0.0, min(1.0, (s - 0.15) / 0.15)) for s in clip_sims]
+    fases["clip"] = round(time.time() - _t, 3)
 
     # ── EXCLUSÃO NO SINAL VISUAL ────────────────────────────────────────────
     # Quem escreve "praia -pessoas" quer tirar as fotos COM gente, e a maioria
@@ -2443,6 +2483,7 @@ def api_search():
         #            request. Sem essa anotação o `teardown_appcontext` não
         #            recolhe nada, e um punhado de erros esgota o pool.
         descritas: dict[int, str] = {}
+        _t = time.time()
         if alvos:
             from concurrent.futures import ThreadPoolExecutor, as_completed
             with ThreadPoolExecutor(max_workers=len(alvos)) as pool:
@@ -2465,6 +2506,11 @@ def api_search():
                         continue
                     if desc_nova:
                         descritas[i] = desc_nova
+
+        # Mede só a espera pela API. O que vem depois é embedding e banco, que
+        # têm fase própria — misturar esconderia qual das duas está cara.
+        fases["descricao"] = round(time.time() - _t, 3)
+        fases["descricao_n"] = len(descritas)
 
         # De volta à thread principal: embedding, corpus e banco.
         para_gravar = []
@@ -2490,7 +2536,9 @@ def api_search():
         if descritas:
             # O embedding vai pronto: calcular de novo lá dentro seria pagar o
             # encode duas vezes pela mesma descrição.
+            _t = time.time()
             _salvar_descricoes_em_lote(uid, para_gravar)
+            fases["persistencia"] = round(time.time() - _t, 3)
             # BM25 depende do corpus inteiro, e o corpus só mudou se ALGUMA
             # descrição chegou. Antes bastava ter havido candidatas: com a API
             # fora, pagava-se o recálculo inteiro sem nada ter mudado.
@@ -2586,7 +2634,9 @@ def api_search():
         # Re-rank com Claude: juiz semântico que entende diferenças finas
         # (gato ≠ cachorro) e descarta resultados parecidos-mas-errados.
         # Se a API falhar, mantém a ordem do motor (degrada gracioso).
+        _t = time.time()
         results = _rerank_com_claude(query, results, topk=15)
+        fases["rerank"] = round(time.time() - _t, 3)
         # Corte final: > 0.25 descarta o "ruído de fundo" (itens fracos, ou os que
         # o Claude marcou como não-correspondentes). Busca sem match real volta vazia.
         results = [r for r in results if r["score"] > 0.25]
@@ -2612,6 +2662,7 @@ def api_search():
         results = [r for r in results if _dentro_do_tamanho(r)]
 
     tempo = round(time.time() - t0, 3)
+    _registrar_fases(tempo, fases)
     return jsonify({
         "resultados": results[:60],
         "tempo": tempo,
@@ -5597,6 +5648,10 @@ def api_debug_scores():
             "total_arquivos": todos,
             "com_embedding": len(rows),
             "resultados": resultados,
+            # Tempo por fase da ÚLTIMA busca. Sai aqui, e não no payload de
+            # /api/search: aquele é contrato público (docs/API.md) e não
+            # deve mudar de forma por causa de diagnóstico.
+            "fases_da_ultima_busca": _ULTIMAS_FASES,
         })
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
