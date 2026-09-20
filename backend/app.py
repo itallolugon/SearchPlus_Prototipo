@@ -90,7 +90,25 @@ def _iniciar_claude() -> None:
         if not _chave:
             print("[AI] ANTHROPIC_API_KEY não encontrada no .env — análise de imagens e re-rank ficarão indisponíveis.")
             return
-        _CLAUDE = _anthropic.Anthropic(api_key=_chave)
+        # Teto de espera, em vez dos padrões do SDK (10 minutos, 2 retentativas).
+        #
+        # O re-rank acontece DENTRO do request da busca. Sem timeout, uma
+        # chamada lenta prende a busca inteira e o fallback que já existe em
+        # `_rerank_com_claude` (`return candidatos`) nunca chega a rodar — ele
+        # só cobre erro, não lentidão.
+        #
+        # max_retries=1 e não 2: com retry automático, um timeout de 20s vira
+        # 60s de espera real. Aqui é melhor degradar rápido, porque o motor tem
+        # resultado para mostrar sem a IA.
+        #
+        # 20s e não 10: a descrição em modo `deep` é legitimamente lenta, e
+        # cortá-la cedo demais transformaria uma feature em erro. Quem quiser
+        # mais agressividade ajusta pelo .env.
+        _CLAUDE = _anthropic.Anthropic(
+            api_key=_chave,
+            timeout=float(os.environ.get("CLAUDE_TIMEOUT", "20")),
+            max_retries=1,
+        )
         CLAUDE_OK = True
         print("[AI] Claude ativo — descrição de imagens e re-rank da busca via API.")
     except ImportError:
