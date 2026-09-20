@@ -1992,6 +1992,15 @@ ORIGEM_NOME      = "nome"
 # mesma regra, e separá-las faria a badge dizer uma coisa e o score, outra.
 PESO_NOME = 0.15
 
+# Teto de descrições geradas sob demanda numa mesma busca.
+#
+# Com o laço em série este número era o multiplicador da espera: 5 imagens
+# eram 5 chamadas enfileiradas. Agora elas correm juntas e o tempo é o da mais
+# lenta, não a soma — então o que sobra travando o número é CUSTO, porque cada
+# descrição é uma chamada paga. Fica em 5 até existir controle de gasto, que
+# não existe em lugar nenhum do projeto.
+TETO_DESCRICOES_POR_BUSCA = 5
+
 
 def _origem_do_resultado(eh_imagem: bool, peso_visual: float, peso_textual: float,
                          nome_bateu: bool) -> str:
@@ -2397,25 +2406,76 @@ def api_search():
             if f["tipo"] in _EXT_IMG and not (f["descricao_ia"] or "").strip()
             and clip_sims[i] > 0.15  # só as minimamente parecidas visualmente
         ]
-        # Ordena por similaridade visual e pega as 5 melhores
+        # Ordena por similaridade visual e pega as melhores
         candidatas_sem_desc.sort(key=lambda idx: clip_sims[idx], reverse=True)
-        for i in candidatas_sem_desc[:5]:
-            f = rows[i]
-            desc_nova = _descrever_imagem_on_demand(f["caminho"], f["nome"])
-            if desc_nova:
-                # Atualiza em memória (pra esta busca) e salva no banco (cache).
-                rows[i]["descricao_ia"] = desc_nova
-                _salvar_descricao_e_embedding(uid, f["caminho"], desc_nova)
-                # Recalcula SBERT e BM25 desta imagem agora que ela tem descrição.
-                if SBERT_OK and SKLEARN_OK:
-                    emb_nova = _gerar_embedding(_texto_para_embedding(desc_nova))
-                    if emb_nova is not None and query_emb is not None:
-                        import numpy as np
-                        a = np.array([emb_nova]); b = np.array([query_emb])
-                        sbert_sims[i] = max(0.0, float(cosine_similarity(a, b)[0][0]))
-                corpus_tokens[i] = _tokenizar((desc_nova or "") + " " + (f["nome"] or ""))
-        # BM25 depende do corpus inteiro — recalcula se alguma imagem foi descrita
-        if candidatas_sem_desc:
+        alvos = candidatas_sem_desc[:TETO_DESCRICOES_POR_BUSCA]
+
+        # As descrições são independentes entre si, então correm juntas: o custo
+        # passa a ser o da mais lenta, e não a soma das cinco.
+        #
+        # Para dentro da thread vai SÓ a chamada à API (disco, PIL, rede). Duas
+        # coisas ficam de fora de propósito:
+        #
+        #   SBERT  — `_SBERT` é um objeto global; a biblioteca não garante
+        #            encode concorrente nele. Uma corrupção aqui é silenciosa:
+        #            o vetor errado é gravado e a imagem passa a ser encontrada
+        #            nas buscas erradas para sempre.
+        #   banco  — `get_db()` só anota a conexão em `flask.g` quando há
+        #            contexto de aplicação, e thread de executor não herda o do
+        #            request. Sem essa anotação o `teardown_appcontext` não
+        #            recolhe nada, e um punhado de erros esgota o pool.
+        descritas: dict[int, str] = {}
+        if alvos:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            with ThreadPoolExecutor(max_workers=len(alvos)) as pool:
+                futuros = {
+                    pool.submit(_descrever_imagem_on_demand,
+                                rows[i]["caminho"], rows[i]["nome"]): i
+                    for i in alvos
+                }
+                for fut in as_completed(futuros):
+                    # O índice vem do dicionário, não da ordem de chegada —
+                    # `as_completed` devolve na ordem em que terminam.
+                    i = futuros[fut]
+                    try:
+                        desc_nova = fut.result()
+                    except Exception as exc:
+                        # Uma imagem que falha não pode derrubar as outras
+                        # quatro, nem a busca: o motor tem resultado a mostrar
+                        # mesmo sem descrição nenhuma.
+                        print(f"[Lazy] Falhou para '{rows[i]['nome']}': {exc}")
+                        continue
+                    if desc_nova:
+                        descritas[i] = desc_nova
+
+        # De volta à thread principal: embedding, corpus e banco.
+        para_gravar = []
+        for i, desc_nova in descritas.items():
+            rows[i]["descricao_ia"] = desc_nova
+
+            # A condição é SBERT_OK, e não SBERT_OK and SKLEARN_OK: o embedding
+            # é gravado no banco de qualquer jeito (era o que
+            # `_salvar_descricao_e_embedding` fazia). O sklearn só decide se dá
+            # para comparar com a query AGORA, nesta busca.
+            emb_nova = None
+            if SBERT_OK:
+                emb_nova = _gerar_embedding(_texto_para_embedding(desc_nova))
+            if emb_nova is not None and SKLEARN_OK and query_emb is not None:
+                import numpy as np
+                a = np.array([emb_nova])
+                b = np.array([query_emb])
+                sbert_sims[i] = max(0.0, float(cosine_similarity(a, b)[0][0]))
+
+            corpus_tokens[i] = _tokenizar(desc_nova + " " + (rows[i]["nome"] or ""))
+            para_gravar.append((rows[i]["caminho"], desc_nova, emb_nova))
+
+        if descritas:
+            # O embedding vai pronto: calcular de novo lá dentro seria pagar o
+            # encode duas vezes pela mesma descrição.
+            _salvar_descricoes_em_lote(uid, para_gravar)
+            # BM25 depende do corpus inteiro, e o corpus só mudou se ALGUMA
+            # descrição chegou. Antes bastava ter havido candidatas: com a API
+            # fora, pagava-se o recálculo inteiro sem nada ter mudado.
             bm25_sims = _bm25_scores(corpus_tokens, q["palavras"])
 
     # Pesos do blend
@@ -6861,6 +6921,7 @@ def _salvar_descricao_e_embedding(uid: int, caminho: str, desc: str) -> None:
         emb = _gerar_embedding(_texto_para_embedding(desc))
         if emb:
             emb_vec = emb
+    conn = None
     try:
         conn = get_db()
         conn.execute(
@@ -6868,9 +6929,50 @@ def _salvar_descricao_e_embedding(uid: int, caminho: str, desc: str) -> None:
             (desc, emb_vec, uid, caminho),
         )
         conn.commit()
-        conn.close()
     except Exception as exc:
         print(f"[Lazy] Falha ao salvar descrição de {caminho}: {exc}")
+    finally:
+        # No `finally`, e não no fim do `try`: uma exceção entre o get_db() e o
+        # close() devolvia a conexão só porque o teardown do request recolhia.
+        # Quem chama isto de fora de um request (o worker) não tem teardown.
+        if conn is not None:
+            conn.close()
+
+
+def _salvar_descricoes_em_lote(uid: int, itens: list) -> None:
+    """Grava várias descrições sob demanda numa conexão só.
+
+    A versão por-arquivo abre uma conexão e dá um commit para cada imagem. Com
+    o Postgres na nuvem, cinco idas e voltas custam mais que os próprios
+    UPDATEs.
+
+    `itens` são tuplas `(caminho, descricao, embedding)`. O embedding vem
+    PRONTO de quem chama, calculado na thread principal — gerar aqui dentro
+    seria encodar a mesma descrição duas vezes, e o modelo SBERT é global.
+    """
+    if not itens:
+        return
+
+    conn = None
+    try:
+        conn = get_db()
+        for caminho, desc, emb_vec in itens:
+            conn.execute(
+                "UPDATE files SET descricao_ia = %s, embedding = %s "
+                "WHERE user_id = %s AND caminho = %s",
+                (desc, emb_vec, uid, caminho),
+            )
+        conn.commit()
+    except Exception as exc:
+        print(f"[Lazy] Falha ao salvar descrições em lote: {exc}")
+        if conn is not None:
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def _extract_pdf(filepath: str) -> str:
