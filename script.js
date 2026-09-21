@@ -2255,6 +2255,45 @@ function limparFiltrosAvancados() {
     toastInfo("Filtros limpos.");
 }
 
+// Reconsulta enquanto houver descrições pendentes.
+// ---------------------------------------------------------------------------
+// A busca devolve `descrevendo`: os ids que ela mandou descrever fora do
+// request. Quando essas descrições chegarem, a mesma busca passa a dar um
+// resultado melhor — e a segunda volta é barata, porque as descrições já estão
+// em cache.
+//
+// Por que REFAZER a busca em vez de remendar o card pronto: a descrição muda o
+// score, e score muda POSIÇÃO. Escrever a descrição nova no lugar onde o card
+// está hoje mostraria texto novo com ordem velha, que é pior do que não
+// atualizar — parece certo.
+const _ESPERA_RECONSULTA = 6000;   // ms; descrever uma imagem leva segundos
+let _reconsultaAgendada = null;
+let _consultaEmEspera = null;
+
+function agendarReconsulta(pendentes, consulta) {
+    // Sem pendentes o resultado é final: é aqui que o laço termina.
+    if (!Array.isArray(pendentes) || pendentes.length === 0) return false;
+
+    if (_reconsultaAgendada) clearTimeout(_reconsultaAgendada);
+    _consultaEmEspera = consulta;
+
+    _reconsultaAgendada = setTimeout(() => {
+        _reconsultaAgendada = null;
+
+        // Se a pessoa saiu dos resultados ou já digitou outra coisa, refazer
+        // seria puxar o tapete dela para mostrar algo que ela não pediu mais.
+        const tela = document.getElementById('searchResultsView');
+        const campo = document.getElementById('searchInput');
+        if (!tela || tela.style.display !== 'block') return;
+        if (!campo || campo.value.trim() !== _consultaEmEspera) return;
+        if (typeof _modaisAbertos === 'function' && _modaisAbertos().length) return;
+
+        realizarBusca();
+    }, _ESPERA_RECONSULTA);
+
+    return true;
+}
+
 async function realizarBusca() {
     const query = document.getElementById('searchInput').value;
     if (!query.trim()) return;
@@ -2315,6 +2354,12 @@ async function realizarBusca() {
         _refino.excluidos = dados.excluidos || [];
         if (!dados.escopo) _refino.escopo = null;
         desenharTrilhaDeRefino();
+
+        // A busca não espera mais a IA descrever: ela responde na hora e diz
+        // o que mandou descrever. Quando essas descrições ficarem prontas, o
+        // resultado melhora — e quem já está olhando merece ver isso sem
+        // digitar de novo.
+        agendarReconsulta(dados.descrevendo, query.trim());
 
     } catch (e) { console.error(e); toastErro("Erro ao buscar. Verifique a conexão."); } finally {
         const tempoRestante = Math.max(0, 2000 - (Date.now() - startTime));

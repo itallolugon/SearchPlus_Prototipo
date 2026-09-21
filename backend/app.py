@@ -2020,6 +2020,38 @@ PESO_NOME = 0.15
 TETO_DESCRICOES_POR_BUSCA = 5
 
 
+# Caminhos que já estão na fila esperando descrição.
+#
+# A fila é uma `queue.Queue`, que não responde "você já tem isto?". Sem este
+# conjunto, cada busca repetida pelo mesmo assunto enfileiraria as mesmas cinco
+# imagens de novo — e como o front refaz a busca enquanto houver pendentes,
+# isso viraria um laço que enche a fila sozinho.
+_descricoes_na_fila: set = set()
+_lock_descricoes = threading.Lock()
+
+
+def _enfileirar_descricao(caminho: str, nome: str, ext: str, uid: int) -> bool:
+    """
+    Põe uma imagem na fila para ser descrita fora do request.
+
+    Devolve False se ela já estava lá — o chamador usa isso para não anunciar
+    como pendente algo que já está sendo tratado.
+
+    `descrever: True` é o que separa este item do trabalho de indexação. O
+    worker gera só o embedding visual das imagens que entram pela varredura de
+    pastas; a descrição custa uma chamada paga e só acontece quando alguém
+    procurou por aquilo.
+    """
+    with _lock_descricoes:
+        if caminho in _descricoes_na_fila:
+            return False
+        _descricoes_na_fila.add(caminho)
+
+    _queue.put({"path": caminho, "nome": nome, "ext": ext, "uid": uid,
+                "descrever": True})
+    return True
+
+
 def _origem_do_resultado(eh_imagem: bool, peso_visual: float, peso_textual: float,
                          nome_bateu: bool) -> str:
     """
@@ -2384,6 +2416,9 @@ def api_search():
             "resultados": [], "tempo": round(time.time() - t0, 3),
             "consulta": q["original"], "excluidos": termos_excluidos,
             "escopo": len(escopo_ids),
+            # Sem resultado não há o que descrever, mas o campo vem do
+            # mesmo jeito: a forma da resposta não muda com o conteúdo.
+            "descrevendo": [],
         })
 
     sbert_sims = [max(0.0, float(r["sbert_score"])) if r["sbert_score"] is not None else 0.0 for r in rows]
@@ -2453,96 +2488,34 @@ def api_search():
                 except Exception as e:
                     print(f"[CLIP] falha ao excluir '{f['nome']}': {type(e).__name__}: {e}")
 
-    # ── DESCRIÇÃO SOB DEMANDA (lazy) ────────────────────────────────────────
-    # As imagens são indexadas só com embedding CLIP (sem descrição). Aqui,
-    # na busca, pegamos as TOP-5 imagens visualmente mais parecidas com a query
-    # que ainda não foram descritas, e o Claude descreve só essas. A descrição
-    # é salva (cache), então buscas futuras dessas imagens já são instantâneas.
+    # ── DESCRIÇÃO FORA DO REQUEST ───────────────────────────────────────────
+    # As imagens são indexadas só com embedding CLIP. A descrição em texto vem
+    # depois — e até esta etapa vinha DENTRO desta requisição, que é o que
+    # fazia a busca por assunto novo esperar a IA.
+    #
+    # Agora a busca só enfileira. O motor já pontua imagem sem descrição (o
+    # `min(0.70, 0.85 * s_visual)` mais abaixo existe para o caso "só tenho
+    # CLIP"), então o resultado já aparece; a descrição melhora a posição dele
+    # na busca seguinte, em vez de cobrar a espera adiantada.
+    descrevendo: list[int] = []
     if CLAUDE_OK:
+        _t = time.time()
         candidatas_sem_desc = [
             i for i, f in enumerate(rows)
             if f["tipo"] in _EXT_IMG and not (f["descricao_ia"] or "").strip()
             and clip_sims[i] > 0.15  # só as minimamente parecidas visualmente
         ]
-        # Ordena por similaridade visual e pega as melhores
         candidatas_sem_desc.sort(key=lambda idx: clip_sims[idx], reverse=True)
-        alvos = candidatas_sem_desc[:TETO_DESCRICOES_POR_BUSCA]
 
-        # As descrições são independentes entre si, então correm juntas: o custo
-        # passa a ser o da mais lenta, e não a soma das cinco.
-        #
-        # Para dentro da thread vai SÓ a chamada à API (disco, PIL, rede). Duas
-        # coisas ficam de fora de propósito:
-        #
-        #   SBERT  — `_SBERT` é um objeto global; a biblioteca não garante
-        #            encode concorrente nele. Uma corrupção aqui é silenciosa:
-        #            o vetor errado é gravado e a imagem passa a ser encontrada
-        #            nas buscas erradas para sempre.
-        #   banco  — `get_db()` só anota a conexão em `flask.g` quando há
-        #            contexto de aplicação, e thread de executor não herda o do
-        #            request. Sem essa anotação o `teardown_appcontext` não
-        #            recolhe nada, e um punhado de erros esgota o pool.
-        descritas: dict[int, str] = {}
-        _t = time.time()
-        if alvos:
-            from concurrent.futures import ThreadPoolExecutor, as_completed
-            with ThreadPoolExecutor(max_workers=len(alvos)) as pool:
-                futuros = {
-                    pool.submit(_descrever_imagem_on_demand,
-                                rows[i]["caminho"], rows[i]["nome"]): i
-                    for i in alvos
-                }
-                for fut in as_completed(futuros):
-                    # O índice vem do dicionário, não da ordem de chegada —
-                    # `as_completed` devolve na ordem em que terminam.
-                    i = futuros[fut]
-                    try:
-                        desc_nova = fut.result()
-                    except Exception as exc:
-                        # Uma imagem que falha não pode derrubar as outras
-                        # quatro, nem a busca: o motor tem resultado a mostrar
-                        # mesmo sem descrição nenhuma.
-                        print(f"[Lazy] Falhou para '{rows[i]['nome']}': {exc}")
-                        continue
-                    if desc_nova:
-                        descritas[i] = desc_nova
+        for i in candidatas_sem_desc[:TETO_DESCRICOES_POR_BUSCA]:
+            f = rows[i]
+            # `descrever` é o que distingue este item do trabalho de indexação:
+            # o worker só chama a IA de visão quando ele vem marcado.
+            if _enfileirar_descricao(f["caminho"], f["nome"], f["tipo"], uid):
+                descrevendo.append(f["id"])
 
-        # Mede só a espera pela API. O que vem depois é embedding e banco, que
-        # têm fase própria — misturar esconderia qual das duas está cara.
-        fases["descricao"] = round(time.time() - _t, 3)
-        fases["descricao_n"] = len(descritas)
-
-        # De volta à thread principal: embedding, corpus e banco.
-        para_gravar = []
-        for i, desc_nova in descritas.items():
-            rows[i]["descricao_ia"] = desc_nova
-
-            # A condição é SBERT_OK, e não SBERT_OK and SKLEARN_OK: o embedding
-            # é gravado no banco de qualquer jeito (era o que
-            # `_salvar_descricao_e_embedding` fazia). O sklearn só decide se dá
-            # para comparar com a query AGORA, nesta busca.
-            emb_nova = None
-            if SBERT_OK:
-                emb_nova = _gerar_embedding(_texto_para_embedding(desc_nova))
-            if emb_nova is not None and SKLEARN_OK and query_emb is not None:
-                import numpy as np
-                a = np.array([emb_nova])
-                b = np.array([query_emb])
-                sbert_sims[i] = max(0.0, float(cosine_similarity(a, b)[0][0]))
-
-            corpus_tokens[i] = _tokenizar(desc_nova + " " + (rows[i]["nome"] or ""))
-            para_gravar.append((rows[i]["caminho"], desc_nova, emb_nova))
-
-        if descritas:
-            # O embedding vai pronto: calcular de novo lá dentro seria pagar o
-            # encode duas vezes pela mesma descrição.
-            _t = time.time()
-            _salvar_descricoes_em_lote(uid, para_gravar)
-            fases["persistencia"] = round(time.time() - _t, 3)
-            # BM25 depende do corpus inteiro, e o corpus só mudou se ALGUMA
-            # descrição chegou. Antes bastava ter havido candidatas: com a API
-            # fora, pagava-se o recálculo inteiro sem nada ter mudado.
-            bm25_sims = _bm25_scores(corpus_tokens, q["palavras"])
+        fases["enfileiramento"] = round(time.time() - _t, 3)
+        fases["enfileiramento_n"] = len(descrevendo)
 
     # Pesos do blend
     W_SBERT_IMG, W_BM25_IMG, W_CLIP_IMG = 0.45, 0.25, 0.30
@@ -2673,6 +2646,11 @@ def api_search():
         "consulta": q["original"],
         "excluidos": termos_excluidos,
         "escopo": len(escopo_ids),
+        # Ids que esta busca mandou descrever. Lista SEMPRE, nunca ausente
+        # e nunca null: campo que às vezes não vem obriga todo consumidor a
+        # tratar dois casos. Vazia significa "nada pendente, o resultado é
+        # final" — e é assim que o front sabe quando parar de reconsultar.
+        "descrevendo": descrevendo,
     })
 
 
@@ -6698,7 +6676,13 @@ def _process_worker() -> None:
             prioridades, perfil, janela = _get_folder_config(folder_id, uid)
 
             # ── Scheduling: verificar janela de processamento ──
-            if not _is_within_window(janela):
+            #
+            # A janela existe para a varredura de pastas não atrapalhar quem
+            # está usando a máquina. Um pedido de busca é o oposto disso: a
+            # pessoa acabou de procurar e está esperando o resultado melhorar.
+            # Segurá-lo até a madrugada entregaria a descrição horas depois de
+            # a busca ter sido fechada.
+            if not item.get("descrever") and not _is_within_window(janela):
                 _queue.put(item)
                 _queue.task_done()
                 fora_da_janela_consecutivos += 1
@@ -6726,12 +6710,22 @@ def _process_worker() -> None:
             emb_clip_vec = None
 
             if ext in _EXT_IMG:
-                # Imagem: só o embedding visual CLIP. Descrição vem na busca.
+                # Imagem indexada pela varredura: só o embedding visual CLIP.
+                # Descrever custa uma chamada paga, e descrever a biblioteca
+                # inteira sem ninguém ter procurado por ela seria gastar à toa.
                 if CLIP_OK:
                     emb_clip = _gerar_embedding_clip_imagem(fpath)
                     if emb_clip:
                         emb_clip_vec = emb_clip
-                desc = ""  # vazia de propósito — a busca preenche depois
+                desc = ""
+
+                # Item pedido por uma busca: aí sim vale a chamada, porque
+                # alguém procurou justamente por isto. É o que tira a descrição
+                # de dentro do request sem parar de descrever — enfileirar num
+                # worker que não descreve faria as descrições simplesmente
+                # deixarem de acontecer.
+                if item.get("descrever") and CLAUDE_OK:
+                    desc = _descrever_imagem_on_demand(fpath, fname) or ""
             else:
                 # Documentos (pdf/docx/txt/csv): extrai o texto na hora (é local
                 # e barato, e a busca textual precisa dele de cara).
@@ -6800,6 +6794,13 @@ def _process_worker() -> None:
                 _queue.task_done()
             except ValueError:
                 pass  # já contabilizado antes da exceção
+        finally:
+            # Sai do conjunto de pendentes aconteça o que acontecer.
+            # Se ficasse, a imagem nunca mais seria reenfileirada — uma
+            # descrição que falhou não teria segunda chance.
+            if item.get("descrever"):
+                with _lock_descricoes:
+                    _descricoes_na_fila.discard(item.get("path"))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6984,68 +6985,6 @@ def _descrever_imagem_on_demand(caminho: str, nome: str) -> str | None:
     if desc:
         print(f"[Lazy] Descrita sob demanda: {nome}")
     return desc
-
-
-def _salvar_descricao_e_embedding(uid: int, caminho: str, desc: str) -> None:
-    """Salva a descrição gerada sob demanda + o embedding SBERT no banco,
-    pra que buscas futuras dessa imagem já tenham tudo pronto (cache)."""
-    emb_vec = None
-    if SBERT_OK and desc:
-        emb = _gerar_embedding(_texto_para_embedding(desc))
-        if emb:
-            emb_vec = emb
-    conn = None
-    try:
-        conn = get_db()
-        conn.execute(
-            "UPDATE files SET descricao_ia = %s, embedding = %s WHERE user_id = %s AND caminho = %s",
-            (desc, emb_vec, uid, caminho),
-        )
-        conn.commit()
-    except Exception as exc:
-        print(f"[Lazy] Falha ao salvar descrição de {caminho}: {exc}")
-    finally:
-        # No `finally`, e não no fim do `try`: uma exceção entre o get_db() e o
-        # close() devolvia a conexão só porque o teardown do request recolhia.
-        # Quem chama isto de fora de um request (o worker) não tem teardown.
-        if conn is not None:
-            conn.close()
-
-
-def _salvar_descricoes_em_lote(uid: int, itens: list) -> None:
-    """Grava várias descrições sob demanda numa conexão só.
-
-    A versão por-arquivo abre uma conexão e dá um commit para cada imagem. Com
-    o Postgres na nuvem, cinco idas e voltas custam mais que os próprios
-    UPDATEs.
-
-    `itens` são tuplas `(caminho, descricao, embedding)`. O embedding vem
-    PRONTO de quem chama, calculado na thread principal — gerar aqui dentro
-    seria encodar a mesma descrição duas vezes, e o modelo SBERT é global.
-    """
-    if not itens:
-        return
-
-    conn = None
-    try:
-        conn = get_db()
-        for caminho, desc, emb_vec in itens:
-            conn.execute(
-                "UPDATE files SET descricao_ia = %s, embedding = %s "
-                "WHERE user_id = %s AND caminho = %s",
-                (desc, emb_vec, uid, caminho),
-            )
-        conn.commit()
-    except Exception as exc:
-        print(f"[Lazy] Falha ao salvar descrições em lote: {exc}")
-        if conn is not None:
-            try:
-                conn.rollback()
-            except Exception:
-                pass
-    finally:
-        if conn is not None:
-            conn.close()
 
 
 def _extract_pdf(filepath: str) -> str:

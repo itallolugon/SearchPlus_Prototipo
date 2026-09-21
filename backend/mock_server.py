@@ -538,6 +538,7 @@ def search():
             return jsonify({
                 "resultados": [], "tempo": 0, "consulta": "",
                 "excluidos": excluidos, "escopo": len(escopo_ids),
+ "descrevendo": [],  # o mock nao chama IA; o campo vem pela paridade
                 "erro": "Diga também o que você procura. Sozinho, o traço só "
                         "serve para tirar algo de uma busca — por exemplo, "
                         "“praia -pessoas”.",
@@ -581,6 +582,7 @@ def search():
     return jsonify({
         "resultados": resultados, "tempo": round(time.time() - t0, 3),
         "consulta": query, "excluidos": excluidos, "escopo": len(escopo_ids),
+ "descrevendo": [],  # o mock nao chama IA; o campo vem pela paridade
     })
 
 

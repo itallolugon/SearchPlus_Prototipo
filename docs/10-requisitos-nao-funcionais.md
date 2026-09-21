@@ -280,6 +280,24 @@ esse número passe a sair sozinho no log, sem instrumentação nova.
 
 ---
 
+## 9-D. A busca não espera a IA
+
+Ver `features/17-busca-sem-esperar-a-ia.md`. Fecha o que as etapas anteriores
+não resolviam: a busca deixou de esperar a descrição acontecer.
+
+| ID | Requisito | Como verificar |
+|---|---|---|
+| **RNF-098** | `/api/search` **não** pode chamar a IA de visão dentro do request. As candidatas são enfileiradas e a busca responde com o que já sabe. | `tests/unit/test_busca_sem_esperar.py`: a visão não é chamada. |
+| **RNF-099** | A resposta traz `descrevendo`, **sempre** uma lista, em toda resposta de busca — inclusive nas vazias. Um campo que às vezes não vem obriga todo consumidor a tratar dois casos. | Teste dedicado, e paridade com o mock. |
+| **RNF-100** | Um cliente que ignore `descrevendo` continua funcionando. É o que torna a mudança segura de mergear antes de o front acompanhar. | Os campos de hoje seguem presentes. |
+| **RNF-101** | O worker só chama a IA de visão para item marcado com `descrever`. Sem essa distinção, a varredura de pastas descreveria a biblioteca inteira — chamada paga sem ninguém ter procurado. | Revisão e teste sobre a fonte do worker. |
+| **RNF-102** | Pedido vindo de busca **ignora** a janela de processamento. A janela existe para a varredura não atrapalhar quem usa a máquina; aqui a pessoa está esperando agora. | Teste sobre a fonte do worker. |
+| **RNF-103** | O mesmo arquivo não pode ser enfileirado duas vezes enquanto está pendente. O front reconsulta enquanto houver pendentes; sem essa trava a fila cresceria sozinha. | Segunda busca não aumenta a fila nem reanuncia o id. |
+| **RNF-104** | O pendente sai do conjunto ao terminar, em `finally`. Se ficasse, uma descrição que falhou nunca teria segunda chance. | Teste sobre a fonte do worker. |
+| **RNF-105** | A reconsulta do front só acontece com a tela de resultados visível, a mesma consulta no campo e nenhuma janela aberta. Refazer fora disso puxaria o tapete de quem já foi para outro lugar. | Conferido no navegador nos quatro cenários. |
+
+---
+
 ## 10. Resumo dos débitos técnicos preexistentes
 
 Encontrados durante a análise. **Nenhum é causado pelas features novas**, mas

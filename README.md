@@ -172,7 +172,9 @@ O navegador abre sozinho em **http://127.0.0.1:5000**. Se não abrir, digite ess
 3. Escolha o modo de análise (**Relâmpago** = descrições mais econômicas, **Profundo** = mais minuciosas) e confirme. A indexação só começa depois da sua confirmação.
 4. Busque em português natural: *"cachorro na grama"*, *"nota fiscal"*, *"prato de comida"*.
 
-A **primeira busca** por um assunto novo demora, porque o Claude está descrevendo as imagens candidatas naquele momento. As candidatas são descritas ao mesmo tempo, e não uma depois da outra, então a espera é a da imagem mais lenta — não a soma de todas. Cada chamada tem teto de 20 segundos (ajustável em `CLAUDE_TIMEOUT`). As buscas seguintes usam o cache e respondem em cerca de 1 segundo.
+A busca **responde na hora**, mesmo por um assunto que o programa ainda não conhece: ela mostra o que já sabe pela aparência das imagens e manda descrever as candidatas em segundo plano. Quando as descrições ficam prontas, a lista se reorganiza sozinha — você não precisa buscar de novo.
+
+Cada chamada à IA tem teto de 20 segundos, ajustável em `CLAUDE_TIMEOUT`.
 
 O servidor registra no terminal quanto cada fase levou, o que ajuda a saber onde o tempo foi embora:
 

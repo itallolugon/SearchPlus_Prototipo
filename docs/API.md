@@ -187,6 +187,26 @@ faria os 100 candidatos serem escolhidos entre a biblioteca inteira e só então
 reduzidos ao escopo — a maioria descartada, e o refino trazendo menos do que
 existia dentro dele. Limite de 5.000 ids.
 
+**Descrição fora do request.** A busca não espera mais a IA descrever imagem.
+Ela enfileira as candidatas e responde na hora, dizendo quais mandou
+descrever:
+
+```json
+{ "resultados": [ ... ], "tempo": 0.9, "descrevendo": [12, 45, 78] }
+```
+
+`descrevendo` é **sempre uma lista**, em toda resposta de busca — nunca
+ausente e nunca `null`. Um campo que às vezes não vem obriga todo consumidor
+a tratar dois casos. Vazia significa *nada pendente, este resultado é final*,
+e é assim que o front sabe quando parar de reconsultar.
+
+Um cliente que ignore o campo continua funcionando: recebe o resultado sem a
+espera, e a precisão melhora na busca seguinte em vez de na mesma. O motor já
+pontua imagem sem descrição, então ela aparece de qualquer forma.
+
+O `mock_server.py` devolve o campo sempre vazio: ele não chama IA, mas a
+forma da resposta tem que ser a mesma — há teste de paridade cobrando isso.
+
 **O que o servidor entendeu** volta em toda resposta de busca, inclusive nas
 vazias:
 

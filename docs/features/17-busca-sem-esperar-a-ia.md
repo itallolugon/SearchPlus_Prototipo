@@ -2,7 +2,8 @@
 
 **Data:** 21/09/2026
 **Branch sugerida:** `feature/busca-sem-esperar-a-ia` (ver [`../07-git-fluxo.md`](../07-git-fluxo.md))
-**Status:** **especificação**. Escrito antes do código. O texto usa "deve"/"deverá"
+**Status:** **implementado** (com a correção registrada na seção 3.1).
+Escrito antes do código. O texto usa "deve"/"deverá"
 de propósito — descreve o contrato que a implementação precisa cumprir.
 **Escopo:** `backend/app.py`, `backend/mock_server.py`, `docs/API.md`, `script.js`.
 Altera o backend **e** o contrato da API, o que o [`../../AGENTS.md`](../../AGENTS.md)
@@ -56,17 +57,40 @@ para os resultados**, e não para uma tela parada.
 ### 3.1 O que a busca faz
 
 1. Pontua e ordena com o que está no banco, como hoje.
-2. **Não descreve nada.** Em vez disso, enfileira as candidatas no `_queue`,
-   que já existe e já é consumido pelo `_process_worker`.
+2. **Não descreve nada.** Em vez disso, enfileira as candidatas no `_queue`.
 3. Responde imediatamente, dizendo **quais ids** foram para a fila.
 
-O enfileiramento reusa o formato que o worker já consome:
+> **Correção feita durante a implementação.** Este documento dizia que
+> bastava enfileirar, porque o `_queue` "já é consumido pelo
+> `_process_worker`". O worker existia, mas **não descrevia imagem** — o
+> comentário dele dizia, com todas as letras, *"Imagem: só o embedding
+> visual CLIP. Descrição vem na busca"*, e gravava `desc = ""` de propósito.
+> Enfileirar sem ensiná-lo a descrever teria feito as descrições **pararem
+> de acontecer**, e o sintoma apareceria semanas depois como "a busca
+> piorou".
+>
+> Três coisas entraram por causa disso:
+>
+> - o item da fila carrega `descrever: True`, e o worker só chama a IA
+>   quando ele vem marcado. A varredura de pastas continua barata, e a
+>   chamada paga só acontece quando alguém procurou por aquilo;
+> - o pedido de busca **ignora a janela de processamento**. A janela existe
+>   para a varredura não atrapalhar quem usa a máquina; um pedido de busca
+>   é o oposto, e segurá-lo até a madrugada entregaria a descrição depois
+>   de a busca ter sido fechada;
+> - um conjunto `_descricoes_na_fila` guarda o que está pendente, porque
+>   `queue.Queue` não responde "você já tem isto?". Sem ele, a reconsulta
+>   do front encheria a fila sozinha.
+
+O enfileiramento reusa o formato que o worker já consome, com a marca nova:
 
 ```python
-_queue.put({"path": f["caminho"], "nome": f["nome"], "ext": f["tipo"], "uid": uid})
+_queue.put({"path": ..., "nome": ..., "ext": ..., "uid": uid,
+            "descrever": True})
 ```
 
-Nenhuma estrutura nova. O worker já sabe descrever, gerar embedding e gravar.
+O worker já sabia gerar embedding e gravar; descrever imagem foi o que
+precisou ser acrescentado — ver a correção acima.
 
 ### 3.2 O que o front faz
 
