@@ -3,9 +3,12 @@
 Descrição sob demanda em paralelo.
 
 Uma busca por assunto ainda não descrito disparava até cinco chamadas de visão
-**em fila indiana**, dentro do request: ~30 s só nessa fase. As cinco são
-independentes entre si, então passaram a correr juntas — o custo vira o da mais
-lenta, e não a soma.
+**em fila indiana**, dentro do request. A especificação da feature mediu
+20–35 s só nessa fase; aqui não há medição de produção, e o que este arquivo
+verifica é que as chamadas se sobrepõem.
+
+As cinco são independentes entre si, então passaram a correr juntas — o custo
+vira o da mais lenta, e não a soma.
 
 O que **não** entrou na thread, e é o cerne da mudança:
 
