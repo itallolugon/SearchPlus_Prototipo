@@ -790,9 +790,26 @@ function _attr(texto) {
                         .replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// ponytail: fotos de exemplo, só pra avaliar o visual. O mock devolve um SVG
+// gerado na hora pra qualquer arquivo, então as prateleiras ficavam de
+// retângulo colorido e não dava pra julgar o layout. Aqui o nome do arquivo é
+// procurado em demo-fotos/ antes de cair no backend.
+// Pra trocar por fotos suas: ponha o arquivo em demo-fotos/<nome>.jpg com o
+// mesmo nome do arquivo demo. Pra remover tudo: apague a pasta e esta lista.
+const _DEMO_FOTOS = new Set([
+    'praia-por-do-sol', 'cachorro-parque', 'gato-janela', 'equipe-reuniao',
+    'desenho-dragao', 'sushi-combinado', 'cidade-noite', 'anime-personagem',
+    'montanha-neve'
+]);
+
 function formatImagePath(path) {
     if (!path) return '';
     if (path.startsWith('http') || path.startsWith('data:')) return path;
+
+    // Nome sem pasta e sem extensão: o caminho demo é do Windows ("...\\x.jpg").
+    const nome = path.split(/[\\/]/).pop().replace(/\.[^.]+$/, '');
+    if (_DEMO_FOTOS.has(nome)) return `${API_BASE_URL}/demo-fotos/${nome}.jpg`;
+
     return `${API_BASE_URL}/api/file/${encodeURIComponent(path)}`;
 }
 
