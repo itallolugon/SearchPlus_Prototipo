@@ -2915,7 +2915,10 @@ function renderizarResultados() {
         else if (extensoesImagem.includes(ext)) midia = `<img src="${link}" alt="${_attr(textoAlternativo(r))}">`;
 
         const idx = window.resultadosAtuais.indexOf(r);
-        let trecho = r.trecho && r.trecho !== "Nenhum conteúdo..." ? `<div class="trecho-preview">"${r.trecho}"</div>` : '';
+        // O trecho é descrição gerada: entra por textContent, abaixo. A variável
+        // guarda marcação, e por isso não se chama "trecho".
+        let blocoDeResumo = r.trecho && r.trecho !== "Nenhum conteúdo..."
+            ? `<div class="trecho-preview" data-trecho="${_attr(r.trecho)}"></div>` : '';
 
         const favClass = r.favorito ? 'is-fav' : '';
         const favBtn = `<button type="button" class="btn-fav-abs ${favClass}" ` +
@@ -2929,10 +2932,18 @@ function renderizarResultados() {
         const sel = _selecionados.has(r.id);
         const selBtn = `<button type="button" class="btn-sel-abs${sel ? ' is-sel' : ''}" role="checkbox" aria-checked="${sel}" aria-label="Selecionar para coleção" title="Selecionar para coleção" onclick="alternarSelecao(event, ${r.id}, this)">${sel ? iconeHTML('check') : ''}</button>`;
 
-        return `<div class="card${sel ? ' card-selecionado' : ''}" data-file-id="${r.id}" data-idx="${idx}" onclick="abrirPainelLateral(${idx})" onmouseenter="mostrarHoverPreview(event, ${idx})" onmousemove="moverHoverPreview(event)" onmouseleave="esconderHoverPreview()">${selBtn}${favBtn}<div class="media-container">${midia}</div><div class="card-content"><h3>${r.nome}</h3><div class="tags"><span class="badge type">${ext.toUpperCase()}</span>${badgeDeOrigem(r.origem)}</div>${trecho}</div></div>`;
+        return `<div class="card${sel ? ' card-selecionado' : ''}" data-file-id="${r.id}" data-idx="${idx}" data-nome="${_attr(r.nome)}" onclick="abrirPainelLateral(${idx})" onmouseenter="mostrarHoverPreview(event, ${idx})" onmousemove="moverHoverPreview(event)" onmouseleave="esconderHoverPreview()">${selBtn}${favBtn}<div class="media-container">${midia}</div><div class="card-content"><h3></h3><div class="tags"><span class="badge type">${ext.toUpperCase()}</span>${badgeDeOrigem(r.origem)}</div>${blocoDeResumo}</div></div>`;
     };
 
     mGrid.innerHTML = ordenados.map(buildCard).join('');
+    // O texto que veio de fora entra agora, como texto: um nome de arquivo
+    // com `<` viraria marcação se fosse interpolado no template acima.
+    mGrid.querySelectorAll('.card[data-nome]').forEach(card => {
+        const titulo = card.querySelector('h3');
+        if (titulo) titulo.textContent = card.dataset.nome;
+        const trechoEl = card.querySelector('.trecho-preview[data-trecho]');
+        if (trechoEl) trechoEl.textContent = `"${trechoEl.dataset.trecho}"`;
+    });
     oGrid.innerHTML = '';
     atualizarAcoesResultados();
 }
@@ -3224,7 +3235,7 @@ async function carregarFavoritos() {
                             onclick="alternarSelecao(event, ${r.id}, this)">${marcado ? iconeHTML('check') : ''}</button>
                     ${thumbHtml}
                     <div class="fav-info">
-                        <strong>${r.nome}</strong>
+                        <strong data-nome="${_attr(r.nome)}"></strong>
                         <span>${ext.toUpperCase()}</span>
                         <span>Adicionado: ${dataAdd}</span>
                     </div>
@@ -3233,6 +3244,9 @@ async function carregarFavoritos() {
                     </div>
                 </div>`;
                 list.innerHTML += card;
+            });
+            list.querySelectorAll('strong[data-nome]').forEach(el => {
+                el.textContent = el.dataset.nome;
             });
         } else {
             list.innerHTML = '<p style="text-align:center; color: var(--text-secondary);">Nenhum favorito ainda.</p>';
@@ -3346,11 +3360,14 @@ async function carregarFavoritosDash() {
                     <div style="position:relative; width:100%; height:100%; pointer-events: none;">
                         ${midia}
                     </div>
-                    <p style="pointer-events: auto;">${r.nome}</p>
+                    <p style="pointer-events: auto;" data-nome="${_attr(r.nome)}"></p>
                     <button type="button" class="btn-fav-abs is-fav" aria-pressed="true" aria-label="Remover dos favoritos" title="Remover dos favoritos" onclick="event.stopPropagation(); toggleFavorito(event, ${r.id}, this, true)" style="top:5px; right:5px; width:30px; height:30px; pointer-events: auto;">${iconeFavHTML(true)}</button>
                 </div>`;
 
                 grid.innerHTML += cardBox;
+            });
+            grid.querySelectorAll('p[data-nome]').forEach(el => {
+                el.textContent = el.dataset.nome;
             });
         } else {
             title.style.display = 'none';

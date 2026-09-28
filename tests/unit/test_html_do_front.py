@@ -116,3 +116,32 @@ class TestOsCardsDeRecentes:
             "voltou a resolver o clique pelo nome do arquivo; nomes se repetem "
             "entre pastas e o painel abre o item errado."
         )
+
+
+class TestConteudoDeElemento:
+    """
+    O teste acima olha a linha do `innerHTML`. O template quase nunca está
+    lá: ele é montado linhas antes, numa variável, e foi assim que
+    `<h3>${r.nome}</h3>` e a descrição da IA continuaram entrando cruas
+    depois da primeira correção.
+
+    Aqui a varredura é do arquivo inteiro: qualquer dado de fora entre `>` e
+    `<` reprova, esteja onde estiver o `innerHTML`.
+    """
+
+    CONTEUDO = re.compile(r">[\s\"']*\$\{([^}]{1,80})\}[\s\"']*<")
+
+    def test_dado_de_fora_nao_vira_conteudo_de_elemento(self):
+        js = _sem_comentarios(_ler())
+        achados = []
+        for m in self.CONTEUDO.finditer(js):
+            campo = m.group(1).strip()
+            if any(p in campo.lower() for p in DE_FORA) and "_attr(" not in campo:
+                linha = js[: m.start()].count("\n") + 1
+                achados.append("linha %d: >${%s}<" % (linha, campo))
+        assert achados == [], (
+            "dado de fora virando conteúdo de elemento:\n  %s\n"
+            "Leve o texto num atributo (com _attr) e escreva com textContent, "
+            "como o card de resultado faz com data-nome e data-trecho."
+            % "\n  ".join(achados)
+        )
