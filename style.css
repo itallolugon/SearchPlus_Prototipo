@@ -31,8 +31,8 @@
     --text-faint: #8A8A99;   /* era #63636E: 3.9:1 no fundo escuro, abaixo do minimo */
 
     /* Acento */
-    --accent-primary: var(--accent-primary);
-    --accent-secondary: var(--accent-secondary);
+    --accent-primary: #6F87A8;
+    --accent-secondary: #A2B5CB;
     /* Nasce do destaque: trocou a paleta, ela acompanha. */
     --accent-rose: color-mix(in srgb, var(--accent-secondary) 62%, #FFFFFF);
     --btn-text-color: #FFFFFF;
@@ -624,7 +624,7 @@ body {
     background: transparent; color: var(--text-secondary);
     border: 1px solid var(--border-light);
     font-weight: 500; letter-spacing: 0; text-transform: none;
-    font-size: 0.68rem; cursor: help;
+    font-size: .69rem; cursor: help;
 }
 .trecho-preview { font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 10px; flex: 1; line-height: 1.5; display: -webkit-box; -webkit-line-clamp: 3; line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;}
 .highlight { background-color: color-mix(in srgb, var(--accent-secondary) 34%, transparent); color: var(--text-primary); padding: 2px 4px; border-radius: 4px; }
@@ -693,7 +693,7 @@ body {
     z-index: 20;
 }
 
-.btn-remove-image:hover { transform: scale(1.1); background: var(--danger); }
+.btn-remove-image:hover { transform: scale(1.1); background: color-mix(in srgb, var(--danger) 72%, #000); }
 
 .img-container-with-edit { position: relative; cursor: default; }
 
@@ -1039,7 +1039,7 @@ body {
     border: 1px solid color-mix(in srgb, var(--accent-secondary) 45%, transparent);
     background: color-mix(in srgb, var(--accent-secondary) 26%, transparent);
     color: var(--text-primary);
-    font-size: .66rem; font-weight: 600; letter-spacing: .02em; vertical-align: 1px;
+    font-size: .69rem; font-weight: 600; letter-spacing: .02em; vertical-align: 1px;
 }
 .pastas-exp-acoes-topo { display: flex; justify-content: flex-end; margin: -6px 0 10px; }
 
@@ -1395,7 +1395,7 @@ input[type="checkbox"] {
 
 .dashboard-section {
     padding: 0 40px;
-    max-width: 800px;
+    /* O max-width que vale é o de 1400px, declarado adiante. */
     margin: 0 auto;
     width: 100%;
     box-sizing: border-box;
@@ -1764,7 +1764,7 @@ input[type="checkbox"] {
 .badge {
     padding: 3px 9px;
     border-radius: 6px;
-    font-size: .68rem;
+    font-size: .69rem;
     font-weight: 600;
     letter-spacing: .06em;
 }
@@ -2141,6 +2141,7 @@ html.wv-auth .side-panel {
 .status-cancelar:hover { background: rgba(248, 113, 113, .35); color: #fff; }
 
 .ajuda-conteudo { max-height: 60vh; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; }
+.ajuda-item h3,
 .ajuda-item h4 { margin: 0 0 6px; color: var(--text-primary); font-size: 1.02rem; letter-spacing: -.02em; }
 .ajuda-item p { margin: 0; color: var(--text-secondary); font-size: .9rem; line-height: 1.55; }
 .ajuda-item b { color: var(--accent-rose); }
@@ -2231,7 +2232,7 @@ html.wv-auth .side-panel {
     transition: background .3s, color .3s;
 }
 
-.btn-remover:hover { background: var(--danger); color: #fff; }
+.btn-remover:hover { background: color-mix(in srgb, var(--danger) 72%, #000); color: #fff; }
 
 .btn-config-folder {
     background: transparent;
@@ -2253,7 +2254,7 @@ html.wv-auth .side-panel {
 .folder-badge {
     padding: 3px 10px;
     border-radius: var(--r-pill);
-    font-size: .68rem;
+    font-size: .69rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: .06em;
@@ -2394,6 +2395,7 @@ html.wv-auth .side-panel {
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, .12);
 }
 
+.indexacao-config-section h3,
 .indexacao-config-section h4 { margin: 0 0 5px; color: var(--text-primary); font-size: 1rem; letter-spacing: -.02em; }
 .indexacao-config-section p { margin: 0 0 10px; color: var(--text-secondary); font-size: .8rem; }
 
@@ -2495,7 +2497,7 @@ html.wv-auth .side-panel {
 }
 
 .colecao-card:hover .colecao-del-flutuante { opacity: 1; }
-.colecao-del-flutuante:hover { background: rgba(248, 113, 113, .8); }
+.colecao-del-flutuante:hover { background: color-mix(in srgb, var(--danger) 72%, #000); }
 
 .colecao-item-remover {
     position: absolute;
@@ -2517,7 +2519,7 @@ html.wv-auth .side-panel {
 
 .recent-card:hover .colecao-item-remover,
 .colecao-item-remover:focus-visible { opacity: 1; }
-.colecao-item-remover:hover { background: rgba(248, 113, 113, .85); }
+.colecao-item-remover:hover { background: color-mix(in srgb, var(--danger) 72%, #000); }
 
 .escolher-colecao-item {
     display: flex;
@@ -2613,7 +2615,7 @@ html.wv-auth .side-panel {
 .menu-lateral-secao {
     display: block;
     padding: 6px 16px 4px;
-    font-size: .68rem;
+    font-size: .69rem;
     text-transform: uppercase;
     letter-spacing: .14em;
     color: var(--text-faint);
@@ -2934,7 +2936,7 @@ html.wv-perf .auth-box { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22) !imp
 
 .eyebrow {
     font-family: 'Inter', system-ui, sans-serif;
-    font-size: .68rem;
+    font-size: .69rem;
     letter-spacing: .19em;
     text-transform: uppercase;
     font-weight: 600;
@@ -2967,7 +2969,7 @@ html.wv-perf .auth-box { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22) !imp
 
 .sec-head h3 {
     margin: 0;
-    font-size: .68rem;
+    font-size: .69rem;
     letter-spacing: .19em;
     text-transform: uppercase;
     font-weight: 600;
@@ -2978,7 +2980,7 @@ html.wv-perf .auth-box { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22) !imp
 
 .sec-solo {
     margin: 1.2rem 0 .8rem;
-    font-size: .68rem;
+    font-size: .69rem;
     letter-spacing: .19em;
     text-transform: uppercase;
     font-weight: 600;
@@ -2995,7 +2997,7 @@ html.wv-perf .auth-box { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22) !imp
     margin: 2rem auto .9rem;
     padding: 0 40px;
     max-width: 1400px;
-    font-size: .68rem;
+    font-size: .69rem;
     letter-spacing: .19em;
     text-transform: uppercase;
     font-weight: 600;
@@ -3004,7 +3006,7 @@ html.wv-perf .auth-box { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22) !imp
 }
 
 .band-pill {
-    font-size: .63rem;
+    font-size: .69rem;
     padding: .14rem .5rem;
     border-radius: var(--r-pill);
     letter-spacing: .06em;
@@ -3381,7 +3383,7 @@ html:not(.wv-auth) .dock { transform: translateY(-50%) translateX(0); }
 
 .profile-name { margin: 16px 0 3px; font-size: 1.6rem; font-weight: 800; letter-spacing: -.035em; color: var(--text-primary); }
 .profile-handle { margin: 0; font-size: .9rem; font-weight: 600; color: var(--accent-rose); }
-.profile-role { margin: 10px 0 0; font-size: .68rem; font-weight: 600; text-transform: uppercase; letter-spacing: .18em; color: var(--text-secondary); }
+.profile-role { margin: 10px 0 0; font-size: .69rem; font-weight: 600; text-transform: uppercase; letter-spacing: .18em; color: var(--text-secondary); }
 .profile-local { margin: 4px 0 0; font-size: .8rem; color: var(--text-faint); }
 .profile-bio { margin: 14px 0 0; max-width: 34ch; font-size: .92rem; line-height: 1.55; color: var(--text-secondary); }
 
@@ -3416,7 +3418,7 @@ html:not(.wv-auth) .dock { transform: translateY(-50%) translateX(0); }
     display: flex;
     align-items: center;
     gap: .4rem;
-    font-size: .64rem;
+    font-size: .69rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: .2em;
@@ -3440,15 +3442,17 @@ html:not(.wv-auth) .dock { transform: translateY(-50%) translateX(0); }
 .ob-sub { margin: .25rem 0 0; max-width: 60ch; color: var(--text-secondary); font-size: .95rem; line-height: 1.55; }
 
 /* Os rótulos das seções de indexação viram micro-títulos, como no painel. */
+.indexacao-config-section h3,
 .indexacao-config-section h4 {
     margin: 20px 0 6px;
-    font-size: .66rem;
+    font-size: .69rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: .19em;
     color: var(--text-secondary);
 }
 
+.indexacao-config-section h3:first-child,
 .indexacao-config-section h4:first-child { margin-top: 0; }
 
 /* ==========================================================================
@@ -3935,7 +3939,7 @@ html.lab-densidade .card-content { padding: 13px; }
 html.lab-densidade .card-content h3 { font-size: .88rem; margin-bottom: 8px; }
 html.lab-densidade .trecho-preview { font-size: .78rem; -webkit-line-clamp: 2; line-clamp: 2; }
 html.lab-densidade .lab-linha { font-size: .76rem; }
-html.lab-densidade .lab-linha b { min-width: 60px; font-size: .56rem; }
+html.lab-densidade .lab-linha b { min-width: 60px; font-size: .69rem; }
 html.lab-densidade .lab-skel { min-height: 210px; }
 
 /* --- 5. atalhos à mostra --------------------------------------------------- */
@@ -4175,7 +4179,7 @@ html.lab-atalhos .history-dropdown::after {
 .sidebar-header h2 { font-size: 1.35rem; font-weight: 800; letter-spacing: -.035em; }
 
 .settings-group h3 {
-    font-size: .66rem;
+    font-size: .69rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: .19em;
@@ -4564,7 +4568,7 @@ html.lab-atalhos .history-dropdown::after {
     background: rgba(var(--chapa-c), .7);
     backdrop-filter: blur(8px);
     color: var(--text-secondary);
-    font-size: .58rem;
+    font-size: .69rem;
     font-weight: 600;
     letter-spacing: .14em;
     text-transform: uppercase;
@@ -4986,7 +4990,7 @@ html.tema-claro .acao-ficha::before {
     border-radius: var(--r-sm);
 }
 
-.faixa-numeros .num-rot { flex-basis: 100%; font-size: .55rem; letter-spacing: .17em; }
+.faixa-numeros .num-rot { flex-basis: 100%; font-size: .69rem; letter-spacing: .17em; }
 .faixa-numeros .num-card strong { font-size: 1.4rem; }
 
 /* A nota cabe numa linha só; o que sobrar corta. É o que mantém os quatro
@@ -4994,7 +4998,7 @@ html.tema-claro .acao-ficha::before {
 .faixa-numeros .num-nota {
     flex: 1;
     min-width: 0;
-    font-size: .68rem;
+    font-size: .69rem;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -5104,7 +5108,7 @@ html.tema-claro .acao-ficha::before {
 .num-card:hover::before { opacity: 1; }
 
 .num-rot {
-    font-size: .62rem;
+    font-size: .69rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: .19em;
@@ -6125,4 +6129,44 @@ html.tema-claro .dock-marca .dock-nome i {
     background: none;
     -webkit-text-fill-color: currentColor;
     color: var(--accent-primary-forte);
+}
+
+/* ==========================================================================
+   O CARTÃO DE RESULTADO DIZ O QUE É, DEPOIS COMO SE CHAMA
+   O PRODUCT.md define o sucesso como "achar sem lembrar o nome": a manchete
+   é a descrição, e o nome do arquivo — a string que a pessoa nunca soube —
+   fica na linha de apoio, ao lado da pasta que a distingue de outra parecida.
+   ========================================================================== */
+.card-desc {
+    margin: 0 0 6px;
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.35;
+    letter-spacing: -.01em;
+    color: var(--text-primary);
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+}
+
+.card-arquivo {
+    margin: 0 0 12px;
+    font-size: .76rem;
+    line-height: 1.4;
+    color: var(--text-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* A frase que explica a espera fica presa ao título, não ao carrossel: é a
+   única coisa que a pessoa precisa saber enquanto espera. */
+.load-explica {
+    margin: 6px 0 0;
+    font-size: .82rem;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    max-width: 46ch;
 }

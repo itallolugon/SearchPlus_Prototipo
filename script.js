@@ -758,7 +758,7 @@ const dicasUX = [
     "Descreva o arquivo com suas palavras: 'cachorro na grama', 'nota de luz'.",
     "O Search+ lê o texto que aparece dentro de imagens e PDFs.",
     "Vale procurar por assunto: 'planilha financeira do ano passado'.",
-    "Personalize o aplicativo usando o menu do seu perfil."
+    "A primeira busca de um assunto novo é a mais demorada: a IA está descrevendo as imagens candidatas. As próximas usam o que ficou salvo."
 ];
 let tipInterval;
 
@@ -2411,7 +2411,11 @@ async function realizarBusca() {
     document.getElementById('dashboardView').classList.add('fade-out');
     fecharPainelLateral();
 
-    setTimeout(() => {
+    // A troca de layout leva 400ms e termina aplicando fade-out na área de
+    // resultados. Com a resposta chegando antes disso (busca repetida volta em
+    // milissegundos), revelar no finally sem esperar por ela deixava o
+    // resultado invisível. A promessa amarra a ordem.
+    const layoutPronto = new Promise(resolve => setTimeout(() => {
         document.getElementById('dashboardView').style.display = 'none';
 
         const wrapper = document.getElementById('mainAppWrapper');
@@ -2423,14 +2427,22 @@ async function realizarBusca() {
 
         document.getElementById('searchResultsView').style.display = 'block';
         document.getElementById('searchResultsView').classList.add('fade-out');
-    }, 400);
+        resolve();
+    }, 400));
 
     const loadingScreen = document.getElementById('iaLoadingScreen');
     const tipElement = document.getElementById('tipCarousel');
-    loadingScreen.style.display = 'flex';
 
-    let tipIndex = 0; tipElement.innerText = dicasUX[tipIndex];
-    tipInterval = setInterval(() => { tipIndex = (tipIndex + 1) % dicasUX.length; tipElement.innerText = dicasUX[tipIndex]; }, 3000);
+    // A tela de espera só entra se a busca passar de 400ms. A primeira busca de
+    // um assunto novo chama a IA e demora; as seguintes usam o que ficou salvo
+    // e voltam em milissegundos — mostrar carregamento nelas ensinava, por
+    // repetição, que o aplicativo é lento.
+    let tipIndex = 0;
+    const mostrarEspera = setTimeout(() => {
+        loadingScreen.style.display = 'flex';
+        tipElement.innerText = dicasUX[tipIndex];
+        tipInterval = setInterval(() => { tipIndex = (tipIndex + 1) % dicasUX.length; tipElement.innerText = dicasUX[tipIndex]; }, 3000);
+    }, 400);
 
     const startTime = Date.now();
 
@@ -2462,21 +2474,18 @@ async function realizarBusca() {
         desenharTrilhaDeRefino();
 
     } catch (e) { console.error(e); toastErro("Erro ao buscar. Verifique a conexão."); } finally {
-        const tempoRestante = Math.max(0, 2000 - (Date.now() - startTime));
-        setTimeout(() => {
-            clearInterval(tipInterval);
-            loadingScreen.style.display = 'none';
-            renderizarResultados();
-            popularDashboard(window.resultadosAtuais);
+        await layoutPronto;
+        clearTimeout(mostrarEspera);
+        clearInterval(tipInterval);
+        loadingScreen.style.display = 'none';
+        renderizarResultados();
+        popularDashboard(window.resultadosAtuais);
 
-            // CORREÇÃO: Força a visibilidade dos resultados
-            document.getElementById('searchResultsView').classList.remove('fade-out');
-            document.getElementById('searchResultsView').style.opacity = '1';
+        document.getElementById('searchResultsView').classList.remove('fade-out');
+        document.getElementById('searchResultsView').style.opacity = '1';
 
-            const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-            document.getElementById('statTempo').innerText = hora;
-
-        }, tempoRestante);
+        const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        document.getElementById('statTempo').innerText = hora;
     }
 }
 
@@ -2984,7 +2993,7 @@ async function carregarPainelNumeros() {
         painel.classList.toggle('tem-fila', fila > 0);
 
         conta('numCategorias', cats.length);
-        num('notaCategorias', cats.length === 1 ? 'categoria reconhecida' : 'categorias reconhecidas');
+        num('notaCategorias', cats.length === 1 ? 'reconhecida' : 'reconhecidas');
 
         // Mini barras: proporção de cada categoria, do maior pro menor.
         const mini = document.getElementById('miniCategorias');
@@ -3449,9 +3458,9 @@ function renderizarResultados() {
         const idx = window.resultadosAtuais.indexOf(r);
         // No cartão vai só o "o que é": a lista completa fica no painel.
         const _d = lerDescricao(r.trecho);
-        const _resumo = (_d.principal || (r.trecho === "Nenhum conteúdo..." ? '' : r.trecho))
-            .replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-        let blocoDeResumo = _resumo ? `<div class="trecho-preview"></div>` : '';
+        const _resumo = _d.principal || (r.trecho === "Nenhum conteúdo..." ? '' : r.trecho);
+        // A pasta separa duas fotos parecidas melhor que o nome do arquivo.
+        const _pasta = (r.caminho || '').split(/[\\/]/).slice(-2, -1)[0] || '';
 
         const favClass = r.favorito ? 'is-fav' : '';
         const favBtn = `<button type="button" class="btn-fav-abs ${favClass}" ` +
@@ -3465,16 +3474,25 @@ function renderizarResultados() {
         const sel = _selecionados.has(r.id);
         const selBtn = `<button type="button" class="btn-sel-abs${sel ? ' is-sel' : ''}" role="checkbox" aria-checked="${sel}" aria-label="Selecionar para coleção" title="Selecionar para coleção" onclick="alternarSelecao(event, ${r.id}, this)">${sel ? iconeHTML('check') : ''}</button>`;
 
-        return `<div class="card${sel ? ' card-selecionado' : ''}" data-file-id="${r.id}" data-idx="${idx}" data-nome="${_attr(r.nome)}" data-resumo="${_attr(_resumo)}" onclick="abrirPainelLateral(${idx})">${selBtn}${favBtn}<div class="media-container">${midia}</div><div class="card-content"><h3></h3><div class="tags"><span class="badge type">${ext.toUpperCase()}</span>${badgeDeOrigem(r.origem)}</div>${blocoDeResumo}</div></div>`;
+        return `<div class="card${sel ? ' card-selecionado' : ''}" data-file-id="${r.id}" data-idx="${idx}" data-nome="${_attr(r.nome)}" data-resumo="${_attr(_resumo)}" data-pasta="${_attr(_pasta)}" onclick="abrirPainelLateral(${idx})">${selBtn}${favBtn}<div class="media-container">${midia}</div><div class="card-content"><h3 class="card-desc"></h3><p class="card-arquivo"></p><div class="tags"><span class="badge type">${ext.toUpperCase()}</span>${badgeDeOrigem(r.origem)}</div></div></div>`;
     };
 
     mGrid.innerHTML = ordenados.map(buildCard).join('');
     // O texto entra por textContent: nada de dado do servidor virando marcação.
+    // A manchete é o que a pessoa lembra — a descrição. O nome do arquivo é a
+    // string que ela nunca soube: desce para a linha de apoio, ao lado da
+    // pasta. Sem descrição ainda (imagem recém-analisada), o nome assume a
+    // manchete, porque aí ele é a única coisa que existe.
     mGrid.querySelectorAll('.card[data-nome]').forEach(c => {
-        const titulo = c.querySelector('h3');
-        if (titulo) titulo.textContent = c.dataset.nome;
-        const alvo = c.querySelector('.trecho-preview');
-        if (alvo) alvo.textContent = c.dataset.resumo;
+        const desc = c.querySelector('.card-desc');
+        const arquivo = c.querySelector('.card-arquivo');
+        const temResumo = !!c.dataset.resumo;
+        if (desc) desc.textContent = temResumo ? c.dataset.resumo : c.dataset.nome;
+        if (arquivo) {
+            arquivo.textContent = temResumo
+                ? [c.dataset.nome, c.dataset.pasta].filter(Boolean).join('  ·  ')
+                : (c.dataset.pasta || '');
+        }
     });
     oGrid.innerHTML = '';
     atualizarAcoesResultados();
