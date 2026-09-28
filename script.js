@@ -107,6 +107,19 @@ const fetchOptions = { headers: { 'Content-Type': 'application/json' } };
 const extensoesImagem = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp'];
 const extensoesVideo = ['mp4', 'avi', 'mkv', 'mov', 'webm'];
 const extensoesAudio = ['mp3', 'wav', 'ogg', 'm4a', 'flac'];
+// Conta sem foto: a inicial do nome, e não o quadrado preto de 1x1 esticado
+// que parecia elemento quebrado no canto mais visível da tela.
+function avatarDeIniciais(nome) {
+    const bruta = String(nome || '').trim().charAt(0).toUpperCase();
+    const letra = /[A-ZÀ-Ü0-9]/.test(bruta) ? bruta : '?';
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96">' +
+        '<rect width="96" height="96" fill="#2A3140"/>' +
+        '<text x="48" y="64" text-anchor="middle" fill="#E8ECF3" ' +
+        'font-family="Inter, system-ui, sans-serif" font-size="44" font-weight="700">' +
+        letra + '</text></svg>';
+    return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+}
+
 // Imagem preta pura 1x1 
 const placeholderPreto = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
 
@@ -807,8 +820,10 @@ function formatImagePath(path) {
     if (path.startsWith('http') || path.startsWith('data:')) return path;
 
     // Nome sem pasta e sem extensão: o caminho demo é do Windows ("...\\x.jpg").
+    // O atalho vale só contra o servidor de teste (5001): no app real, um
+    // arquivo do usuário com o mesmo nome apareceria como a foto de exemplo.
     const nome = path.split(/[\\/]/).pop().replace(/\.[^.]+$/, '');
-    if (_DEMO_FOTOS.has(nome)) return `${API_BASE_URL}/demo-fotos/${nome}.jpg`;
+    if (location.port === '5001' && _DEMO_FOTOS.has(nome)) return `${API_BASE_URL}/demo-fotos/${nome}.jpg`;
 
     return `${API_BASE_URL}/api/file/${encodeURIComponent(path)}`;
 }
@@ -1368,12 +1383,12 @@ async function carregarConfiguracoesUX() {
         const safeSetVal = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
         const safeSetBg = (id, val) => { const el = document.getElementById(id); if (el) el.style.backgroundImage = val; };
 
-        safeSetSrc('navAvatar', formatImagePath(currentConfig.perfil_avatar) || placeholderPreto);
-        safeSetSrc('dropAvatar', formatImagePath(currentConfig.perfil_avatar) || placeholderPreto);
+        safeSetSrc('navAvatar', formatImagePath(currentConfig.perfil_avatar) || avatarDeIniciais(currentConfig.perfil_nome));
+        safeSetSrc('dropAvatar', formatImagePath(currentConfig.perfil_avatar) || avatarDeIniciais(currentConfig.perfil_nome));
         safeSetTx('dropName', currentConfig.perfil_nome);
         safeSetTx('dropHandle', '@' + currentConfig.perfil_handle);
 
-        safeSetSrc('viewAvatar', formatImagePath(currentConfig.perfil_avatar) || placeholderPreto);
+        safeSetSrc('viewAvatar', formatImagePath(currentConfig.perfil_avatar) || avatarDeIniciais(currentConfig.perfil_nome));
         const bannerUrl = formatImagePath(currentConfig.perfil_banner);
         safeSetBg('viewBanner', bannerUrl ? `url('${bannerUrl}')` : 'none');
 
@@ -1389,7 +1404,7 @@ async function carregarConfiguracoesUX() {
         safeSetVal('editLocal', currentConfig.perfil_local || "");
         safeSetVal('editBio', currentConfig.perfil_bio);
 
-        safeSetSrc('previewAvatar', formatImagePath(currentConfig.perfil_avatar) || placeholderPreto);
+        safeSetSrc('previewAvatar', formatImagePath(currentConfig.perfil_avatar) || avatarDeIniciais(currentConfig.perfil_nome));
         safeSetSrc('previewBanner', formatImagePath(currentConfig.perfil_banner) || placeholderPreto);
         safeSetVal('editAvatar', "");
         safeSetVal('editBanner', "");

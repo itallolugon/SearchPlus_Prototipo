@@ -6096,3 +6096,33 @@ html.tema-claro .acao-principal {
     border: 1.5px solid rgba(255, 255, 255, .62);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, .18), 0 1px 4px rgba(0, 0, 0, .35);
 }
+
+/* ==========================================================================
+   ACHADOS DA CRÍTICA DE DESIGN
+   ========================================================================== */
+
+/* Texto em degradê recortado (o "+" do logo, o "S+" do trilho, o @handle)
+   some no tema claro: o degradê é a cor de destaque, e no claro ele cai em
+   cima de um fundo quase da mesma luminosidade. Lá o mesmo texto vira cor
+   sólida escurecida, que é o que dá contraste sobre papel claro. */
+html.tema-claro .gradient-text {
+    background: none;
+    -webkit-text-fill-color: currentColor;
+    color: var(--accent-primary-forte);
+}
+
+/* Chip de filtro inativo sobre a parte clara do papel de parede: o vidro
+   quase transparente deixava "Documentos" e "Áudio / Vídeo" sumirem, com
+   cara de desabilitado — e eles estão ativos. A chapa garante o fundo em
+   qualquer quadro do papel de parede, nos dois temas. */
+.filter-tag { background: rgba(var(--chapa-a), .55); }
+.filter-tag:hover { background: rgba(var(--chapa-a), .7); }
+
+/* O "+" da marca no trilho tem degradê próprio, fora do .gradient-text: no
+   claro ele precisa da mesma cor sólida. */
+html.tema-claro .dock-marca-ic i,
+html.tema-claro .dock-marca .dock-nome i {
+    background: none;
+    -webkit-text-fill-color: currentColor;
+    color: var(--accent-primary-forte);
+}
