@@ -3451,7 +3451,7 @@ function renderizarResultados() {
         const _d = lerDescricao(r.trecho);
         const _resumo = (_d.principal || (r.trecho === "Nenhum conteúdo..." ? '' : r.trecho))
             .replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-        let trecho = _resumo ? `<div class="trecho-preview"></div>` : '';
+        let blocoDeResumo = _resumo ? `<div class="trecho-preview"></div>` : '';
 
         const favClass = r.favorito ? 'is-fav' : '';
         const favBtn = `<button type="button" class="btn-fav-abs ${favClass}" ` +
@@ -3465,12 +3465,14 @@ function renderizarResultados() {
         const sel = _selecionados.has(r.id);
         const selBtn = `<button type="button" class="btn-sel-abs${sel ? ' is-sel' : ''}" role="checkbox" aria-checked="${sel}" aria-label="Selecionar para coleção" title="Selecionar para coleção" onclick="alternarSelecao(event, ${r.id}, this)">${sel ? iconeHTML('check') : ''}</button>`;
 
-        return `<div class="card${sel ? ' card-selecionado' : ''}" data-file-id="${r.id}" data-idx="${idx}" data-resumo="${_resumo.replace(/"/g, '&quot;')}" onclick="abrirPainelLateral(${idx})">${selBtn}${favBtn}<div class="media-container">${midia}</div><div class="card-content"><h3>${r.nome}</h3><div class="tags"><span class="badge type">${ext.toUpperCase()}</span>${badgeDeOrigem(r.origem)}</div>${trecho}</div></div>`;
+        return `<div class="card${sel ? ' card-selecionado' : ''}" data-file-id="${r.id}" data-idx="${idx}" data-nome="${_attr(r.nome)}" data-resumo="${_attr(_resumo)}" onclick="abrirPainelLateral(${idx})">${selBtn}${favBtn}<div class="media-container">${midia}</div><div class="card-content"><h3></h3><div class="tags"><span class="badge type">${ext.toUpperCase()}</span>${badgeDeOrigem(r.origem)}</div>${blocoDeResumo}</div></div>`;
     };
 
     mGrid.innerHTML = ordenados.map(buildCard).join('');
     // O texto entra por textContent: nada de dado do servidor virando marcação.
-    mGrid.querySelectorAll('.card[data-resumo]').forEach(c => {
+    mGrid.querySelectorAll('.card[data-nome]').forEach(c => {
+        const titulo = c.querySelector('h3');
+        if (titulo) titulo.textContent = c.dataset.nome;
         const alvo = c.querySelector('.trecho-preview');
         if (alvo) alvo.textContent = c.dataset.resumo;
     });
@@ -3729,7 +3731,7 @@ async function carregarFavoritos() {
                             onclick="alternarSelecao(event, ${r.id}, this)">${marcado ? iconeHTML('check') : ''}</button>
                     ${thumbHtml}
                     <div class="fav-info">
-                        <strong>${r.nome}</strong>
+                        <strong data-nome="${_attr(r.nome)}"></strong>
                         <span>${ext.toUpperCase()}</span>
                         <span>Adicionado: ${dataAdd}</span>
                     </div>
@@ -3738,6 +3740,9 @@ async function carregarFavoritos() {
                     </div>
                 </div>`;
                 list.innerHTML += card;
+            });
+            list.querySelectorAll('strong[data-nome]').forEach(el => {
+                el.textContent = el.dataset.nome;
             });
         } else {
             list.innerHTML = '<p class="msg-estado">Nenhum favorito ainda.</p>';
