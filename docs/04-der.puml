@@ -63,17 +63,73 @@ entity "collection_files" as cf {
 }
 
 ' Relacionamentos (cardinalidade)
+entity "collection_folders" as colfolders {
+  *id : SERIAL <<PK>>
+  --
+  *collection_id : INTEGER <<FK>>
+  *user_id : INTEGER <<FK>>
+  *caminho : TEXT
+  criado_em : TIMESTAMPTZ
+  --
+  UNIQUE (collection_id, caminho)
+}
+
+entity "exportacoes" as exportacoes {
+  *id : SERIAL <<PK>>
+  --
+  *user_id : INTEGER <<FK>>
+  collection_id : INTEGER <<FK>>
+  *colecao : TEXT
+  *pasta : TEXT
+  total : INTEGER
+  copiados : INTEGER
+  falhas : JSONB
+  estado : TEXT
+  quando : TIMESTAMPTZ
+}
+
+entity "lixeira" as lixeira {
+  *id : SERIAL <<PK>>
+  --
+  *user_id : INTEGER <<FK>>
+  *tipo : TEXT
+  *rotulo : TEXT
+  *conteudo : JSONB
+  excluido_em : TIMESTAMPTZ
+}
+
+entity "resumos_indexacao" as resumos {
+  *id : SERIAL <<PK>>
+  --
+  *user_id : INTEGER <<FK>>
+  *inicio : TIMESTAMPTZ
+  *fim : TIMESTAMPTZ
+  *conteudo : JSONB
+}
+
 users ||--o{ folders       : "1:N  (ON DELETE CASCADE)"
 users ||--o{ files         : "1:N  (ON DELETE CASCADE)"
 users ||--o{ collections   : "1:N  (ON DELETE CASCADE)"
 folders ||--o{ files       : "1:N  (ON DELETE SET NULL)"
 collections ||--o{ cf      : "1:N  (ON DELETE CASCADE)"
 files ||--o{ cf            : "1:N  (ON DELETE CASCADE)"
+users ||--o{ colfolders    : "1:N  (ON DELETE CASCADE)"
+collections ||--o{ colfolders : "1:N  (ON DELETE CASCADE)"
+users ||--o{ exportacoes   : "1:N  (ON DELETE CASCADE)"
+collections ||--o{ exportacoes : "1:N  (ON DELETE SET NULL)"
+users ||--o{ lixeira       : "1:N  (ON DELETE CASCADE)"
+users ||--o{ resumos       : "1:N  (ON DELETE CASCADE)"
 
 note bottom of cf
   Tabela associativa (N:N) entre
   collections e files: um arquivo pode
   estar em várias coleções e vice-versa.
+end note
+
+note bottom of lixeira
+  O que o usuário exclui (coleção ou
+  itens dela) fica aqui por um prazo,
+  em JSONB, e pode ser restaurado.
 end note
 
 note right of files

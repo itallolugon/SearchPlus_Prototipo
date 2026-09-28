@@ -8,7 +8,7 @@ skinparam actorStyle awesome
 actor "Usuário" as U
 
 ' Atores secundários (sistemas externos)
-actor "Ollama\n(IA local)" as IA
+actor "API do Claude\n(nuvem)" as IA
 actor "Supabase\n(PostgreSQL)" as DB
 
 rectangle "Search+" {
@@ -39,6 +39,9 @@ rectangle "Search+" {
   usecase "Gerenciar coleções" as UC17
   usecase "Ver galeria\npor categoria" as UC18
   usecase "Ver estatísticas\ndo acervo" as UC19
+  usecase "Salvar coleção\nno computador" as UC20
+  usecase "Ver a lixeira\ne restaurar" as UC21
+  usecase "Ver o resumo\nda última análise" as UC22
 }
 
 ' Relações do usuário
@@ -61,13 +64,20 @@ U --> UC16
 U --> UC17
 U --> UC18
 U --> UC19
+U --> UC20
+U --> UC21
+U --> UC22
 
-' A análise depende da IA (Ollama) e persiste no banco
-UC8 ..> IA : <<include>>\ndescreve imagem
-UC8 ..> DB : <<include>>\nsalva embedding
+' A análise gera vetores locais (CLIP/SBERT) e persiste no banco; a API do
+' Claude entra na BUSCA, descrevendo sob demanda as candidatas sem descrição
+' e julgando quais respondem à frase.
+UC8 ..> DB : <<include>>\nsalva vetor e texto
 UC12 ..> DB : <<include>>\nbusca vetorial
-UC13 ..> IA : <<include>>\nembedding visual
+UC12 ..> IA : <<include>>\ndescreve e julga\nas candidatas
 UC13 ..> DB : <<include>>\nbusca vetorial
+UC20 ..> DB : <<include>>\nregistra a exportação
+UC21 ..> DB : <<include>>\nlê e restaura
+UC22 ..> DB : <<include>>\nlê o resumo
 
 ' Login é pré-requisito das funcionalidades internas
 UC2 <.. UC7 : <<extend>>

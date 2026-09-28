@@ -103,9 +103,15 @@ Os diagramas estão em **PlantUML** (texto → imagem; versiona bem no Git). Par
 
 ## Como rodar o sistema (para a apresentação da N2)
 
-1. Ter **Python 3.10+** e **Ollama** instalados (com `llava` e `llama3.2`).
-2. Configurar `backend/.env` com as credenciais do Supabase (ver `.env.example`).
+1. Ter **Python 3.10+** instalado e rodar `py -m pip install -r backend/requirements.txt`.
+2. Configurar `backend/.env` com a conexão do banco (`DATABASE_URL`) e a chave
+   da API do Claude (`ANTHROPIC_API_KEY`) — ver `.env.example`. Os modelos de
+   embedding (SBERT e CLIP) baixam sozinhos na primeira execução.
 3. Clicar em **`rodar.bat`** (ou `py backend/app.py`).
 4. Acessar `http://127.0.0.1:5000`.
+
+Só para mostrar a interface, sem banco, sem chave e sem IA:
+`py backend/mock_server.py` e acessar `http://127.0.0.1:5001` (qualquer
+usuário e senha entram).
 
 Detalhes técnicos completos: [`../RELATORIO.txt`](../RELATORIO.txt).

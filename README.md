@@ -207,7 +207,7 @@ SearchPlus_Prototipo/
 └── backend/
     ├── app.py          # Servidor Flask: API, worker de indexação e busca
     ├── mock_server.py  # Mesma API com dados fictícios, sem banco nem IA
-    ├── schema.sql      # DDL do banco (5 tabelas + índices HNSW)
+    ├── schema.sql      # DDL do banco (9 tabelas + índices HNSW)
     ├── requirements.txt
     └── .env            # Credenciais (você cria; não vai para o Git)
 ```

@@ -21,6 +21,10 @@ O DER em PlantUML está em [`04-der.puml`](04-der.puml). Resumo das entidades:
 | **files** | Arquivos indexados, com a descrição da IA e os vetores de busca |
 | **collections** | Coleções (playlists) criadas pelo usuário |
 | **collection_files** | Tabela associativa N:N entre `collections` e `files` |
+| **collection_folders** | Pastas do computador que uma coleção alimenta |
+| **exportacoes** | Histórico de cada coleção salva no computador, com falhas por arquivo |
+| **lixeira** | O que foi excluído e ainda pode ser restaurado |
+| **resumos_indexacao** | Resultado de cada análise: indexados, ignorados e erros |
 
 ### Relacionamentos
 - `users 1—N folders` (ON DELETE CASCADE)
@@ -69,6 +73,10 @@ class _PooledConnection:
 | files | read, update (indexação), busca vetorial | `/api/search`, `/api/search_by_image` |
 | collections | CRUD | `/api/collections`, `/api/collections/<id>` |
 | collection_files | add, remove | `/api/collections/<id>/files` |
+| collection_folders | read, update, delete | `/api/collections/<id>/folders` |
+| exportacoes | create, read, repetir | `/api/collections/<id>/export`, `/api/exportacoes` |
+| lixeira | read, restaurar, descartar | `/api/lixeira`, `/api/lixeira/<id>/restaurar` |
+| resumos_indexacao | create (fim da análise), read | `/api/resumo_indexacao` |
 
 > Caso a disciplina exija um ORM "nominal", o mapeamento acima pode ser portado
 > para SQLAlchemy declarando uma classe por tabela — mas a equipe optou pelo

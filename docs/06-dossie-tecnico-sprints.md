@@ -1,6 +1,6 @@
 # Dossiê Técnico de Sprint — Search+
 
-Projeto: **Search+** — busca semântica de imagens e documentos com IA local.
+Projeto: **Search+** — busca semântica de imagens e documentos.
 Abordagem: **SQL** (PostgreSQL/Supabase + pgvector).
 Repositório: https://github.com/itallolugon/SearchPlus_Prototipo
 
@@ -9,12 +9,19 @@ Repositório: https://github.com/itallolugon/SearchPlus_Prototipo
 ## Visão geral do produto
 
 Aplicação web que indexa pastas do computador, descreve cada imagem com IA
-(LLaVA via Ollama), gera embeddings semânticos e permite buscar os arquivos em
+(API do Claude, sob demanda na busca), gera embeddings semânticos e permite
+buscar os arquivos em
 linguagem natural ("cachorro na grama") ou por imagem (achar parecidas).
 
 **Stack:** Frontend (HTML/CSS/JS puro) · Backend (Flask/Python) ·
-Banco (PostgreSQL/Supabase + pgvector) · IA local (Ollama: LLaVA + Llama 3.2,
-SBERT, CLIP).
+Banco (PostgreSQL/Supabase + pgvector) · Embeddings locais (SBERT + CLIP) ·
+Descrição e julgamento da busca pela API do Claude.
+
+> **Mudança de stack depois da Sprint 2.** A descrição das imagens nasceu
+> local, no Ollama com LLaVA — é o que as histórias da Sprint 1 registram. O
+> projeto migrou para a API do Claude, e com ela a descrição deixou de
+> acontecer na indexação: hoje ela é feita na busca, só para as candidatas
+> que ainda não têm texto. O histórico abaixo fica como foi.
 
 ---
 
