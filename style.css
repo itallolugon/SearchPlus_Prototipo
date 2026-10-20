@@ -261,7 +261,7 @@ body {
    60px aqui é o mesmo halo dos 30px de antes. */
 .logo-plus::before,
 .login-logo span::before {
-    content: '+';
+    content: '+' / '';
     position: absolute;
     left: 0;
     top: 0;
