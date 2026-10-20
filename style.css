@@ -226,7 +226,6 @@ body {
     user-select: none;
     -webkit-user-select: none;
     margin: 30px auto;
-    transition: font-size .55s var(--ease), margin .55s var(--ease);
     text-align: center;
     display: block;
     line-height: 1;
@@ -523,7 +522,8 @@ body {
 .sidebar-modal {
     position: fixed;
     top: 0;
-    right: -420px;
+    right: 0;
+    transform: translateX(100%);
     width: 400px;
     height: 100vh;
     background: rgba(var(--chapa-b), .88);
@@ -531,13 +531,13 @@ body {
     -webkit-backdrop-filter: var(--blur);
     box-shadow: inset 1px 0 0 rgba(255, 255, 255, .16), -30px 0 70px -40px color-mix(in srgb, var(--accent-secondary) 50%, transparent);
     z-index: 1001;
-    transition: right .5s var(--ease);
+    transition: transform .5s var(--ease);
     display: flex;
     flex-direction: column;
     border-left: 1px solid var(--border-light);
 }
 
-.sidebar-modal.open { right: 0; }
+.sidebar-modal.open { transform: none; }
 .sidebar-header { padding: 20px; border-bottom: 1px solid var(--border-light); display: flex; justify-content: space-between; align-items: center; }
 .sidebar-header h2 { margin: 0; font-size: 1.4rem; color: var(--text-primary); letter-spacing: -.03em; }
 .sidebar-body { padding: 20px; overflow-y: auto; flex: 1; }
@@ -571,7 +571,7 @@ body {
 
 .profile-real-layout { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 10px; }
 /* FILTROS CENTRALIZADOS */
-.search-container { display: flex; flex-direction: column; align-items: center; padding: 0 20px 40px; text-align: center; width: 100%; box-sizing: border-box; transition: all 0.6s cubic-bezier(0.25, 1, 0.5, 1); }
+.search-container { display: flex; flex-direction: column; align-items: center; padding: 0 20px 40px; text-align: center; width: 100%; box-sizing: border-box; }
 .search-box { display: flex; justify-content: center; width: 100%; max-width: 800px; margin: 0 auto; gap: 15px; }
 /* Wrapper do campo: existe só para ancorar o botão de limpar (position:absolute)
    dentro dos limites do input. O flex:1 mora aqui, não no input. */
@@ -1316,7 +1316,6 @@ input[type="checkbox"] {
 .fade-transition { transition: opacity .4s ease, transform .4s ease; }
 
 .main-wrapper {
-    transition: padding-top .6s var(--ease);
     min-height: 80vh;
     display: flex;
     flex-direction: column;
@@ -1326,14 +1325,13 @@ input[type="checkbox"] {
 .main-wrapper.layout-centered { justify-content: center; padding-top: 0; }
 .main-wrapper.layout-top { justify-content: flex-start; padding-top: 20px; }
 
-.main-content { transition: margin-right .4s var(--ease); width: 100%; }
+.main-content { width: 100%; }
 .main-content.shifted { margin-right: 400px; width: calc(100% - 400px); }
 
-/* O logo encolhia de um quadro pro outro. Agora ele desce de tamanho
-   junto com o resto do movimento. */
-.main-logo { transition: font-size .55s var(--ease), margin .55s var(--ease); }
-.search-container { transition: padding .55s var(--ease); }
-
+/* Sem transition de padding, margin, font-size ou largura aqui: o layout
+   muda de uma vez e o movimento é transform, feito por animarLayout() no
+   script.js. Animar essas propriedades refazia o layout da página inteira
+   a cada quadro. */
 .layout-top .main-logo { font-size: 3.5rem; margin: 0 auto 15px; }
 .layout-top .search-container { padding: 2vh 20px 20px; }
 
@@ -1359,19 +1357,20 @@ input[type="checkbox"] {
    O container desliza, mas os filhos entram escalonados atrás dele. Sem o
    escalonamento vira slide de PowerPoint. Engatado na classe .fade-out que
    o script.js já liga e desliga.
+   Sem filter: blur() no container. Com os filhos se mexendo dentro, o
+   desfoque não pode ser reaproveitado e era refeito na tela inteira a cada
+   quadro, logo depois de renderizar os resultados.
    ========================================================================== */
 #dashboardView,
 #searchResultsView {
     transition:
         opacity .45s ease,
-        transform .6s var(--ease),
-        filter .5s ease;
+        transform .6s var(--ease);
 }
 
 #dashboardView.fade-out,
 #searchResultsView.fade-out {
     transform: translateX(28px) scale(.985);
-    filter: blur(8px);
 }
 
 #dashboardView > *,
@@ -1416,7 +1415,6 @@ input[type="checkbox"] {
     text-align: center;
     width: 100%;
     box-sizing: border-box;
-    transition: all .6s var(--ease);
 }
 
 .search-box { display: flex; justify-content: center; width: 100%; max-width: 800px; margin: 0 auto; gap: 15px; }
@@ -2152,7 +2150,8 @@ html.wv-auth .side-panel {
 .side-panel {
     position: fixed;
     top: 85px;
-    right: -420px;
+    right: 0;
+    transform: translateX(100%);
     width: 400px;
     height: calc(100vh - 85px);
     background: rgba(var(--chapa-b), .88);
@@ -2161,12 +2160,12 @@ html.wv-auth .side-panel {
     border-left: 1px solid var(--border-light);
     box-shadow: inset 1px 0 0 rgba(255, 255, 255, .16), -30px 0 70px -40px color-mix(in srgb, var(--accent-secondary) 50%, transparent);
     z-index: 900;
-    transition: right .5s var(--ease);
+    transition: transform .5s var(--ease);
     display: flex;
     flex-direction: column;
 }
 
-.side-panel.open { right: 0; }
+.side-panel.open { transform: none; }
 .side-panel-header { padding: 20px; border-bottom: 1px solid var(--border-light); display: flex; justify-content: space-between; align-items: center; }
 .side-panel-body { padding: 20px; overflow-y: auto; flex: 1; }
 
@@ -2816,11 +2815,10 @@ html.wv-perf .figma-login-box,
 html.wv-perf .tip-carousel,
 html.wv-perf .estimativa-box { animation: none !important; }
 
-/* Slide + blur viram um fade curto */
+/* O slide vira um fade curto */
 html.wv-perf #dashboardView,
 html.wv-perf #searchResultsView {
     transform: none !important;
-    filter: none !important;
     transition: opacity .14s linear !important;
 }
 
@@ -2913,7 +2911,6 @@ html.wv-perf .auth-box { box-shadow: inset 0 1px 0 rgba(255, 255, 255, .22) !imp
         transition-duration: .01ms !important;
         transition-delay: 0s !important;
     }
-    #dashboardView, #searchResultsView { filter: none !important; }
 }
 
 /* ==========================================================================
@@ -6072,12 +6069,12 @@ html.tema-claro .view-title { text-shadow: 0 2px 28px rgba(255, 255, 255, .6), 0
 .sidebar-modal:not(.open),
 .side-panel:not(.open) {
     visibility: hidden;
-    transition: right .5s var(--ease), visibility 0s linear .5s;
+    transition: transform .5s var(--ease), visibility 0s linear .5s;
 }
 .sidebar-modal.open,
 .side-panel.open {
     visibility: visible;
-    transition: right .5s var(--ease), visibility 0s;
+    transition: transform .5s var(--ease), visibility 0s;
 }
 
 @media (max-width: 820px) {

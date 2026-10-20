@@ -559,7 +559,10 @@
         requestAnimationFrame(frame);
     }
 
-    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    /* ponytail: fundo em pixel CSS (1x), mesmo em tela 2x. O desenho é
+       normalizado pela altura e é um gradiente suave: a diferença não se vê,
+       e são até 4x menos pixels a sombrear por quadro. */
+    var dpr = Math.min(window.devicePixelRatio || 1, 1);
     function resize() {
         if (!glOK) return;
         var w = Math.floor(window.innerWidth * dpr);
@@ -596,13 +599,24 @@
         gl.drawArrays(gl.TRIANGLES, 0, 3);
     }
 
+    /* A onda anda devagar: 30 quadros por segundo bastam. O ganho maior não é
+       o shader, é o vidro: cada backdrop-filter refaz o desfoque toda vez que
+       o fundo muda, então 30 trocas por segundo em vez de 60 (ou 120) cortam
+       esse custo pela metade ou mais. */
+    var QUADRO_MS = 1000 / 30, ultimoQuadro = 0;
+
     function frame(now) {
         if (glOK) {
             var perf = root.classList.contains("wv-perf");
             if (perf !== lastPerf) { lastPerf = perf; dirty = true; }
 
             if (!perf) {
-                draw(now, false);
+                /* -1ms de folga: o rAF oscila e 2 quadros de 60Hz somam 33,3 */
+                if (dirty || now - ultimoQuadro >= QUADRO_MS - 1) {
+                    draw(now, false);
+                    ultimoQuadro = now;
+                    dirty = false;
+                }
             } else if (dirty) {
                 /* Modo leve: onda congelada em t=7. Só redesenha quando a
                    paleta ou o tamanho muda — alguns frames, não 60 por
