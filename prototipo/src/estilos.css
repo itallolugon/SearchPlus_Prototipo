@@ -1,0 +1,560 @@
+/* ==========================================================================
+   Protótipo de design do Search+
+   Base: as regras de movimento que as skills carregam — curva própria (a do
+   navegador é fraca demais), duração curta, animar só transform e opacity,
+   hover atrás de media query, e nada nascendo de scale(0).
+   ========================================================================== */
+
+:root {
+  /* Movimento */
+  --saida: cubic-bezier(0.23, 1, 0.32, 1);
+  --entra-sai: cubic-bezier(0.77, 0, 0.175, 1);
+  --t-toque: 140ms;
+  --t-ui: 200ms;
+  --t-painel: 260ms;
+
+  /* Tinta e chapa */
+  --fundo: #0b0d11;
+  --fundo-alto: #12151b;
+  --tinta: #f4f6fa;
+  --tinta-2: #a8b1c0;
+  --tinta-3: #717a8b;
+  --linha: rgba(255, 255, 255, 0.09);
+  --linha-forte: rgba(255, 255, 255, 0.17);
+  --destaque: #6f87a8;
+  --destaque-claro: #a2b5cb;
+
+  /* Forma */
+  --r-1: 10px;
+  --r-2: 14px;
+  --r-3: 22px;
+  --r-pill: 999px;
+
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(120% 90% at 50% -20%, #1a2130 0%, transparent 60%),
+    var(--fundo);
+  color: var(--tinta);
+  font-family: Inter, system-ui, -apple-system, sans-serif;
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+/* Todo elemento pressionável responde ao toque: o feedback instantâneo é o
+   que faz a interface parecer que ouviu. */
+button:active {
+  transform: scale(0.97);
+}
+
+button {
+  transition: transform var(--t-toque) var(--saida);
+}
+
+:focus-visible {
+  outline: 2px solid var(--destaque-claro);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* --- estrutura ----------------------------------------------------------- */
+
+.app {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  height: 100%;
+}
+
+.trilho {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 18px 0;
+  border-right: 1px solid var(--linha);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.marca {
+  width: 30px;
+  height: 30px;
+  margin-bottom: 14px;
+  display: grid;
+  place-items: center;
+  border-radius: 9px;
+  background: linear-gradient(160deg, var(--destaque-claro), var(--destaque));
+  color: #0b0d11;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.trilho-btn {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-1);
+  color: var(--tinta-3);
+  transition:
+    color var(--t-ui) var(--saida),
+    background var(--t-ui) var(--saida),
+    transform var(--t-toque) var(--saida);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .trilho-btn:hover {
+    color: var(--tinta);
+    background: rgba(255, 255, 255, 0.06);
+  }
+}
+
+/* Onde você está: um filete, não uma cor a mais. */
+.trilho-btn[aria-current='page'] {
+  color: var(--tinta);
+}
+
+.trilho-btn[aria-current='page']::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 50%;
+  width: 2px;
+  height: 18px;
+  border-radius: 2px;
+  background: var(--destaque-claro);
+  transform: translateY(-50%);
+}
+
+.trilho-dica {
+  position: absolute;
+  left: calc(100% + 10px);
+  padding: 5px 9px;
+  border-radius: 8px;
+  background: #1b2029;
+  border: 1px solid var(--linha);
+  color: var(--tinta);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.palco {
+  position: relative;
+  overflow-y: auto;
+  padding: 0 40px;
+}
+
+/* --- casa ---------------------------------------------------------------- */
+
+.casa {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 80px 0;
+}
+
+.casa-titulo {
+  margin: 0 0 6px;
+  font-size: 40px;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+
+.casa-linha {
+  margin: 0 0 26px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--tinta-2);
+  max-width: 48ch;
+}
+
+/* --- campo de busca ------------------------------------------------------ */
+
+.campo {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 8px 0 16px;
+  height: 56px;
+  border-radius: var(--r-3);
+  background: var(--fundo-alto);
+  border: 1px solid var(--linha);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    0 10px 30px -22px rgba(0, 0, 0, 0.9);
+  transition:
+    border-color var(--t-ui) var(--saida),
+    box-shadow var(--t-ui) var(--saida);
+}
+
+.campo:focus-within {
+  border-color: color-mix(in srgb, var(--destaque-claro) 55%, transparent);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 0 0 3px color-mix(in srgb, var(--destaque) 18%, transparent);
+}
+
+.campo input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  background: none;
+  color: var(--tinta);
+  font-size: 16px;
+  letter-spacing: -0.01em;
+}
+
+.campo input:focus {
+  outline: none;
+}
+
+.campo input::placeholder {
+  color: var(--tinta-3);
+}
+
+.campo-icone {
+  flex: none;
+  color: var(--tinta-3);
+  display: grid;
+  place-items: center;
+}
+
+.campo-acao {
+  flex: none;
+  height: 40px;
+  padding: 0 16px;
+  border-radius: var(--r-pill);
+  background: var(--tinta);
+  color: #0b0d11;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.campo-atalho {
+  flex: none;
+  padding: 3px 7px;
+  border-radius: 6px;
+  border: 1px solid var(--linha);
+  color: var(--tinta-3);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- exemplos ------------------------------------------------------------ */
+
+.exemplos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.exemplo {
+  padding: 7px 13px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--linha);
+  color: var(--tinta-2);
+  font-size: 13px;
+  transition:
+    color var(--t-ui) var(--saida),
+    border-color var(--t-ui) var(--saida),
+    transform var(--t-toque) var(--saida);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .exemplo:hover {
+    color: var(--tinta);
+    border-color: var(--linha-forte);
+  }
+}
+
+/* --- rodapé de estado ---------------------------------------------------- */
+
+.estado {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 34px;
+  font-size: 13px;
+  color: var(--tinta-3);
+}
+
+.estado b {
+  color: var(--tinta-2);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.estado-ponto {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #4fd1c5;
+}
+
+.estado-aviso {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: var(--r-pill);
+  border: 1px solid color-mix(in srgb, var(--destaque) 40%, transparent);
+  background: color-mix(in srgb, var(--destaque) 14%, transparent);
+  color: var(--tinta);
+}
+
+/* --- resultados ---------------------------------------------------------- */
+
+.topo {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding: 18px 0 14px;
+  background: linear-gradient(var(--fundo) 72%, transparent);
+}
+
+.topo-linha {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  max-width: 1080px;
+  margin: 0 auto;
+}
+
+/* No topo o campo encolhe: já cumpriu o papel de convite, agora é ferramenta. */
+.topo-linha .campo {
+  max-width: 560px;
+  height: 48px;
+}
+
+.resumo {
+  max-width: 1080px;
+  margin: 2px auto 18px;
+  font-size: 13px;
+  color: var(--tinta-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.grade {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding-bottom: 60px;
+}
+
+.cartao {
+  animation: surgir 240ms var(--saida) backwards;
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 14px;
+  padding: 12px;
+  text-align: left;
+  border-radius: var(--r-2);
+  border: 1px solid var(--linha);
+  background: var(--fundo-alto);
+  transition:
+    border-color var(--t-ui) var(--saida),
+    background var(--t-ui) var(--saida),
+    transform var(--t-toque) var(--saida);
+}
+
+@keyframes surgir {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .cartao:hover {
+    border-color: var(--linha-forte);
+    background: #151922;
+  }
+}
+
+.cartao-capa {
+  width: 92px;
+  height: 92px;
+  border-radius: var(--r-1);
+  overflow: hidden;
+  background: #171b23;
+  display: grid;
+  place-items: center;
+  color: var(--tinta-3);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+}
+
+.cartao-capa img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.cartao-corpo {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* A manchete é o que a pessoa lembra. O nome do arquivo é a string que ela
+   nunca soube: fica na linha de apoio, junto da pasta. */
+.cartao-frase {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.4;
+  letter-spacing: -0.01em;
+  color: var(--tinta);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.cartao-apoio {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--tinta-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cartao-selos {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+}
+
+.selo {
+  padding: 2px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--linha);
+  color: var(--tinta-3);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+}
+
+/* --- espera e vazio ------------------------------------------------------ */
+
+.espera {
+  max-width: 1080px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+}
+
+.esqueleto {
+  height: 116px;
+  border-radius: var(--r-2);
+  border: 1px solid var(--linha);
+  background: linear-gradient(100deg, #12151b 30%, #171b23 50%, #12151b 70%);
+  background-size: 200% 100%;
+  animation: varrer 1.1s linear infinite;
+}
+
+@keyframes varrer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.vazio {
+  max-width: 560px;
+  margin: 40px auto;
+  text-align: center;
+}
+
+.vazio h2 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.vazio p {
+  margin: 0 0 18px;
+  color: var(--tinta-2);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.exemplos-centro {
+  justify-content: center;
+}
+
+/* Telas estreitas: o trilho continua, o resto para de disputar largura. */
+@media (max-width: 720px) {
+  .palco {
+    padding: 0 16px;
+  }
+
+  .casa {
+    padding: 48px 0;
+  }
+
+  .casa-titulo {
+    font-size: 28px;
+  }
+
+  .campo-atalho {
+    display: none;
+  }
+
+  .topo-linha .campo {
+    max-width: none;
+  }
+
+  .grade,
+  .espera {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Quem pediu menos movimento continua com a interface inteira, sem deslocamento. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -55,3 +55,7 @@ htmlcov/
 relatorios/
 .mypy_cache/
 .ruff_cache/
+
+# Protótipo de design (Vite): dependências e build não versionam
+node_modules/
+prototipo/dist/
