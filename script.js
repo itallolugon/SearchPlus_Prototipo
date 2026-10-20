@@ -2286,6 +2286,47 @@ function esconderSuave(el, ms) {
     setTimeout(() => { el.style.display = 'none'; }, ms || 380);
 }
 
+// O layout muda de uma vez e o movimento é só transform (técnica FLIP).
+// Animar padding, margin, font-size ou largura refazia o layout da página
+// inteira a cada quadro. Mede o CONTEÚDO (Range), não a caixa: o logo é um
+// bloco de largura cheia com o texto centrado, e é o texto que tem de ficar
+// no lugar. A escala compensa só a troca de font-size (o logo encolhendo).
+function animarLayout(els, mudar, ms = 550) {
+    const medir = el => { const r = document.createRange(); r.selectNodeContents(el); return r.getBoundingClientRect(); };
+    els = els.filter(el => el && el.getClientRects().length);
+    const antes = els.map(el => [medir(el), parseFloat(getComputedStyle(el).fontSize)]);
+    els.forEach(el => {
+        clearTimeout(el._flip);
+        el.style.transition = 'none';
+        el.style.transform = el.style.transformOrigin = '';
+    });
+    mudar();
+    const movidos = els.filter((el, i) => {
+        const [a, fonteAntes] = antes[i];
+        const d = medir(el);
+        const s = fonteAntes / parseFloat(getComputedStyle(el).fontSize);
+        const dx = a.left - d.left, dy = a.top - d.top;
+        if (!d.width || (Math.abs(dx) < 1 && Math.abs(dy) < 1 && Math.abs(s - 1) < .01)) {
+            el.style.transition = '';
+            return false;
+        }
+        const caixa = el.getBoundingClientRect();
+        el.style.transformOrigin = `${d.left - caixa.left}px ${d.top - caixa.top}px`;
+        el.style.transform = `translate(${dx}px, ${dy}px) scale(${s})`;
+        return true;
+    });
+    void document.body.offsetHeight;   // fixa o ponto de partida antes de soltar
+    movidos.forEach(el => {
+        el.style.transition = `transform ${ms}ms var(--ease)`;
+        el.style.transform = '';
+        el._flip = setTimeout(() => { el.style.transition = el.style.transformOrigin = ''; }, ms + 50);
+    });
+}
+
+function _blocosDaBusca() {
+    return [document.getElementById('mainLogo'), document.querySelector('.search-box-wrapper')];
+}
+
 function voltarParaHomeSmooth() {
     definirTextoBusca('');
     document.getElementById('searchResultsView').classList.add('fade-out');
@@ -2295,16 +2336,18 @@ function voltarParaHomeSmooth() {
     fecharPainelLateral();
 
     setTimeout(() => {
-        document.getElementById('searchResultsView').style.display = 'none';
-        document.getElementById('filterBarContainer').style.display = 'none';
-
         const wrapper = document.getElementById('mainAppWrapper');
-        wrapper.classList.remove('layout-top');
-        wrapper.classList.add('layout-centered');
+        animarLayout(_blocosDaBusca(), () => {
+            document.getElementById('searchResultsView').style.display = 'none';
+            document.getElementById('filterBarContainer').style.display = 'none';
 
-        // A casa é a tela vazia: logo, busca e os quadros de número. As
-        // prateleiras só aparecem se a pessoa pedir — pelo quadro Acervo.
-        wrapper.classList.remove('acervo-aberto');
+            wrapper.classList.remove('layout-top');
+            wrapper.classList.add('layout-centered');
+
+            // A casa é a tela vazia: logo, busca e os quadros de número. As
+            // prateleiras só aparecem se a pessoa pedir — pelo quadro Acervo.
+            wrapper.classList.remove('acervo-aberto');
+        });
         mostrarHome();
         carregarPainelNumeros();
     }, 400);
@@ -2416,17 +2459,18 @@ async function realizarBusca() {
     // milissegundos), revelar no finally sem esperar por ela deixava o
     // resultado invisível. A promessa amarra a ordem.
     const layoutPronto = new Promise(resolve => setTimeout(() => {
-        document.getElementById('dashboardView').style.display = 'none';
+        animarLayout(_blocosDaBusca(), () => {
+            document.getElementById('dashboardView').style.display = 'none';
 
-        const wrapper = document.getElementById('mainAppWrapper');
-        wrapper.classList.remove('layout-centered');
-        wrapper.classList.add('layout-top');
+            const wrapper = document.getElementById('mainAppWrapper');
+            wrapper.classList.remove('layout-centered');
+            wrapper.classList.add('layout-top');
 
-        document.getElementById('filterBarContainer').style.display = 'flex';
+            document.getElementById('filterBarContainer').style.display = 'flex';
+            document.getElementById('searchResultsView').style.display = 'block';
+            document.getElementById('searchResultsView').classList.add('fade-out');
+        });
         setTimeout(() => document.getElementById('filterBarContainer').style.opacity = '1', 50);
-
-        document.getElementById('searchResultsView').style.display = 'block';
-        document.getElementById('searchResultsView').classList.add('fade-out');
         resolve();
     }, 400));
 
@@ -3683,13 +3727,26 @@ function abrirPainelLateral(id) {
     }
 
     document.getElementById('sidePanel').classList.add('open');
-    document.getElementById('mainContentArea').classList.add('shifted');
+    deslocarConteudo(true);
 }
 
 function fecharPainelLateral() {
     document.getElementById('sidePanel').classList.remove('open');
-    document.getElementById('mainContentArea').classList.remove('shifted');
+    deslocarConteudo(false);
     document.getElementById('sideMediaPreview').innerHTML = '';
+}
+
+// O conteúdo abre espaço pro painel com UMA troca de layout; quem desliza é
+// transform. Animar margin-right/width refazia o layout de todas as faixas
+// a cada quadro, durante meio segundo.
+function deslocarConteudo(abrir) {
+    const area = document.getElementById('mainContentArea');
+    if (area.classList.contains('shifted') === abrir) return;
+    animarLayout(
+        [..._blocosDaBusca(), ...['filterBarContainer', 'dashboardView', 'searchResultsView'].map(id => document.getElementById(id))],
+        () => area.classList.toggle('shifted', abrir),
+        400
+    );
 }
 
 window.onclick = function (e) {
@@ -7026,13 +7083,15 @@ async function _renderBuscaVisual(corpo) {
         window.resultadosAtuais = d.resultados || [];
 
         // Garante que a view de resultados está visível (caso venha do dashboard)
+        animarLayout(_blocosDaBusca(), () => {
             const wrapper = document.getElementById('mainAppWrapper');
-        wrapper.classList.remove('layout-centered');
-        wrapper.classList.add('layout-top');
-        document.getElementById('dashboardView').style.display = 'none';
-        document.getElementById('filterBarContainer').style.display = 'flex';
+            wrapper.classList.remove('layout-centered');
+            wrapper.classList.add('layout-top');
+            document.getElementById('dashboardView').style.display = 'none';
+            document.getElementById('filterBarContainer').style.display = 'flex';
+            document.getElementById('searchResultsView').style.display = 'block';
+        });
         document.getElementById('filterBarContainer').style.opacity = '1';
-        document.getElementById('searchResultsView').style.display = 'block';
         document.getElementById('searchResultsView').classList.remove('fade-out');
         document.getElementById('searchResultsView').style.opacity = '1';
 
