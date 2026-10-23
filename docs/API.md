@@ -1149,7 +1149,7 @@ Todo arquivo sai com `X-Content-Type-Options: nosniff` e, menos o PDF, com `Cont
 
 Abre o Explorer do Windows com o arquivo selecionado. Roda **no servidor**.
 
-→ `{"status": "ok"}` · `400` caminho vazio · `403` fora das pastas monitoradas
+→ `{"status": "ok"}` · `400` caminho vazio ou inválido (com byte nulo, por exemplo) · `403` fora das pastas monitoradas
 · `404` não existe · `501` fora do Windows
 
 Só abre arquivo dentro de uma **pasta monitorada do usuário** — a mesma regra

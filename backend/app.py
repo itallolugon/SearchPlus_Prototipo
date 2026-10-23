@@ -1589,7 +1589,9 @@ def api_serve_file(filepath):
     # realpath, e não normpath: um atalho dentro da pasta monitorada apontando
     # para fora passaria pela comparação, porque o caminho *escrito* fica
     # dentro. Mesma regra de /api/open_location.
-    filepath = os.path.realpath(unquote(filepath))
+    filepath = _caminho_real(unquote(filepath))
+    if filepath is None:
+        return jsonify({"error": "Arquivo não encontrado."}), 404
 
     conn = get_db()
     try:
@@ -4275,12 +4277,35 @@ def _dentro_das_pastas(caminho: str, pastas_monitoradas) -> bool:
     O separador sai do fim antes de entrar de novo: com abspath, 'C:\\' virava
     'c:\\\\' e uma unidade inteira monitorada não autorizava arquivo nenhum.
     """
-    alvo = os.path.realpath(caminho).lower()
+    alvo = _caminho_real(caminho)
+    if alvo is None:
+        return False
+    alvo = alvo.lower()
     for p in pastas_monitoradas:
-        base = os.path.realpath(p).lower().rstrip("\\/")
+        base = _caminho_real(p)
+        if base is None:
+            continue
+        base = base.lower().rstrip("\\/")
         if alvo == base or alvo.startswith(base + os.sep):
             return True
     return False
+
+
+def _caminho_real(caminho: str) -> str | None:
+    """
+    realpath, ou None se o caminho não for um caminho.
+
+    No Linux, realpath levanta ValueError com byte nulo ("a%00b" na URL) — e
+    cada rota que o chamava virava 500 com um pedido malformado. O byte nulo é
+    recusado de saída para a resposta ser a mesma no Windows, onde realpath
+    não reclama dele.
+    """
+    if "\x00" in caminho:
+        return None
+    try:
+        return os.path.realpath(caminho)
+    except ValueError:
+        return None
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5951,7 +5976,9 @@ def api_open_location():
     if not bruto:
         return jsonify({"error": "Caminho não informado."}), 400
 
-    filepath = os.path.realpath(bruto)
+    filepath = _caminho_real(bruto)
+    if filepath is None:
+        return jsonify({"error": "Caminho inválido."}), 400
 
     conn = get_db()
     try:
