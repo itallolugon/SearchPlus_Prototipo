@@ -165,3 +165,41 @@ def _CANDIDATOS_DE_ICONE(js):
     for chamada in re.findall(r"rotularCom\(([^;]*?)\)\s*;", js, re.S):
         nomes |= set(re.findall(r"'([a-z-]+)'", chamada))
     return nomes
+
+
+def _classes_com_icone_do_sprite(js):
+    """Classes dos elementos que o script.js preenche com icone()."""
+    classes = set()
+    for m in re.finditer(r"(\w+)\.(?:replaceChildren|appendChild)\(icone\(", js):
+        var, antes = m.group(1), js[max(0, m.start() - 400) : m.start()]
+        achadas = re.findall(rf"\b{var}\.className\s*=\s*'([^']+)'", antes)
+        achadas += re.findall(rf"\b{var}\.classList\.add\('([^']+)'\)", antes)
+        for c in achadas:
+            classes.update(c.split())
+    return classes
+
+
+class TestIconeDesenhadoUmaVez:
+    """
+    O redesenho trouxe ícones desenhados por máscara no CSS (`::before`), do
+    tempo em que o JS punha emoji. Quando o JS passou a inserir o SVG do
+    sprite, as duas versões valiam juntas e o ícone aparecia duas vezes: a
+    lupa do histórico, a pasta da coleção vazia, a lixeira de excluir coleção.
+    """
+
+    def test_quem_recebe_icone_do_sprite_nao_ganha_outro_no_css(self):
+        classes = _classes_com_icone_do_sprite(_ler(SCRIPT))
+        assert {"history-item-icon", "colecao-capa-vazia", "colecao-del-flutuante"} <= classes, (
+            "premissa: estes três recebem o ícone pelo script.js"
+        )
+        css = re.sub(r"/\*.*?\*/", " ", _ler(ESTILO), flags=re.S)
+        duplicados = []
+        for seletor, corpo in re.findall(r"([^{}]+)\{([^{}]*)\}", css):
+            if "mask-image" not in corpo and not re.search(r"content:\s*['\"][^'\"]+['\"]", corpo):
+                continue
+            for c in classes:
+                if re.search(rf"\.{re.escape(c)}::(before|after)\b", seletor):
+                    duplicados.append(c)
+        assert not duplicados, (
+            f"ícone desenhado duas vezes (sprite + CSS): {sorted(set(duplicados))}"
+        )
