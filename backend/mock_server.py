@@ -1622,6 +1622,8 @@ def open_location():
     caminho = (request.args.get("path") or "").strip()
     if not caminho:
         return jsonify({"error": "Caminho não informado."}), 400
+    if "\x00" in caminho:
+        return jsonify({"error": "Caminho inválido."}), 400
     # Caminho fora do acervo de exemplo: mesma recusa do backend real.
     if not any(caminho.startswith(b) for b in (_BASE, _DOCS)):
         return jsonify({"error": "Arquivo fora das pastas monitoradas."}), 403

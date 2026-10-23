@@ -176,3 +176,9 @@ class TestParidadeDeComportamento:
         assert r.status_code == 200
         assert r.headers["Content-Security-Policy"] == "sandbox"
         assert r.headers["X-Content-Type-Options"] == "nosniff"
+
+    def test_caminho_com_byte_nulo_da_400_nos_dois(self, api_logada, client_logado, db_roteado):
+        """No Linux era 500 no backend real; agora é a mesma recusa nos dois."""
+        db_roteado({"SELECT path FROM folders": {"fetchall": [{"path": r"C:\Fotos"}]}})
+        for cliente in (api_logada, client_logado):
+            assert cliente.get("/api/open_location?path=a%00b").status_code == 400

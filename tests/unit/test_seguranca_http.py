@@ -401,3 +401,40 @@ class TestRlsNoSchema:
         com_rls = set(re.findall(r"'(\w+)'", bloco.group(1)))
         assert criadas, "premissa: o schema cria tabelas"
         assert criadas <= com_rls, f"tabelas sem RLS: {sorted(criadas - com_rls)}"
+
+
+class TestCaminhoComByteNulo:
+    """
+    No Linux, realpath levanta ValueError com byte nulo, e as rotas que o
+    chamavam viravam 500. O byte nulo é recusado de saída (mesma resposta em
+    qualquer SO); o ValueError que sobrar é simulado, para valer no Windows.
+    """
+
+    PASTA = os.path.join(os.sep, "Fotos")
+
+    @pytest.fixture()
+    def realpath_que_levanta(self, app_module, monkeypatch):
+        def _levanta(_caminho, *a, **k):
+            raise ValueError("lstat: embedded null character in path")
+
+        monkeypatch.setattr(app_module.os.path, "realpath", _levanta)
+
+    def test_byte_nulo_nao_e_caminho(self, app_module):
+        assert app_module._caminho_real("a\x00b") is None
+        assert app_module._dentro_das_pastas("a\x00b", [self.PASTA]) is False
+
+    def test_arquivo_com_byte_nulo_responde_404(self, flask_app, app_module, db_roteado):
+        db_roteado(_pastas(self.PASTA))
+        assert _servir(flask_app, app_module, "a\x00b")[0] == 404
+
+    def test_abrir_local_com_byte_nulo_responde_400(self, client_logado, db_roteado):
+        db_roteado(_pastas(self.PASTA))
+        assert client_logado.get("/api/open_location?path=a%00b").status_code == 400
+
+    def test_valueerror_do_realpath_vira_recusa(
+        self, flask_app, app_module, db_roteado, realpath_que_levanta
+    ):
+        alvo = os.path.join(self.PASTA, "a.jpg")
+        assert app_module._dentro_das_pastas(alvo, [self.PASTA]) is False
+        db_roteado(_pastas(self.PASTA))
+        assert _servir(flask_app, app_module, alvo)[0] == 404
