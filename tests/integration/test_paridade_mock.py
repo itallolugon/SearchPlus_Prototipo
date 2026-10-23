@@ -128,3 +128,51 @@ class TestParidadeDeComportamento:
         corpo = {"query": "cachorro"}
         assert api.post("/api/search", json=corpo).status_code == 401
         assert client.post("/api/search", json=corpo).status_code == 401
+
+    def test_host_desconhecido_e_recusado_nos_dois(self, api, client):
+        """Anti DNS rebinding: o front tem de ver o mesmo 400 no mock e no real."""
+        for cliente in (api, client):
+            r = cliente.get("/api/health", base_url="http://evil.example:5000")
+            assert r.status_code == 400
+            assert "error" in r.get_json()
+
+    def test_origem_null_sem_permissao_nos_dois(self, api, client):
+        for cliente in (api, client):
+            r = cliente.get("/api/health", headers={"Origin": "null"})
+            assert "Access-Control-Allow-Origin" not in r.headers
+
+    def test_cabecalhos_de_seguranca_nos_dois(self, api, client):
+        for cliente in (api, client):
+            r = cliente.get("/api/health")
+            assert r.headers["X-Frame-Options"] == "SAMEORIGIN"
+            assert r.headers["Referrer-Policy"] == "same-origin"
+
+    @pytest.mark.parametrize(
+        "campo,valor",
+        [("perfil_analise", "turbo"), ("janela_processamento", "sempre"), ("prioridades", [])],
+    )
+    def test_config_de_pasta_invalida_da_400_nos_dois(
+        self, api_logada, client_logado, tmp_path, campo, valor
+    ):
+        corpo = {"pasta": str(tmp_path), campo: valor}
+        assert api_logada.post("/api/folders", json=corpo).status_code == 400
+        assert client_logado.post("/api/folders", json=corpo).status_code == 400
+        atualizar = {"id": 1, campo: valor}
+        assert api_logada.post("/api/folders/update_config", json=atualizar).status_code == 400
+        assert client_logado.post("/api/folders/update_config", json=atualizar).status_code == 400
+
+    def test_limpar_historico_devolve_a_lista_vazia_nos_dois(
+        self, api_logada, client_logado, db_roteado, mock_module, monkeypatch
+    ):
+        # O histórico do mock é estado global: outros testes contam com ele.
+        monkeypatch.setattr(mock_module, "_HISTORICO", list(mock_module._HISTORICO))
+        db_roteado({})
+        for cliente in (api_logada, client_logado):
+            corpo = cliente.post("/api/clear_history").get_json()
+            assert corpo == {"status": "ok", "historico": []}
+
+    def test_arquivo_do_mock_tambem_vai_em_sandbox(self, api_logada):
+        r = api_logada.get("/api/file/C:%5CUsers%5CDemo%5CImagens%5Cgato-janela.png")
+        assert r.status_code == 200
+        assert r.headers["Content-Security-Policy"] == "sandbox"
+        assert r.headers["X-Content-Type-Options"] == "nosniff"

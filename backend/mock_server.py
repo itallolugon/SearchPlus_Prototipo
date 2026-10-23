@@ -27,6 +27,7 @@ Diferenças propositais em relação ao backend real:
 
 import base64
 import os
+import re
 import time
 import uuid
 from datetime import datetime, timedelta
@@ -46,7 +47,10 @@ app = Flask(__name__, static_folder=None)
 app.secret_key = "searchplus_mock_key"
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_HTTPONLY"] = True
+# Mesmo teto do backend real — ver app.py.
+app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024
 
+# Sem a origem "null", como no backend real — ver o comentário em app.py.
 CORS(
     app,
     supports_credentials=True,
@@ -57,9 +61,37 @@ CORS(
         "http://127.0.0.1:3000", "http://localhost:3000",
         "http://127.0.0.1:4200", "http://localhost:4200",
         "http://127.0.0.1:8080", "http://localhost:8080",
-        "null",
     ],
 )
+
+# Mesmas travas de rede do backend real (anti DNS rebinding e cabeçalhos):
+# o front tem de receber aqui os mesmos 400 que receberia lá.
+ALLOWED_HOSTS = {"127.0.0.1", "localhost", "[::1]"} | {
+    h.strip().lower() for h in os.environ.get("ALLOWED_HOSTS", "").split(",") if h.strip()
+}
+
+
+@app.before_request
+def _recusar_host_desconhecido():
+    host = (request.host or "").strip().lower()
+    nome = host.split("]", 1)[0] + "]" if host.startswith("[") else host.partition(":")[0]
+    if nome not in ALLOWED_HOSTS:
+        # O mock não lê o .env: aqui ALLOWED_HOSTS vem do ambiente.
+        return jsonify({"error": "Endereço não permitido. Use http://127.0.0.1 "
+                                 "ou defina ALLOWED_HOSTS no ambiente."}), 400
+
+
+@app.after_request
+def _cabecalhos_de_seguranca(resposta):
+    resposta.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    resposta.headers.setdefault("Referrer-Policy", "same-origin")
+    return resposta
+
+
+@app.errorhandler(413)
+def _corpo_grande_demais(_exc):
+    return jsonify({"error": "Envio grande demais (máximo de 64 MB)."}), 413
+
 
 _EXT_IMG = {"png", "jpg", "jpeg", "gif", "webp", "bmp"}
 _EXT_VID = {"mp4", "avi", "mkv", "mov", "webm"}
@@ -370,6 +402,29 @@ def config():
     return jsonify({"status": "ok"})
 
 
+# Mesma validação do backend real (app.py, _erro_config_pasta): o front tem de
+# receber aqui o mesmo 400 que receberia lá.
+_PRIORIDADES_VALIDAS = {"tudo", "pessoas", "animais", "paisagens", "documentos"}
+_JANELA_HORARIO = re.compile(r"^([01]?\d|2[0-3]):[0-5]\d-([01]?\d|2[0-3]):[0-5]\d$")
+
+
+def _erro_config_pasta(data):
+    if "prioridades" in data:
+        prio = data["prioridades"]
+        if (not isinstance(prio, list) or not prio
+                or not all(isinstance(p, str) and p in _PRIORIDADES_VALIDAS for p in prio)):
+            return "Prioridades inválidas."
+    if "perfil_analise" in data:
+        perfil = data["perfil_analise"]
+        if not isinstance(perfil, str) or perfil not in {"fast", "deep"}:
+            return "Perfil de análise inválido: use fast ou deep."
+    if "janela_processamento" in data:
+        janela = data["janela_processamento"]
+        if janela != "always" and not (isinstance(janela, str) and _JANELA_HORARIO.match(janela)):
+            return "Janela de processamento inválida: use always ou HH:MM-HH:MM."
+    return None
+
+
 @app.route("/api/folders", methods=["GET", "POST", "DELETE"])
 def folders():
     if not _logado():
@@ -384,6 +439,9 @@ def folders():
     if request.method == "POST":
         if not pasta:
             return jsonify({"error": "Caminho inválido ou inexistente."}), 400
+        erro = _erro_config_pasta(data)
+        if erro:
+            return jsonify({"error": erro}), 400
         existente = next((p for p in _PASTAS if p["path"].lower() == pasta.lower()), None)
         novo = {
             "id": existente["id"] if existente else (max((p["id"] for p in _PASTAS), default=0) + 1),
@@ -460,13 +518,24 @@ def update_folder_config():
         return jsonify({"status": "error", "message": "Use POST"}), 400
 
     data = request.get_json(force=True, silent=True) or {}
+    folder_id = data.get("id")
+    if folder_id is not None:
+        try:
+            folder_id = int(folder_id)
+        except (TypeError, ValueError):
+            return jsonify({"error": "ID de pasta inválido."}), 400
+    erro = _erro_config_pasta(data)
+    if erro:
+        return jsonify({"error": erro}), 400
     campos = {k: data[k] for k in ("prioridades", "perfil_analise", "janela_processamento")
               if k in data}
     if not campos:
         return jsonify({"error": "Nenhum campo enviado."}), 400
+    if folder_id is None and not data.get("path"):
+        return jsonify({"error": "ID ou Path não fornecido."}), 400
 
     for p in _PASTAS:
-        if p["id"] == data.get("id") or p["path"] == data.get("path"):
+        if p["id"] == folder_id or p["path"] == data.get("path"):
             p.update(campos)
     return jsonify({"status": "ok", "pastas": _PASTAS})
 
@@ -1161,9 +1230,6 @@ def collection_sync(col_id):
                         "apagados": len(nomes) * len(destinos_),
                         "falhas": [], "pastas": destinos_})
 
-    if False:
-        return _nao_autenticado()
-
     col = next((c for c in _COLECOES if c["id"] == col_id), None)
     if not col:
         return jsonify({"error": "Coleção não encontrada."}), 404
@@ -1498,7 +1564,7 @@ def clear_history():
     if not _logado():
         return _nao_autenticado()
     _HISTORICO.clear()
-    return jsonify({"status": "ok"})
+    return jsonify({"status": "ok", "historico": []})
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1514,7 +1580,11 @@ def serve_file(filepath):
     arq = _por_caminho(filepath)
     if not arq:
         return jsonify({"error": "Arquivo não encontrado."}), 404
-    return Response(_svg_placeholder(arq), mimetype="image/svg+xml")
+    # Mesmos cabeçalhos do backend real: arquivo do usuário não roda script.
+    return Response(_svg_placeholder(arq), mimetype="image/svg+xml", headers={
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "sandbox",
+    })
 
 
 @app.route("/api/choose_folder")
