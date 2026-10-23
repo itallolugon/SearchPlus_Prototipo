@@ -5444,9 +5444,12 @@ async function carregarColecoes() {
 
             // Botão excluir flutuante no canto
             const delBtn = document.createElement('button');
+            delBtn.type = 'button';
             delBtn.className = 'colecao-del-flutuante';
             delBtn.replaceChildren(icone('lixeira'));
             delBtn.title = 'Excluir coleção';
+            // Só ícone: sem aria-label o leitor de tela anunciava "botão".
+            delBtn.setAttribute('aria-label', `Excluir a coleção ${c.nome}`);
             delBtn.onclick = (e) => { e.stopPropagation(); excluirColecao(c.id, c.nome); };
 
             info.append(titulo, meta);
