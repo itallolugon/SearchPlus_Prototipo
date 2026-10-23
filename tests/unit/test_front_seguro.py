@@ -108,3 +108,12 @@ class TestBuscaPorImagem:
         """`error` é a chave do 401 e do 413; só `erro` deixava a tela muda."""
         corpo = _corpo(_sem_comentarios(_ler(SCRIPT)), "async function _renderBuscaVisual(")
         assert "d.erro || d.error" in corpo
+
+
+class TestBotaoDeExcluirColecao:
+    def test_botao_so_de_icone_tem_nome(self):
+        """FRONTEND.md: botão que só tem ícone precisa de aria-label."""
+        js = _sem_comentarios(_ler(SCRIPT))
+        i = js.index("delBtn.className = 'colecao-del-flutuante'")
+        trecho = js[i : i + 600]
+        assert "delBtn.setAttribute('aria-label'" in trecho
