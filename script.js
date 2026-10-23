@@ -1180,7 +1180,9 @@ async function adicionarPastaOnboarding() {
                     pasta: data.pasta,
                     prioridades: _obPrioridades,
                     perfil_analise: _obPerfil,
-                    janela_processamento: _obJanela
+                    // getJanelaValue, e não _obJanela: este só muda nas opções
+                    // fixas, e o "Horário Customizado" era ignorado.
+                    janela_processamento: getJanelaValue('ob')
                 })
             });
             currentConfig.historico_pastas = true;
@@ -1196,18 +1198,34 @@ async function atualizarListaPastasOnboarding() {
     const config = await res.json();
     const list = document.getElementById('onboardingFoldersList');
     const pastas = config.pastas || [];
-    if (pastas.length > 0) {
-        list.innerHTML = pastas.map(f => {
-            const p = typeof f === 'string' ? f : f.path;
-            const pEsc = p.replace(/'/g, "\\'").replace(/"/g, '&quot;').replace(/\\/g, '\\\\');
-            return `<div style="color:var(--telemetry); padding: 5px 0; display:flex; justify-content:center; align-items:center; gap: 10px;">
-                <span>${p}</span>
-                <span style="cursor:pointer; color:var(--text-secondary); opacity:0.7; font-size:0.9rem;" onclick="removerPastaOnboarding('${pEsc}')" title="Remover pasta"></span>
-            </div>`;
-        }).join('');
-    } else {
+    if (pastas.length === 0) {
         list.innerHTML = `<p style="color: var(--text-secondary); font-size: 0.9rem; text-align:center;">Nenhuma pasta selecionada ainda.</p>`;
+        return;
     }
+    // Montado pelo DOM: o caminho vem do disco e entra como TEXTO. A versão em
+    // template string punha o caminho cru no innerHTML e no onclick — com o
+    // escape na ordem errada, que desfazia o próprio escape — e o botão de
+    // remover tinha ficado sem conteúdo na troca dos emoji: 0×0 px, impossível
+    // de clicar.
+    list.replaceChildren(...pastas.map(f => {
+        const p = typeof f === 'string' ? f : f.path;
+        const linha = document.createElement('div');
+        linha.style.cssText = 'color:var(--telemetry); padding: 5px 0; display:flex; ' +
+            'justify-content:center; align-items:center; gap: 10px;';
+        const nome = document.createElement('span');
+        nome.textContent = p;
+        const remover = document.createElement('button');
+        remover.type = 'button';
+        remover.title = 'Remover pasta';
+        remover.setAttribute('aria-label', `Remover a pasta ${p}`);
+        remover.style.cssText = 'display:inline-flex; padding:4px; border:none; ' +
+            'border-radius:6px; background:none; cursor:pointer; ' +
+            'color:var(--text-secondary); opacity:.8;';
+        remover.appendChild(icone('x'));
+        remover.onclick = () => removerPastaOnboarding(p);
+        linha.append(nome, remover);
+        return linha;
+    }));
 }
 
 async function removerPastaOnboarding(path) {
@@ -1225,7 +1243,33 @@ async function removerPastaOnboarding(path) {
     } catch (e) { console.error(e); toastErro("Não foi possível remover a pasta."); }
 }
 
-function irParaOnboardingStep2() {
+// Foco, intensidade e janela ficam ABAIXO da lista de pastas e valem para
+// todas elas. Gravados só no momento de adicionar a pasta, perdia-se o que
+// fosse escolhido depois — que é a ordem natural de quem preenche a tela de
+// cima para baixo: a pasta ficava em "Relâmpago" com "Profundo" marcado.
+async function aplicarEscolhasDoOnboarding() {
+    const escolhas = {
+        prioridades: _obPrioridades,
+        perfil_analise: _obPerfil,
+        janela_processamento: getJanelaValue('ob'),
+    };
+    try {
+        const r = await fetch(`${API_BASE_URL}/api/folders`);
+        const { pastas = [] } = await r.json();
+        const respostas = await Promise.all(pastas.map(p =>
+            fetch(`${API_BASE_URL}/api/folders/update_config`, {
+                method: 'POST', headers: fetchOptions.headers,
+                body: JSON.stringify({ id: p.id, ...escolhas }),
+            })));
+        const falhou = respostas.find(resp => !resp.ok);
+        if (falhou) toastErro(await _erroDaResposta(falhou, 'Não foi possível salvar as escolhas de análise'));
+    } catch (e) {
+        toastErro('Não foi possível salvar as escolhas de análise. O servidor respondeu?');
+    }
+}
+
+async function irParaOnboardingStep2() {
+    await aplicarEscolhasDoOnboarding();
     document.getElementById('onboardingStep1').style.display = 'none';
     document.getElementById('onboardingStep2').style.display = 'block';
 
@@ -6511,6 +6555,12 @@ function _carregarArquivoImagem(file) {
         toastAviso("Escolha um arquivo de imagem.");
         return;
     }
+    // Mesmo limite do servidor. Avisar aqui poupa converter e enviar dezenas
+    // de MB só para ouvir o "não" depois.
+    if (file.size > 20 * 1024 * 1024) {
+        toastAviso("Imagem muito grande (máx. 20 MB). Escolha uma menor.");
+        return;
+    }
     const reader = new FileReader();
     reader.onload = (e) => {
         _imagemBuscaDataUrl = e.target.result;
@@ -6546,7 +6596,8 @@ async function _renderBuscaVisual(corpo) {
             body: JSON.stringify(corpo)
         });
         const d = await res.json();
-        if (d.erro) { toastErro(d.erro); return; }
+        // `erro` é o desta rota; `error`, o dos erros gerais (sessão, 413).
+        if (d.erro || d.error) { toastErro(d.erro || d.error); return; }
 
         window.resultadosAtuais = d.resultados || [];
 
