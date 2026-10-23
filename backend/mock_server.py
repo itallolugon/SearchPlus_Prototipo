@@ -125,25 +125,27 @@ _ARQUIVOS = [
         "id": 1, "nome": "praia-por-do-sol.jpg", "caminho": f"{_BASE}\\praia-por-do-sol.jpg",
         "tipo": "jpg", "cor": "#F59E0B",
         "descricao_ia": _desc(
-            "fotografia", "pôr do sol na praia com o mar calmo", "nenhuma", "nenhum",
-            "guarda-sol, cadeira de praia", "praia ao entardecer, céu alaranjado",
-            "sol se pondo no horizonte", "nenhum", "praia, por do sol, mar, natureza, verao"),
+            "fotografia", "pôr do sol no mar, com ondas quebrando nas pedras", "nenhuma",
+            "nenhum", "pedras, prédios ao longe", "praia ao entardecer, céu alaranjado",
+            "sol se pondo no horizonte, ondas quebrando", "nenhum",
+            "praia, por do sol, mar, natureza, verao"),
     },
     {
         "id": 2, "nome": "cachorro-parque.jpg", "caminho": f"{_BASE}\\cachorro-parque.jpg",
         "tipo": "jpg", "cor": "#10B981",
         "descricao_ia": _desc(
             "fotografia", "cachorro correndo na grama de um parque", "nenhuma",
-            "cachorro golden retriever", "bola, coleira", "parque com árvores e gramado",
+            "cachorro golden retriever", "bola, coleira", "parque com gramado e alambrado",
             "cachorro correndo e brincando", "nenhum", "cachorro, pet, parque, animais, natureza"),
     },
     {
         "id": 3, "nome": "gato-janela.png", "caminho": f"{_BASE}\\gato-janela.png",
         "tipo": "png", "cor": "#8B5CF6",
         "descricao_ia": _desc(
-            "fotografia", "gato deitado no parapeito de uma janela", "nenhuma",
-            "gato malhado cinza", "almofada, cortina", "interior de casa, luz natural",
-            "gato dormindo", "nenhum", "gato, pet, casa, animais"),
+            "fotografia", "dois gatos dormindo numa almofada junto à janela", "nenhuma",
+            "um gato cinza e um gato malhado", "almofada estampada, janela",
+            "interior de casa, luz natural", "gatos dormindo", "nenhum",
+            "gato, gatos, pet, casa, animais"),
     },
     {
         "id": 4, "nome": "equipe-reuniao.jpg", "caminho": f"{_BASE}\\equipe-reuniao.jpg",
@@ -151,25 +153,26 @@ _ARQUIVOS = [
         "descricao_ia": _desc(
             "fotografia", "equipe de trabalho reunida em volta de uma mesa",
             "quatro pessoas adultas, homens e mulheres", "nenhum",
-            "notebooks, cadernos, café", "escritório moderno e iluminado",
-            "pessoas conversando e apontando para uma tela", "nenhum",
+            "notebooks, cadernos, copos", "mesa de madeira num escritório",
+            "pessoas trabalhando juntas em notebooks e cadernos", "nenhum",
             "equipe, trabalho, escritorio, reuniao, pessoas"),
     },
     {
         "id": 5, "nome": "desenho-dragao.png", "caminho": f"{_BASE}\\desenho-dragao.png",
         "tipo": "png", "cor": "#EF4444",
         "descricao_ia": _desc(
-            "desenho, ilustração digital", "ilustração de um dragão vermelho voando",
-            "nenhuma", "dragão", "montanhas ao fundo", "céu nublado ao entardecer",
-            "dragão voando e soltando fogo", "nenhum",
+            "desenho, ilustração digital",
+            "ilustração de um dragão vermelho cuspindo fogo do alto de uma rocha",
+            "nenhuma", "dragão", "rocha, chamas", "céu azul com nuvens",
+            "dragão de asas abertas cuspindo fogo", "nenhum",
             "desenho, ilustracao, dragao, fantasia, arte digital"),
     },
     {
         "id": 6, "nome": "sushi-combinado.jpg", "caminho": f"{_BASE}\\sushi-combinado.jpg",
         "tipo": "jpg", "cor": "#EC4899",
         "descricao_ia": _desc(
-            "fotografia", "combinado de sushi servido em uma tábua de madeira",
-            "nenhuma", "nenhum", "sushi, sashimi, hashi, molho shoyu, wasabi",
+            "fotografia", "combinado de sushi e sashimi servido numa tábua escura",
+            "nenhuma", "nenhum", "sushi, sashimi, hashi, wasabi",
             "mesa de restaurante japonês", "nenhuma", "nenhum",
             "sushi, comida, japonesa, restaurante, refeicao"),
     },
@@ -185,9 +188,11 @@ _ARQUIVOS = [
         "id": 8, "nome": "anime-personagem.png", "caminho": f"{_BASE}\\anime-personagem.png",
         "tipo": "png", "cor": "#14B8A6",
         "descricao_ia": _desc(
-            "desenho, anime", "personagem de anime com cabelo azul",
-            "uma personagem feminina jovem", "nenhum", "uniforme escolar, mochila",
-            "rua de uma cidade japonesa", "personagem caminhando e sorrindo", "nenhum",
+            "desenho, anime", "personagem de anime de cabelo preto apontando para a frente",
+            "uma personagem feminina jovem", "nenhum",
+            "uniforme escolar, blazer vermelho, presilha no cabelo",
+            "fundo branco com linhas de ação de mangá", "personagem apontando para quem olha",
+            "nenhum",
             "anime, desenho, personagem, ilustracao"),
     },
     {
@@ -195,7 +200,7 @@ _ARQUIVOS = [
         "tipo": "jpg", "cor": "#0EA5E9",
         "descricao_ia": _desc(
             "fotografia", "montanha coberta de neve sob céu azul", "nenhuma", "nenhum",
-            "pinheiros, trilha", "paisagem de montanha no inverno", "nenhuma", "nenhum",
+            "pico rochoso, nuvens", "paisagem de montanha nevada", "nenhuma", "nenhum",
             "montanha, neve, paisagem, natureza, inverno"),
     },
     {

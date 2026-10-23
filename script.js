@@ -809,6 +809,7 @@ function _attr(texto) {
 // procurado em demo-fotos/ antes de cair no backend.
 // Pra trocar por fotos suas: ponha o arquivo em demo-fotos/<nome>.jpg com o
 // mesmo nome do arquivo demo. Pra remover tudo: apague a pasta e esta lista.
+// Origem e licença de cada foto (todas de domínio público): demo-fotos/CREDITOS.md.
 const _DEMO_FOTOS = new Set([
     'praia-por-do-sol', 'cachorro-parque', 'gato-janela', 'equipe-reuniao',
     'desenho-dragao', 'sushi-combinado', 'cidade-noite', 'anime-personagem',
