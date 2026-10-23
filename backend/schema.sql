@@ -222,3 +222,30 @@ CREATE TABLE IF NOT EXISTS collection_files (
 
 CREATE INDEX IF NOT EXISTS collections_user_idx ON collections (user_id);
 CREATE INDEX IF NOT EXISTS collection_files_col_idx ON collection_files (collection_id);
+
+-- Row Level Security em todas as tabelas.
+--
+-- O Supabase publica o schema `public` pela API REST (PostgREST), e a chave
+-- `anon` do projeto existe para ficar em código de navegador: tabela sem RLS é
+-- tabela que qualquer pessoa com essa chave lê e altera pela internet — `users`
+-- inclusive, com os hashes de senha. O app não usa a API REST: fala direto com
+-- o Postgres como DONO das tabelas, e o dono não passa pela RLS. Ligar sem
+-- política nenhuma fecha a API REST e deixa o app exatamente como estava.
+--
+-- Tolera falta de permissão (banco em que o usuário do app não é o dono):
+-- avisa e segue, em vez de derrubar a verificação do schema inteiro.
+DO $$
+DECLARE
+    tabela text;
+BEGIN
+    FOREACH tabela IN ARRAY ARRAY[
+        'users', 'folders', 'files', 'collections', 'collection_folders',
+        'collection_files', 'resumos_indexacao', 'exportacoes', 'lixeira'
+    ] LOOP
+        BEGIN
+            EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', tabela);
+        EXCEPTION WHEN insufficient_privilege THEN
+            RAISE NOTICE 'RLS nao ativada em %: o usuario do app nao e dono da tabela.', tabela;
+        END;
+    END LOOP;
+END $$;

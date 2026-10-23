@@ -105,6 +105,29 @@ class TestSchema:
             tabelas = {r[0] for r in cur.fetchall()}
         assert {"users", "folders", "files"} <= tabelas
 
+    def test_toda_tabela_tem_rls_ligada(self, conexao):
+        """Sem RLS, a API REST do Supabase expõe a tabela a quem tiver a chave anon."""
+        with conexao.cursor() as cur:
+            cur.execute(
+                "SELECT c.relname FROM pg_class c "
+                "JOIN pg_namespace n ON n.oid = c.relnamespace "
+                "WHERE n.nspname = 'public' AND c.relkind = 'r' AND NOT c.relrowsecurity"
+            )
+            sem_rls = sorted(r[0] for r in cur.fetchall())
+        assert sem_rls == [], f"tabelas sem RLS: {sem_rls}"
+
+    def test_rls_nao_barra_o_proprio_app(self, conexao, usuario):
+        """O app fala como dono das tabelas; RLS sem política não pode barrá-lo."""
+        _inserir_arquivo(conexao, usuario, caminho("C", "z.jpg"))
+        with conexao.cursor() as cur:
+            cur.execute("SELECT count(*) FROM files WHERE user_id = %s", (usuario,))
+            assert cur.fetchone()[0] == 1
+
+    def test_schema_roda_de_novo_sem_erro(self, conexao):
+        """init_db() roda o schema a cada boot: o bloco da RLS tem de ser idempotente."""
+        with conexao.cursor() as cur:
+            cur.execute(SCHEMA.read_text(encoding="utf-8"))
+
     def test_caminho_e_unico_por_usuario(self, conexao, usuario):
         _inserir_arquivo(conexao, usuario, caminho("A", "x.jpg"))
         with pytest.raises(psycopg2.errors.UniqueViolation):
