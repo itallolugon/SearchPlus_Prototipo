@@ -7,6 +7,7 @@ import os
 import re
 import json
 import hashlib
+import hmac
 import bcrypt
 import mimetypes
 import queue
@@ -399,11 +400,64 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 if _cross_site:
     print("[Auth] Cookies cross-site ativos (SameSite=None; Secure) — exige HTTPS.")
 
+# Teto do corpo da requisição. O maior envio legítimo é a imagem da busca por
+# imagem: até 20 MB, que em base64 viram ~27 MB. Sem teto, um envio de vários
+# GB era lido inteiro para a memória antes de qualquer validação.
+app.config["MAX_CONTENT_LENGTH"] = 64 * 1024 * 1024
+
+
+@app.errorhandler(413)
+def _corpo_grande_demais(_exc):
+    return jsonify({"error": "Envio grande demais (máximo de 64 MB)."}), 413
+
+
+# A origem "null" ficou de fora de propósito. É a que o navegador manda de
+# iframe com sandbox — que qualquer site cria — e de página aberta por file://.
+# Liberada junto com credenciais, bastava CROSS_SITE_COOKIES=1 para qualquer
+# site ler a API com a sessão de quem estivesse logado. E não servia ao uso
+# legítimo: aberto por file://, o front nem recebe o cookie de sessão.
 CORS(
     app,
     supports_credentials=True,
-    origins=ALLOWED_ORIGINS + ["null"],
+    origins=ALLOWED_ORIGINS,
 )
+
+# ── Nomes pelos quais o servidor aceita ser chamado ─────────────────────────
+# Escutar só em 127.0.0.1 não basta. Com DNS rebinding, um site faz o próprio
+# domínio passar a apontar para 127.0.0.1 e, da página dele, conversa com este
+# servidor como se fosse a mesma origem: cria uma conta, cadastra C:\Users como
+# pasta e lê qualquer arquivo por /api/file. O que denuncia o truque é o
+# cabeçalho Host, que continua trazendo o nome do site. Fora dos nomes locais,
+# só o que estiver no .env:
+#   ALLOWED_HOSTS=searchplus.exemplo.com
+_HOSTS_LOCAIS = {"127.0.0.1", "localhost", "[::1]"}
+ALLOWED_HOSTS = _HOSTS_LOCAIS | {
+    h.strip().lower() for h in os.environ.get("ALLOWED_HOSTS", "").split(",") if h.strip()
+}
+
+
+def _host_permitido(host: str) -> bool:
+    """Só o nome decide; a porta é a deste servidor de qualquer jeito."""
+    host = (host or "").strip().lower()
+    nome = host.split("]", 1)[0] + "]" if host.startswith("[") else host.partition(":")[0]
+    return nome in ALLOWED_HOSTS
+
+
+@app.before_request
+def _recusar_host_desconhecido():
+    if not _host_permitido(request.host):
+        return jsonify({"error": "Endereço não permitido. Use http://127.0.0.1 "
+                                 "ou inclua o nome em ALLOWED_HOSTS no .env."}), 400
+
+
+@app.after_request
+def _cabecalhos_de_seguranca(resposta):
+    # Ninguém de fora consegue pôr o app dentro de um <iframe> para induzir
+    # cliques; e nenhum link leva o endereço da página (que, em /api/file, traz
+    # o caminho do arquivo no disco) para outro site.
+    resposta.headers.setdefault("X-Frame-Options", "SAMEORIGIN")
+    resposta.headers.setdefault("Referrer-Policy", "same-origin")
+    return resposta
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Estado global do motor de IA (thread-safe)
@@ -872,8 +926,11 @@ def _verificar_senha(pw: str, hash_armazenado: str) -> bool:
             return bcrypt.checkpw(pw.encode("utf-8"), hash_armazenado.encode("utf-8"))
         except ValueError:
             return False
-    # Legado SHA-256: compara e (no login) será re-hasheado para bcrypt
-    return hashlib.sha256(pw.encode()).hexdigest() == hash_armazenado
+    # Legado SHA-256: compara e (no login) será re-hasheado para bcrypt.
+    # compare_digest leva o mesmo tempo acerte ou erre — o `==` parava no
+    # primeiro caractere diferente, e o tempo de resposta dizia quantos batiam.
+    return hmac.compare_digest(hashlib.sha256(pw.encode()).hexdigest().encode(),
+                               hash_armazenado.encode("utf-8"))
 
 
 def _eh_hash_legado(hash_armazenado: str) -> bool:
@@ -1032,12 +1089,18 @@ def api_login():
             except Exception as exc:
                 print(f"[Auth] Falha ao migrar senha: {exc}")
         conn.close()
+        # Começa limpa: nada da sessão anterior (outra conta, no mesmo
+        # navegador) atravessa o login.
+        session.clear()
         session["user_id"] = row["id"]
         session["username"] = username
         return jsonify({"status": "ok", "username": username})
 
     conn.close()
     return jsonify({"mensagem": "Usuário ou senha incorretos."}), 401
+
+
+_ERRO_DE_CADASTRO = "Não foi possível criar a conta agora. Tente de novo em instantes."
 
 
 @app.route("/api/register", methods=["POST"])
@@ -1064,11 +1127,13 @@ def api_register():
         "perfil_handle": handle if handle else username.lower()
     }
 
+    # O detalhe da falha vai para o log, nunca para a resposta: o cadastro é
+    # público, e a mensagem do psycopg2 traz host, porta e usuário do banco.
     try:
         conn = get_db()
     except Exception as exc:
         print(f"[DB] Falha ao conectar: {exc}")
-        return jsonify({"mensagem": f"Erro ao conectar ao banco: {exc}"}), 500
+        return jsonify({"mensagem": _ERRO_DE_CADASTRO}), 500
 
     try:
         conn.execute(
@@ -1098,10 +1163,10 @@ def api_register():
             return jsonify({"mensagem": "Este usuário já existe."}), 409
         except Exception as exc2:
             print(f"[DB] Falha após recriar schema: {exc2}")
-            return jsonify({"mensagem": f"Erro interno: {exc2}"}), 500
+            return jsonify({"mensagem": _ERRO_DE_CADASTRO}), 500
     except Exception as exc:
         print(f"[DB] Erro no registro: {exc}")
-        return jsonify({"mensagem": f"Erro interno: {exc}"}), 500
+        return jsonify({"mensagem": _ERRO_DE_CADASTRO}), 500
     finally:
         conn.close()
 
@@ -1261,6 +1326,32 @@ def _folders_to_json(rows):
     return result
 
 
+# O que a configuração de uma pasta aceita. Antes qualquer coisa era gravada:
+# uma lista no lugar do perfil ou um número no lugar das prioridades entrava no
+# banco e só estourava depois, na tela de pastas ou no worker.
+_PRIORIDADES_VALIDAS = {"tudo", "pessoas", "animais", "paisagens", "documentos"}
+_PERFIS_VALIDOS = {"fast", "deep"}
+_JANELA_HORARIO = re.compile(r"^([01]?\d|2[0-3]):[0-5]\d-([01]?\d|2[0-3]):[0-5]\d$")
+
+
+def _erro_config_pasta(data: dict) -> str | None:
+    """Confere os campos de configuração presentes no corpo. None = tudo certo."""
+    if "prioridades" in data:
+        prio = data["prioridades"]
+        if (not isinstance(prio, list) or not prio
+                or not all(isinstance(p, str) and p in _PRIORIDADES_VALIDAS for p in prio)):
+            return "Prioridades inválidas."
+    if "perfil_analise" in data:
+        perfil = data["perfil_analise"]
+        if not isinstance(perfil, str) or perfil not in _PERFIS_VALIDOS:
+            return "Perfil de análise inválido: use fast ou deep."
+    if "janela_processamento" in data:
+        janela = data["janela_processamento"]
+        if janela != "always" and not (isinstance(janela, str) and _JANELA_HORARIO.match(janela)):
+            return "Janela de processamento inválida: use always ou HH:MM-HH:MM."
+    return None
+
+
 @app.route("/api/folders", methods=["GET", "POST", "DELETE"])
 def api_folders():
     uid = _uid()
@@ -1277,6 +1368,9 @@ def api_folders():
 
         if not pasta or not os.path.isdir(pasta):
             return jsonify({"error": "Caminho inválido ou inexistente."}), 400
+        erro = _erro_config_pasta(data)
+        if erro:
+            return jsonify({"error": erro}), 400
 
         # Unifica separadores e resolve '..' antes de gravar — sem isso a mesma
         # pasta escrita de dois jeitos vira dois registros distintos.
@@ -1379,19 +1473,25 @@ def api_delete_folder_by_id(folder_id):
 @app.route("/api/folders/update_config", methods=["GET", "POST"])
 def api_update_folder_config():
     """Atualiza config de indexação (por ID ou Path)."""
-    print(f"[DEBUG] Recebido {request.method} em /api/folders/update_config")
     uid = _uid()
     if not uid:
         return jsonify({"error": "Não autenticado."}), 401
 
     if request.method == "GET":
         return jsonify({"status": "error", "message": "Use POST"}), 400
-        
+
     data = request.get_json(force=True) or {}
-    print(f"[DEBUG] Payload: {data}")
     folder_id = data.get("id")
     folder_path = data.get("path")
-    
+    if folder_id is not None:
+        try:
+            folder_id = int(folder_id)
+        except (TypeError, ValueError):
+            return jsonify({"error": "ID de pasta inválido."}), 400
+    erro = _erro_config_pasta(data)
+    if erro:
+        return jsonify({"error": erro}), 400
+
     sets, vals = [], []
     if "prioridades" in data:
         sets.append("prioridades = %s")
@@ -1485,36 +1585,42 @@ def api_serve_file(filepath):
     if not uid:
         return jsonify({"error": "Não autenticado."}), 401
 
-    # Flask decodifica %XX automaticamente; backslash (%5C) também
-    filepath = unquote(filepath)
-    filepath = os.path.normpath(filepath)
+    # Flask decodifica %XX automaticamente; backslash (%5C) também.
+    # realpath, e não normpath: um atalho dentro da pasta monitorada apontando
+    # para fora passaria pela comparação, porque o caminho *escrito* fica
+    # dentro. Mesma regra de /api/open_location.
+    filepath = os.path.realpath(unquote(filepath))
 
+    conn = get_db()
+    try:
+        pastas = [r["path"] for r in conn.execute(
+            "SELECT path FROM folders WHERE user_id = %s", (uid,)
+        ).fetchall()]
+    finally:
+        conn.close()
+
+    # Anti-path-traversal: o arquivo precisa estar dentro de UMA das pastas
+    # monitoradas do usuário (ex.: C:\Users\X\.ssh\id_rsa nunca sai). Vem antes
+    # do "existe?": na ordem inversa, 404 e 403 diziam a quem pedisse se um
+    # arquivo qualquer do disco existia.
+    if not _dentro_das_pastas(filepath, pastas):
+        return jsonify({"error": "Arquivo fora das pastas monitoradas."}), 403
     if not os.path.isfile(filepath):
         return jsonify({"error": "Arquivo não encontrado."}), 404
 
-    # Anti-path-traversal: o arquivo precisa estar dentro de UMA das pastas
-    # monitoradas do usuário. Sem isso, qualquer caminho do disco poderia
-    # ser servido (ex: C:\Users\X\.ssh\id_rsa).
-    abs_path = os.path.abspath(filepath)
-    conn = get_db()
-    pastas = conn.execute(
-        "SELECT path FROM folders WHERE user_id = %s", (uid,)
-    ).fetchall()
-    conn.close()
-
-    autorizado = False
-    for p in pastas:
-        pasta_abs = os.path.abspath(p["path"])
-        # Garante separador no fim para 'C:\foo' não casar com 'C:\foobar'
-        if abs_path.lower().startswith(pasta_abs.lower() + os.sep) or abs_path.lower() == pasta_abs.lower():
-            autorizado = True
-            break
-
-    if not autorizado:
-        return jsonify({"error": "Arquivo fora das pastas monitoradas."}), 403
-
     mime, _ = mimetypes.guess_type(filepath)
-    return send_file(filepath, mimetype=mime or "application/octet-stream")
+    resposta = send_file(filepath, mimetype=mime or "application/octet-stream")
+    # O conteúdo é do usuário, não do app: um .html ou .svg baixado da internet
+    # para a pasta monitorada, aberto em nova aba pelo botão "Abrir arquivo",
+    # rodaria script NESTA origem — com acesso à API e, por ela, ao disco.
+    # `sandbox` tira dele a origem e os scripts; `nosniff` impede o navegador de
+    # adivinhar um tipo diferente do declarado. O PDF fica de fora porque o
+    # leitor de PDF do navegador não abre em documento com sandbox — e o
+    # JavaScript de um PDF roda isolado no próprio leitor, não nesta página.
+    resposta.headers["X-Content-Type-Options"] = "nosniff"
+    if mime != "application/pdf":
+        resposta.headers["Content-Security-Policy"] = "sandbox"
+    return resposta
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -4160,10 +4266,18 @@ def _dentro_das_pastas(caminho: str, pastas_monitoradas) -> bool:
     Mesma regra anti-path-traversal de /api/file (RF-045, RNF-015).
 
     Exige o separador no fim para 'C:\\foo' não casar com 'C:\\foobar'.
+
+    Resolve links dos DOIS lados (realpath). Do lado do arquivo, é o que barra
+    o atalho que aponta para fora; do lado da pasta, é o que mantém
+    funcionando a pasta monitorada que é ela mesma um atalho (OneDrive,
+    junction) — resolvida só de um lado, nada dentro dela casaria.
+
+    O separador sai do fim antes de entrar de novo: com abspath, 'C:\\' virava
+    'c:\\\\' e uma unidade inteira monitorada não autorizava arquivo nenhum.
     """
-    alvo = os.path.abspath(caminho).lower()
+    alvo = os.path.realpath(caminho).lower()
     for p in pastas_monitoradas:
-        base = os.path.abspath(p).lower()
+        base = os.path.realpath(p).lower().rstrip("\\/")
         if alvo == base or alvo.startswith(base + os.sep):
             return True
     return False

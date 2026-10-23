@@ -94,6 +94,26 @@ def app_module():
     return app_importado
 
 
+@pytest.fixture(autouse=True)
+def _sem_abrir_o_explorer(monkeypatch):
+    """
+    O caminho feliz de /api/open_location e /api/open_folder chama o Explorer
+    de verdade: no Windows, cada rodada da suíte abria janelas na máquina de
+    quem testava. Só o `explorer` é interceptado — o resto do subprocess (o
+    mklink dos testes de junction, por exemplo) segue igual.
+    """
+    import subprocess
+
+    original = subprocess.Popen
+
+    def _popen(args, *resto, **opcoes):
+        if isinstance(args, (list, tuple)) and args and args[0] == "explorer":
+            return mock.MagicMock(name="explorer")
+        return original(args, *resto, **opcoes)
+
+    monkeypatch.setattr(subprocess, "Popen", _popen)
+
+
 @pytest.fixture()
 def flask_app(app_module):
     """A instância Flask em modo de teste."""

@@ -52,7 +52,21 @@ ALLOWED_ORIGINS=http://localhost:5173
 
 As portas de dev mais comuns (5173, 3000, 4200, 8080, 5500) já vêm liberadas por padrão — só mexa nessa variável se usar outra.
 
+A origem `null` **não** é aceita: é a que o navegador manda de página aberta por `file://` e de iframe com sandbox — que qualquer site cria —, e liberá-la com credenciais entregaria a API a qualquer um. Abrir o `index.html` direto do disco não funciona; sirva pelo backend ou por um dev server.
+
 ⚠️ **Cookies cross-origin exigem HTTPS.** Veja [Autenticação](#autenticação).
+
+### Por qual endereço o servidor aceita ser chamado
+
+O backend só atende pedidos cujo cabeçalho `Host` seja um nome local — `127.0.0.1`, `localhost` ou `[::1]`, em qualquer porta. Fora disso responde `400` com `error`. É a defesa contra **DNS rebinding**: o truque em que um site faz o próprio domínio passar a apontar para `127.0.0.1` e, da página dele, conversa com o servidor local como se fosse a mesma origem — o bastante para criar uma conta, cadastrar `C:\Users` como pasta e ler arquivos por `/api/file`.
+
+Proxy de dev server (Vite, CRA) costuma repassar `Host: localhost:5173` e passa sem configuração. Se o front chamar o backend por outro nome (um domínio próprio, um nome no arquivo `hosts`), libere-o em `backend/.env`:
+
+```ini
+ALLOWED_HOSTS=searchplus.exemplo.com
+```
+
+No mock, a mesma variável vale como variável de ambiente.
 
 ### Entregando o front pronto
 
@@ -108,12 +122,13 @@ O detalhe que costuma custar meia manhã de debug: `localhost:5173` e `localhost
 | Status | Quando |
 |---|---|
 | `200` | Sucesso |
-| `400` | Payload inválido ou campo obrigatório faltando |
+| `400` | Payload inválido, campo obrigatório faltando, ou `Host` fora dos [nomes permitidos](#por-qual-endereço-o-servidor-aceita-ser-chamado) |
 | `401` | Sem sessão ativa |
 | `403` | Arquivo fora das pastas monitoradas |
 | `404` | Recurso não encontrado |
 | `409` | Conflito (usuário ou coleção já existe) |
-| `503` | Schema restaurado; a resposta traz `"retry": true` — vale repetir a chamada |
+| `413` | Corpo acima de 64 MB — `{"error": "..."}` |
+| `503` | Schema restaurado (`"retry": true` — vale repetir a chamada), ou modelos de busca ainda carregando (`"carregando": true`) |
 
 **Sucesso** normalmente traz `{"status": "ok"}`, às vezes com dados extras.
 
@@ -274,7 +289,11 @@ Mantenha um rótulo de fallback: se o backend ganhar uma categoria nova, ela che
 ```json
 { "username": "demo", "handle": "demo", "password": "123" }
 ```
-→ `200` `{"status": "ok"}` · `400` campo vazio ou senha acima de 72 bytes · `409` usuário já existe
+→ `200` `{"status": "ok"}` · `400` campo vazio ou senha acima de 72 bytes · `409` usuário já existe · `500` falha no banco, com mensagem genérica
+
+A mensagem do `500` é sempre a mesma, de propósito: o cadastro é público, e a
+exceção do driver do Postgres traria host, porta e usuário do banco para quem
+pedisse. O detalhe fica no log do servidor.
 
 A senha é limitada a **72 bytes** (limite do bcrypt). Conte em bytes, não em
 caracteres: em UTF-8 cada letra acentuada ocupa 2, então "çã" × 40 já estoura.
@@ -303,7 +322,7 @@ Devolve as preferências **e** as pastas monitoradas. Funciona sem login (retorn
   "perfil_handle": "demo",
   "perfil_bio": "", "perfil_cargo": "", "perfil_local": "",
   "perfil_avatar": "", "perfil_banner": "",
-  "cor_primaria": "#A855F7", "cor_secundaria": "#E879F9", "cor_texto_botao": "#FFFFFF",
+  "cor_primaria": "#AB5AF7", "cor_secundaria": "#E879F9", "cor_texto_botao": "#FFFFFF",
   "tema": "dark",
   "bg_url": "", "bg_blur": 15,
   "idioma": "pt-BR",
@@ -358,7 +377,16 @@ Salva preferências. **Merge parcial** — envie só os campos que mudaram; os d
   "janela_processamento": "always"
 }
 ```
-→ `200` `{"status": "ok", "pastas": [...]}` · `400` caminho inexistente
+→ `200` `{"status": "ok", "pastas": [...]}` · `400` caminho inexistente ou configuração fora do formato
+
+| Campo | Aceita |
+|---|---|
+| `prioridades` | lista não vazia com `tudo`, `pessoas`, `animais`, `paisagens`, `documentos` |
+| `perfil_analise` | `fast` ou `deep` |
+| `janela_processamento` | `always` ou `HH:MM-HH:MM` (ex.: `22:00-06:00`, atravessando a meia-noite) |
+
+Fora disso a resposta é `400` com `error` dizendo qual campo. Antes qualquer
+valor era gravado e só estourava depois, na tela de pastas ou no worker.
 
 **A indexação não começa aqui** — só registra a pasta. Dispare com `POST /api/analyze_folders` depois que o usuário confirmar.
 
@@ -416,7 +444,9 @@ Erros:
 ```json
 { "id": 1, "perfil_analise": "deep" }
 ```
-Aceita `id` **ou** `path` para identificar a pasta. Campos alteráveis: `prioridades`, `perfil_analise` (`fast`/`deep`), `janela_processamento`.
+Aceita `id` **ou** `path` para identificar a pasta. Campos alteráveis: `prioridades`, `perfil_analise` (`fast`/`deep`), `janela_processamento` — com o mesmo formato do `POST /api/folders`.
+
+→ `200` `{"status": "ok", "pastas": [...]}` · `400` `id` que não é número, campo fora do formato, nenhum campo enviado, ou sem `id` nem `path`
 
 ### Lixeira
 
@@ -540,9 +570,9 @@ O endpoint principal.
 
 Máximo de 60 resultados. Já vêm ordenados por `score` decrescente; itens com score ≤ 0.25 são cortados.
 
-Se a busca semântica estiver indisponível, a resposta ainda é `200`, mas com um campo `erro`:
+Se o modelo de texto não estiver pronto, a resposta é `503` com `resultados` vazio e um campo `erro` já escrito para a pessoa ler. Com `"carregando": true`, o programa acabou de abrir e vale tentar de novo em instantes; sem ele, o modelo não subiu e esperar não resolve — veja [`GET /api/health`](#get-apihealth).
 ```json
-{ "resultados": [], "tempo": 0, "erro": "SBERT indisponível — busca semântica desligada." }
+{ "resultados": [], "tempo": 0, "carregando": true, "erro": "Ainda estou preparando a busca..." }
 ```
 
 > ⏱️ **Latência:** de 1 a 8 segundos na API real. A busca é síncrona e pode chamar o modelo de IA duas vezes (descrever imagens novas + reordenar). **Projete um estado de carregamento decente** — não é uma chamada de 200ms. O mock simula ~250ms.
@@ -1035,8 +1065,8 @@ pelo endpoint de status. Erros **fatais** (nada é copiado) vêm aqui:
 - `404` coleção não encontrada
 - `409` já existe uma exportação em andamento para essa coleção
 
-Nunca sobrescreve: se a pasta já existir, cria `Nome (1)`; se um arquivo
-colidir, salva como `foto_1.jpg`.
+Nunca sobrescreve: se a pasta já existir, cria `Nome_2` (veja **Nomeação**
+acima); se um arquivo colidir, salva como `foto_1.jpg`.
 
 #### `GET /api/collections/export/<job_id>`
 
@@ -1109,9 +1139,11 @@ O caminho é absoluto e do Windows — precisa ser encodado:
 const url = `/api/file/${encodeURIComponent(arquivo.caminho)}`;
 ```
 
-→ binário com o `Content-Type` correto · `401` · `403` fora das pastas monitoradas · `404`
+→ binário com o `Content-Type` correto · `401` · `403` fora das pastas monitoradas · `404` dentro delas, mas o arquivo não existe
 
-O `403` é proposital: só arquivos dentro das pastas monitoradas do próprio usuário são servidos.
+O `403` é proposital: só arquivos dentro das pastas monitoradas do próprio usuário são servidos. A autorização vem **antes** da existência — na ordem inversa, `404` e `403` diziam a quem pedisse se um arquivo qualquer do disco existia. A comparação resolve links (`realpath`), como em `/api/open_location`: um atalho dentro da pasta apontando para fora é `403`.
+
+Todo arquivo sai com `X-Content-Type-Options: nosniff` e, menos o PDF, com `Content-Security-Policy: sandbox`. O conteúdo é do usuário, não do app: um `.html` ou `.svg` que chegou à pasta monitorada por download, aberto em nova aba, rodaria script **nesta** origem — com acesso à API e, por ela, ao disco. O sandbox não afeta `<img>`, `<video>` nem `fetch`. O PDF fica de fora porque o leitor de PDF do navegador não abre em documento com sandbox, e o JavaScript de um PDF roda isolado no próprio leitor.
 
 #### `GET /api/open_location?path=<caminho>`
 

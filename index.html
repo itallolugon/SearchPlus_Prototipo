@@ -4,7 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Search+</title>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet">
+    <!-- Ícone da aba embutido: sem ele o navegador pedia /favicon.ico, que não
+         existe, e cada abertura deixava um 404 no console. -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2311151F'/%3E%3Cpath d='M16 8v16M8 16h16' stroke='%23A2B5CB' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E">
+    <!-- integrity: o cropper vem de CDN. Se o arquivo mudar lá, o navegador se
+         recusa a carregá-lo — em vez de rodar, na origem do app, um script
+         capaz de ler os arquivos locais pela API. -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css" rel="stylesheet"
+          integrity="sha384-oMy41mb/qJnpJlpXOF57hSu2KGi47l/UV9+tPNrBOs7/ap5Vubj/3phrCtjutHMQ"
+          crossorigin="anonymous" referrerpolicy="no-referrer">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&family=Inter:wght@400;600;700&family=Poppins:wght@400;600;700&family=Montserrat:wght@400;600;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css?v=2026_remodel">
 </head>
@@ -1509,7 +1517,9 @@
         </div>
     </div>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"
+            integrity="sha384-r+ljwOAhwY4/kdyzMnuBg7MEVoWpTMp5EYUDntB/E9qzNwL9dAEcNrb2XaV+mJc2"
+            crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script src="script.js?v=2026_remodel"></script>
     <script src="theme-wave.js?v=2"></script>
     <script src="lab.js?v=1"></script>
